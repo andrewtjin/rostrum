@@ -1,0 +1,209 @@
+// Domain model for Rostrum's invisibility engine.
+//
+// Everything here is host-agnostic: no Office.js, no React. The engine reasons
+// about paragraphs as (normalized heading level + OOXML string); the only thing
+// that ever touches Word is a `WordPort` implementation (see officeWordPort.ts,
+// Stage 2). Keeping the contract narrow is what makes the whole engine unit
+// testable against a fake port.
+
+/**
+ * Track-changes state, mirroring `Word.ChangeTrackingMode`. We gate Hide when
+ * this is anything other than "Off" (decision #14) so tracked-revision noise
+ * can't strand a document mid-hide.
+ */
+export type TrackChangesMode = "Off" | "TrackAll" | "TrackMineOnly";
+
+/**
+ * A single body paragraph as handed to the pure engine by a WordPort.
+ *
+ * `headingLevel` is the engine's canonical, 0-based outline level: 0 = Heading 1
+ * ... 8 = Heading 9, and `null` for body text / no outline level. The adapter is
+ * responsible for converting Word's `Paragraph.outlineLevel` into this canonical
+ * form (the raw Office.js value's base is host-version dependent — see
+ * officeWordPort.ts), so the keeper rule here stays unambiguous.
+ *
+ * `ooxml` is the OOXML for *this paragraph only* — what `paragraph.getRange()
+ * .getOoxml()` returns (a flat-OPC package wrapping one `<w:p>`). The engine
+ * never assumes more than one `<w:p>` of interest in the string.
+ */
+export interface RawParagraph {
+  /** Stable position of this paragraph in the body, used to write changes back. */
+  index: number;
+  /** Canonical 0-based outline level (0 = H1 … 8 = H9), or null for body text. */
+  headingLevel: number | null;
+  /** True if the paragraph lives inside a table cell (kept untouched, decision #16). */
+  inTable: boolean;
+  /** OOXML for this paragraph (flat-OPC package or bare `<w:p>` fragment). */
+  ooxml: string;
+}
+
+/**
+ * What the classifier decided to do with a paragraph. The adapter uses this to pick
+ * the cheapest faithful write (Stage 4 perf): a whole-paragraph NATIVE `font.hidden`
+ * toggle for `keepWhole`/`hideWhole` (no OOXML parse or reflow), and an OOXML replace
+ * only for `hidePartial`, which needs sub-run targeting Office.js can't do natively.
+ */
+export type ParagraphAction = "keepWhole" | "hidePartial" | "hideWhole";
+
+/**
+ * A paragraph the engine wants Word to update. Always carries the new `ooxml` (used by
+ * the whole-body perf path and the `hidePartial` case). `action` is OPTIONAL: when set,
+ * the safe per-paragraph adapter path may apply a native `font.hidden` toggle for whole-
+ * paragraph cases instead of an expensive `insertOoxml`; when absent it falls back to the
+ * OOXML replace (so every pre-Stage-4 caller keeps its exact behavior).
+ */
+export interface ParagraphUpdate {
+  index: number;
+  action?: ParagraphAction;
+  ooxml: string;
+}
+
+/**
+ * A lightweight, read-only view of one OOXML run (`<w:r>`), produced by ooxml.ts.
+ * The engine never manipulates runs directly — it decides keep/hide per run and
+ * hands the flags back to ooxml.ts, which edits the XML.
+ */
+export interface RunView {
+  /** Index among the paragraph's runs, in document order (matches apply order). */
+  index: number;
+  /** Visible text (w:t joined; w:tab -> "\t"; w:br/w:cr -> "\n"). */
+  text: string;
+  /** Lower-cased `w:highlight` value, or null when absent / "none". */
+  highlight: string | null;
+  /** True when the run carries the cite character style (`w:rStyle` == CITE_STYLE_ID). */
+  citeStyled: boolean;
+  /** True when the run currently has `<w:vanish/>` (already hidden). */
+  hidden: boolean;
+  /**
+   * False for runs we must never hide (fields, footnote/endnote refs, drawings,
+   * embedded objects). Conservative over-keep per decision #16.
+   */
+  eligible: boolean;
+}
+
+/**
+ * An instruction to expose ONE already-present space inside an otherwise-hidden
+ * run, so two kept chunks separated by hidden prose don't fuse in the condensed
+ * view (e.g. "radiation" + hidden " are a constant threat, " + "would" must read
+ * "radiation would", not "radiationwould" — wet-test bug 1).
+ *
+ * The space is MOVED (not inserted) so the paragraph's concatenated text stays
+ * byte-identical, keeping native Font-dialog reversal (and Show All) perfectly
+ * lossless: a recipient without the add-in gets the exact original back, with no
+ * fabricated spaces. "lead"/"trail" move the run's first/last space into a visible
+ * sibling. "interior" handles a hidden run whose only spaces are interior (e.g.
+ * ", such as scorpions." — starts "," and ends ".") by splitting it in three —
+ * [before](hidden) [space](visible) [after](hidden) — at `offset`, the chosen
+ * space's character index (wet-test bug 2 follow-up). With show-only-highlighted both
+ * fragments stay hidden wherever we split, and Re-hide rescues the exposed space as a
+ * whitespace-only run, so the split is idempotent.
+ */
+export interface BridgeSplit {
+  /** Index (in readRuns order) of the hidden run to split. */
+  index: number;
+  /** Which space to expose: the run's leading, trailing, or an interior one. */
+  side: "lead" | "trail" | "interior";
+  /** For `side: "interior"`: character index (in the run's text) of the space to expose. */
+  offset?: number;
+}
+
+/** Manifest persisted as a document-level custom XML part (decisions #10, #13, #15). */
+export interface RostrumManifest {
+  /** Whether invisibility is currently ON for this document. */
+  active: boolean;
+  /** Highlight colors that count as "keep". Stored so any machine re-derives identically. */
+  keepColors: string[];
+  /** Manifest schema version, for forward migration. */
+  schemaVersion: number;
+}
+
+/** Fully-resolved settings the engine actually runs with. */
+export interface ResolvedSettings {
+  /** Highlight color names (lower-cased) that mean "keep this run". */
+  keepColors: ReadonlySet<string>;
+}
+
+/** Per-device defaults cached in localStorage (labeled per-device, NOT roaming — decision #15). */
+export interface DeviceDefaults {
+  keepColors: string[];
+}
+
+/** Result of a hide / re-hide pass, surfaced to the task pane and asserted in tests. */
+export interface HideResult {
+  paragraphsScanned: number;
+  paragraphsChanged: number;
+  /** Paragraphs left unchanged because their OOXML failed to parse (the UI warns). */
+  paragraphsSkipped: number;
+  /** True when Track Changes was auto-toggled off for the operation and restored. */
+  trackChangesToggled: boolean;
+}
+
+/** Result of a show-all pass. */
+export interface ShowAllResult {
+  paragraphsScanned: number;
+  paragraphsChanged: number;
+  /** Paragraphs left unchanged because their OOXML failed to parse. */
+  paragraphsSkipped: number;
+}
+
+/** Options shared by the mutating orchestrators. */
+export interface HideOptions {
+  /**
+   * When Track Changes is ON: if true, toggle it Off for the operation and
+   * restore afterward; if false (default), throw TrackChangesActiveError so the
+   * UI can prompt first (decision #14).
+   */
+  autoToggleTrackChanges?: boolean;
+}
+
+/** Which optional capabilities the current host advertises (decision #18). */
+export interface FeatureSupport {
+  /** font.hidden / <w:vanish/> — WordApiDesktop 1.2. Hard requirement. */
+  canHide: boolean;
+  /** customXmlParts — WordApi 1.4. Hard requirement (manifest store). */
+  canCustomXml: boolean;
+  /** changeTrackingMode read/write — WordApi 1.4. */
+  canChangeTracking: boolean;
+  /** Style.borders — WordApiDesktop 1.1 (pocket box, Stage 2). */
+  canStyleBorders: boolean;
+  /** Style.font / Style.paragraphFormat — WordApi 1.5 (Apply-styles sizes, Stage 2). */
+  canStyleFormat: boolean;
+  /**
+   * document.getStyles() — WordApi 1.5. Required to enumerate and edit the built-in
+   * heading + cite styles for "Apply Rostrum styles" (Stage 2). This is the async
+   * getStyles() METHOD (WordApi 1.5), NOT the synchronous Document.styles property
+   * (WordApiDesktop 1.4); Rostrum calls the former, so the floor is WordApi 1.5 —
+   * the same set as canStyleFormat, but kept a distinct flag for clarity.
+   */
+  canGetStyles: boolean;
+}
+
+/**
+ * The single seam between the pure engine and Word. A real implementation
+ * (officeWordPort.ts) wraps `Word.run`; tests supply an in-memory fake.
+ */
+export interface WordPort {
+  /** Read the document's current change-tracking mode. */
+  getChangeTrackingMode(): Promise<TrackChangesMode>;
+  /** Set the document's change-tracking mode. */
+  setChangeTrackingMode(mode: TrackChangesMode): Promise<void>;
+  /** Enumerate body-story paragraphs (footnotes/headers/etc. excluded — decision #16). */
+  readParagraphs(): Promise<RawParagraph[]>;
+  /** Replace the OOXML of the given paragraphs (batched + synced by the adapter). */
+  writeParagraphs(updates: ParagraphUpdate[]): Promise<void>;
+  /**
+   * Reveal ALL hidden text in the body story by clearing `font.hidden` natively — the
+   * fast Show All path (Stage 4). NO OOXML read or write: one or two host round-trips
+   * instead of thousands of `insertOoxml` reflows. Behavior-identical to the old
+   * per-paragraph makeAllVisible pass (it reveals the same set, including any run the
+   * user hid manually — decision #10) and convergent (safe to re-run from any state).
+   * Returns how many body paragraphs were in scope and how many it changed.
+   */
+  clearHidden(): Promise<{ paragraphsScanned: number; paragraphsChanged: number }>;
+  /** Return the Rostrum manifest XML, or null when the document has none. */
+  readManifest(): Promise<string | null>;
+  /** Create or overwrite the Rostrum manifest custom XML part. */
+  writeManifest(xml: string): Promise<void>;
+  /** Remove the Rostrum manifest custom XML part (no-op when absent). */
+  clearManifest(): Promise<void>;
+}

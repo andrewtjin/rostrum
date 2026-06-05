@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Rostrum — Invisibility Mode add-in manifest.
+
+  Desktop-only v1. The hide engine relies on font-hidden / <w:vanish/> which is
+  WordApiDesktop 1.2, so the <Requirements> floor below hard-blocks load on Word
+  for the web and Office 2016-2021 perpetual (which lack that set). Stage 2 wires
+  the SourceLocation / icon URLs to the dev server; the GUID is a placeholder to
+  be regenerated per environment before sideloading.
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+
+  <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
+  <!-- Bumped to 1.0.0.1 so Office treats the manifest as UPDATED and re-registers the ribbon
+       (the custom Rostrum tab). A web-asset reload does NOT refresh ribbon structure; Office caches
+       the registered manifest by Id+Version, so a version bump + full re-sideload is required. -->
+  <Version>1.0.0.1</Version>
+  <ProviderName>Rostrum</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Rostrum" />
+  <Description DefaultValue="Invisibility Mode: hide debate-card body text while keeping headings, cites, analytics, and highlighted runs. Natively reversible." />
+  <!--
+    Top-level catalog icon. REQUIRED by the validator/AppSource (separate from the
+    ribbon icons in VersionOverrides ▸ Resources, which only cover the in-app command
+    surface). IconUrl is the 32px standard tile, HighResolutionIconUrl the hi-DPI 80px.
+    Same dev-server origin as SourceLocation; swap to the prod CDN before submission.
+  -->
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
+  <SupportUrl DefaultValue="https://example.com/rostrum/support" />
+
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+
+  <!--
+    Floor (hard requirements; the add-in won't load without ALL of these):
+      * WordApiDesktop 1.2 — font.hidden / <w:vanish/>, the hide mechanism (desktop-only).
+      * WordApi 1.4 — customXmlParts (the manifest store) + changeTrackingMode (the TC
+        gate). Both are load-bearing, so they belong in the floor, not just runtime
+        feature-detection. (WordApi 1.4 also implies 1.3, which is what makes table
+        paragraphs appear in body.paragraphs so they're classified + kept.)
+    Higher capabilities (Style.borders 1.1, getStyles desktop 1.4, ParagraphFormat
+    .outlineLevel / Style.font 1.5) are runtime-detected and degrade gracefully.
+  -->
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApiDesktop" MinVersion="1.2" />
+      <Set Name="WordApi" MinVersion="1.4" />
+    </Sets>
+  </Requirements>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="Rostrum.GetStarted.Title" />
+            <Description resid="Rostrum.GetStarted.Description" />
+            <LearnMoreUrl resid="Rostrum.GetStarted.LearnMoreUrl" />
+          </GetStarted>
+          <FunctionFile resid="Rostrum.Commands.Url" />
+
+          <!--
+            A dedicated Rostrum RIBBON TAB (Stage 5) is the PRIMARY command surface: it exposes every
+            action (Hide / Re-hide / Show All / Apply styles / open pane) WITHOUT opening the task
+            pane, so the pane never has to cut into the document reading space in-round. The pane stays
+            an on-demand surface (the "Rostrum pane" button) for keep-color/mode settings + diagnostics.
+          -->
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <CustomTab id="Rostrum.Tab">
+              <Group id="Rostrum.Group">
+                <Label resid="Rostrum.Group.Label" />
+                <Icon>
+                  <bt:Image size="16" resid="Rostrum.Icon.16" />
+                  <bt:Image size="32" resid="Rostrum.Icon.32" />
+                  <bt:Image size="80" resid="Rostrum.Icon.80" />
+                </Icon>
+
+                <!-- Hide (runs the ribbon command without opening the pane) -->
+                <Control xsi:type="Button" id="Rostrum.Hide">
+                  <Label resid="Rostrum.Hide.Label" />
+                  <Supertip>
+                    <Title resid="Rostrum.Hide.Label" />
+                    <Description resid="Rostrum.Hide.Tip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>hide</FunctionName>
+                  </Action>
+                </Control>
+
+                <!-- Re-hide -->
+                <Control xsi:type="Button" id="Rostrum.ReHide">
+                  <Label resid="Rostrum.ReHide.Label" />
+                  <Supertip>
+                    <Title resid="Rostrum.ReHide.Label" />
+                    <Description resid="Rostrum.ReHide.Tip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>reHide</FunctionName>
+                  </Action>
+                </Control>
+
+                <!-- Show All (always-visible reverse) -->
+                <Control xsi:type="Button" id="Rostrum.ShowAll">
+                  <Label resid="Rostrum.ShowAll.Label" />
+                  <Supertip>
+                    <Title resid="Rostrum.ShowAll.Label" />
+                    <Description resid="Rostrum.ShowAll.Tip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>showAll</FunctionName>
+                  </Action>
+                </Control>
+
+                <!-- Open task pane -->
+                <Control xsi:type="Button" id="Rostrum.OpenPane">
+                  <Label resid="Rostrum.OpenPane.Label" />
+                  <Supertip>
+                    <Title resid="Rostrum.OpenPane.Label" />
+                    <Description resid="Rostrum.OpenPane.Tip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>ButtonId1</TaskpaneId>
+                    <SourceLocation resid="Rostrum.Taskpane.Url" />
+                  </Action>
+                </Control>
+
+                <!-- Apply Rostrum styles (heading/cite sizes + pocket box; reflows the doc) -->
+                <Control xsi:type="Button" id="Rostrum.ApplyStyles">
+                  <Label resid="Rostrum.ApplyStyles.Label" />
+                  <Supertip>
+                    <Title resid="Rostrum.ApplyStyles.Label" />
+                    <Description resid="Rostrum.ApplyStyles.Tip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>applyStyles</FunctionName>
+                  </Action>
+                </Control>
+              </Group>
+              <Label resid="Rostrum.Tab.Label" />
+            </CustomTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Rostrum.Icon.16" DefaultValue="https://localhost:3000/assets/icon-16.png" />
+        <bt:Image id="Rostrum.Icon.32" DefaultValue="https://localhost:3000/assets/icon-32.png" />
+        <bt:Image id="Rostrum.Icon.80" DefaultValue="https://localhost:3000/assets/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Rostrum.Commands.Url" DefaultValue="https://localhost:3000/commands.html" />
+        <bt:Url id="Rostrum.Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />
+        <bt:Url id="Rostrum.GetStarted.LearnMoreUrl" DefaultValue="https://example.com/rostrum" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="Rostrum.GetStarted.Title" DefaultValue="Rostrum is ready." />
+        <bt:String id="Rostrum.Tab.Label" DefaultValue="Rostrum" />
+        <bt:String id="Rostrum.Group.Label" DefaultValue="Invisibility" />
+        <bt:String id="Rostrum.Hide.Label" DefaultValue="Hide" />
+        <bt:String id="Rostrum.ReHide.Label" DefaultValue="Re-hide" />
+        <bt:String id="Rostrum.ShowAll.Label" DefaultValue="Show All" />
+        <bt:String id="Rostrum.ApplyStyles.Label" DefaultValue="Apply styles" />
+        <bt:String id="Rostrum.OpenPane.Label" DefaultValue="Rostrum pane" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="Rostrum.GetStarted.Description" DefaultValue="Use Hide to collapse card bodies; Show All to reverse." />
+        <bt:String id="Rostrum.Hide.Tip" DefaultValue="Hide all non-keeper body text (cards), keeping headings, cites, analytics, and highlighted runs." />
+        <bt:String id="Rostrum.ReHide.Tip" DefaultValue="Re-derive over the whole document and hide any newly typed or pasted non-keeper text." />
+        <bt:String id="Rostrum.ShowAll.Tip" DefaultValue="Reveal everything Rostrum hid. Convergent — safe to run from any state." />
+        <bt:String id="Rostrum.ApplyStyles.Tip" DefaultValue="Apply Rostrum heading/cite sizes and the pocket box. Reflows the document; needs desktop Word 1.5+." />
+        <bt:String id="Rostrum.OpenPane.Tip" DefaultValue="Open the Rostrum task pane for keep-color settings, modes, and diagnostics." />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

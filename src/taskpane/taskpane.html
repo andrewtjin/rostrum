@@ -1,0 +1,97 @@
+<!doctype html>
+<!--
+  Rostrum task pane host page. office.js is loaded first (it defines the `Office`
+  global the bundle's `Office.onReady()` awaits); html-webpack-plugin injects the
+  compiled taskpane.js after this template. Styles are inlined here so the build
+  needs no CSS loader — the pane is small and self-contained.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rostrum — Invisibility Mode</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+      :root {
+        --r-fg: #1b1b1b;
+        --r-muted: #666;
+        --r-accent: #2b579a; /* Word blue */
+        --r-bg: #faf9f8;
+        --r-border: #e1dfdd;
+        --r-ok: #107c10;
+        --r-warn: #797673;
+        --r-err: #a4262c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 14px;
+        color: var(--r-fg);
+        background: var(--r-bg);
+      }
+      .r-app { padding: 12px; }
+      .r-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+      .r-header h1 { font-size: 18px; margin: 0; color: var(--r-accent); }
+      .r-subtitle { color: var(--r-muted); font-size: 12px; }
+      .r-loading, .r-unsupported { padding: 16px; }
+
+      .r-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+      .r-btn {
+        border: 1px solid var(--r-border); background: #fff; color: var(--r-fg);
+        padding: 7px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      }
+      .r-btn:hover:not(:disabled) { border-color: var(--r-accent); }
+      .r-btn:disabled { opacity: 0.5; cursor: default; }
+      .r-btn--primary { background: var(--r-accent); color: #fff; border-color: var(--r-accent); }
+      .r-btn--ghost { background: transparent; }
+
+      .r-status { margin-bottom: 10px; }
+      .r-chips { display: flex; gap: 6px; margin-bottom: 6px; }
+      .r-chip {
+        font-size: 11px; padding: 2px 8px; border-radius: 10px;
+        background: #eee; color: var(--r-muted);
+      }
+      .r-chip--on { background: #dff6dd; color: var(--r-ok); }
+      .r-progress { position: relative; height: 18px; background: #eee; border-radius: 3px; overflow: hidden; }
+      .r-progress__bar { height: 100%; background: var(--r-accent); transition: width 0.15s; }
+      .r-progress__label { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 18px; }
+      .r-banner { margin-top: 6px; padding: 7px 10px; border-radius: 4px; font-size: 13px; }
+      .r-banner--ok { background: #dff6dd; color: var(--r-ok); }
+      .r-banner--info { background: #eef4fc; color: var(--r-accent); }
+      .r-banner--warn { background: #fff4ce; color: #6b5900; }
+      .r-banner--error { background: #fde7e9; color: var(--r-err); }
+      .r-note { font-size: 11px; color: var(--r-muted); margin: 6px 0 0; }
+
+      .r-section { border: 1px solid var(--r-border); border-radius: 4px; padding: 8px; margin-bottom: 8px; background: #fff; }
+      .r-section > summary { cursor: pointer; font-weight: 600; }
+      .r-hint { font-size: 12px; color: var(--r-muted); }
+      .r-colorgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+      .r-color { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+      .r-swatch { width: 12px; height: 12px; border: 1px solid #aaa; display: inline-block; }
+      .r-live { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 8px; }
+
+      .r-diag__controls { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+      .r-matrix { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 6px; }
+      .r-matrix td { border-bottom: 1px solid var(--r-border); padding: 2px 4px; }
+      .r-yes { color: var(--r-ok); } .r-no { color: var(--r-err); }
+      .r-log {
+        max-height: 220px; overflow: auto; background: #1e1e1e; color: #d4d4d4;
+        border-radius: 4px; padding: 6px; font-size: 11px; font-family: Consolas, monospace;
+      }
+      .r-log__row { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+      .r-log__row--warn code { color: #dcdcaa; }
+      .r-log__row--error code { color: #f48771; }
+      .r-log__data { display: block; color: #9cdcfe; opacity: 0.8; }
+      .r-log__empty { color: #888; }
+
+      .r-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; }
+      .r-modal__card { background: #fff; border-radius: 6px; padding: 16px; max-width: 320px; }
+      .r-modal__card h3 { margin-top: 0; }
+      .r-modal__actions { display: flex; gap: 8px; justify-content: flex-end; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

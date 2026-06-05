@@ -1,0 +1,23 @@
+# Dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# Office add-in sideload / dev-cert scratch
+.office-addin-debugging/
+
+# Agent / knowledge-graph tooling scratch (generated; never ship)
+.claude-flow/
+.swarm/
+.roo/
+.claude/
+graphify-out/
+.graphify_python
