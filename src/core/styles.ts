@@ -15,6 +15,18 @@
 export const CITE_STYLE_ID = "Style13ptBold";
 
 /**
+ * Character-style id stamped on a **condense break marker** run — the run Condense inserts at
+ * each former paragraph boundary when it merges N `<w:p>` into one. It is the condense analogue of
+ * `CITE_STYLE_ID`: an unambiguous, copy/paste-safe signal carried in the run's own `<w:rStyle>` that
+ * survives round-trips, so `Uncondense` can find every boundary by `rStyle == CONDENSE_MARK_STYLE`
+ * (mirroring how cites are detected) rather than by fragile bookmarks or a document-global sidecar.
+ * A divergent following-paragraph `<w:pPr>` is stored as the (vanished) marker run's own text payload,
+ * so each merged paragraph stays fully self-describing and reversible. The id is namespaced so it can
+ * never collide with a debater's own character style.
+ */
+export const CONDENSE_MARK_STYLE = "RostrumCondenseBreak";
+
+/**
  * A paragraph is kept by the heading rule iff its canonical 0-based outline level
  * is in [0, 3] — i.e. Heading 1–4 and any derived style at those levels, which is
  * how the template's navy "Analytics" style (outlineLvl 3) survives Hide

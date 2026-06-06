@@ -42,7 +42,11 @@ export const manifestConfig: ManifestConfig = {
   // the ribbon by Id+Version, so only a Version change drops a removed group on re-sideload. (Earlier
   // builds were mis-numbered 1.x; correcting DOWN to 0.x is a one-time WEF cache clear before the next
   // re-sideload, since Office won't treat a lower version as an update.)
-  version: "0.1.0.0",
+  // 0.2.0 = the SECOND tool wired (Condense & Shrink), per the project's feature-milestone versioning
+  // (MINOR digit climbs as the suite fills in toward the 1.0.0 full-suite milestone — see LESSONS). The
+  // 4th digit re-registers the ribbon within a product version; bumping the MINOR already forces Office
+  // to re-read the new "Condense" group on re-sideload, so the revision stays 0.
+  version: "0.2.0.0",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",

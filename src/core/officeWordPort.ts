@@ -44,6 +44,8 @@
 
 import {
   ParagraphUpdate,
+  RangeRead,
+  RangeScopedPort,
   RawParagraph,
   TrackChangesMode,
   WordPort
@@ -228,7 +230,7 @@ type ManifestAction = { kind: "set"; xml: string } | { kind: "delete" } | { kind
 // The adapter
 // ---------------------------------------------------------------------------
 
-class OfficeWordPort implements CiteRepairCapablePort {
+class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private readonly run: WordRunner;
   private readonly strategy: CommitStrategy;
   /** Avenue ⑦ — read+commit the whole body with no proxies/alignment (the default Hide path). */
@@ -622,6 +624,90 @@ class OfficeWordPort implements CiteRepairCapablePort {
     } catch (e) {
       span.fail(e);
       throw clarify(e, "reveal hidden text");
+    }
+  }
+
+  // ----- Range-scoped read/replace (Condense & Shrink) ----------------------
+
+  /**
+   * Read the active selection — or the CURRENT PARAGRAPH when the selection is collapsed (an insertion
+   * point) — as ONE OOXML fragment, plus each paragraph's canonical outline level (for Shrink's heading
+   * refusal). This is the second document-access seam, parallel to the whole-body `readParagraphs`: it
+   * never asserts a single `<w:p>` because Condense legitimately operates on (and produces) many.
+   *
+   * Collapsed detection uses `Range.text === ""` (a collapsed range has no text). All proxies live
+   * within ONE `Word.run`, so re-fetching the selection in `replaceActiveRangeOoxml` is safe — the
+   * controller does read → pure transform → write with no UI yield, so the selection can't shift.
+   */
+  async readActiveRangeOoxml(): Promise<RangeRead> {
+    const op = this.log.child("rangeRead");
+    const span = op.span("readActiveRangeOoxml");
+    try {
+      const result = await this.run(async (ctx) => {
+        const sel = ctx.document.getSelection();
+        sel.load("text");
+        const selParas = sel.paragraphs;
+        selParas.load("items");
+        await ctx.sync(); // sync 1: selection text + its paragraphs
+
+        const collapsed = (typeof sel.text === "string" ? sel.text : "") === "";
+        // Collapsed → operate on the paragraph the cursor sits in; otherwise the selection range itself.
+        const range = collapsed && selParas.items.length > 0 ? selParas.items[0].getRange() : sel;
+        const paras = range.paragraphs;
+        paras.load("items");
+        const ooxmlResult = range.getOoxml();
+        await ctx.sync(); // sync 2: range paragraphs + the range OOXML
+
+        for (const p of paras.items) p.load("outlineLevel");
+        await ctx.sync(); // sync 3: outline levels
+
+        const outlineLevels = paras.items.map((p) =>
+          normalizeOutlineNumber(p.outlineLevel, this.outline.numberBase)
+        );
+        // A collapsed read uses `paragraph.getRange()`, which defaults to the "Whole" range INCLUDING
+        // the paragraph mark — so the host serializes the target paragraph PLUS a trailing empty `<w:p>`
+        // (two body paragraphs). Strip it to the first body `<w:p>` (exactly as the hide path does via
+        // `keepFirstBodyParagraph`) so the fragment holds ONE `<w:p>` aligned with the single outline
+        // level — keeping Shrink's single-paragraph heading refusal and Condense's collapsed no-op
+        // correct. NOT applied to a real multi-paragraph SELECTION, where it would wrongly drop all but
+        // the first selected paragraph.
+        const rawOoxml = ooxmlResult.value as string;
+        const ooxml = collapsed ? keepFirstBodyParagraph(rawOoxml) : rawOoxml;
+        return { ooxml, collapsed, outlineLevels };
+      });
+      span.end({ collapsed: result.collapsed, paragraphs: result.outlineLevels.length });
+      return result;
+    } catch (e) {
+      span.fail(e);
+      throw clarify(e, "read the active selection");
+    }
+  }
+
+  /**
+   * Replace the active range with new OOXML via `insertOoxml(…, "Replace")`. Re-derives the same range
+   * `readActiveRangeOoxml` chose (selection, or the current paragraph when collapsed), so Condense's
+   * merged single paragraph lands exactly where the cards were. One `Word.run`, one atomic sync.
+   */
+  async replaceActiveRangeOoxml(ooxml: string): Promise<void> {
+    const op = this.log.child("rangeWrite");
+    const span = op.span("replaceActiveRangeOoxml", { length: ooxml.length });
+    try {
+      await this.run(async (ctx) => {
+        const sel = ctx.document.getSelection();
+        sel.load("text");
+        const selParas = sel.paragraphs;
+        selParas.load("items");
+        await ctx.sync(); // sync 1: selection text + its paragraphs
+
+        const collapsed = (typeof sel.text === "string" ? sel.text : "") === "";
+        const range = collapsed && selParas.items.length > 0 ? selParas.items[0].getRange() : sel;
+        range.insertOoxml(ooxml, "Replace");
+        await ctx.sync(); // sync 2: the atomic replace
+      });
+      span.end();
+    } catch (e) {
+      span.fail(e);
+      throw clarify(e, "replace the active selection");
     }
   }
 
@@ -1053,6 +1139,6 @@ function alignToProxies(
  */
 export function createOfficeWordPort(
   options: OfficeWordPortOptions = {}
-): CiteRepairCapablePort & { readonly diagnosticManifestPartId: string | null } {
+): CiteRepairCapablePort & RangeScopedPort & { readonly diagnosticManifestPartId: string | null } {
   return new OfficeWordPort(options);
 }

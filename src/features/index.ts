@@ -7,6 +7,7 @@
 // `contributions.ts`, and run `npm run gen:manifest`. Nothing in the shell/ribbon/dialog changes.
 import { FeatureRegistry } from "./registry";
 import { invisibilityFeature } from "./invisibility/feature";
+import { condenseFeature } from "./condense/feature";
 import { plannedContributions } from "./planned";
 
 /** The app-wide feature registry singleton (React-augmented features). */
@@ -14,6 +15,9 @@ export const registry = new FeatureRegistry();
 
 // Feature #1: the headline time-differential tool. Real, stable, ships today.
 registry.register(invisibilityFeature);
+
+// Feature #2: Condense & Shrink — the lossless answer to Verbatim's Shrink + Condense.
+registry.register(condenseFeature);
 
 // The roadmap: planned contributions render a ComingSoon from metadata alone (no React surface).
 for (const feature of plannedContributions) {

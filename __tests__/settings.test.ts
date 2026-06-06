@@ -4,9 +4,13 @@ import {
   saveDeviceDefaults,
   loadPureWholeBody,
   savePureWholeBody,
+  loadCondenseSettings,
+  saveCondenseSettings,
   DEFAULT_KEEP_COLORS,
+  DEFAULT_CONDENSE_SETTINGS,
   DEVICE_DEFAULTS_KEY,
   PURE_WHOLE_BODY_KEY,
+  CONDENSE_SETTINGS_KEY,
   StorageLike
 } from "../src/core/settings";
 import { RostrumManifest } from "../src/core/types";
@@ -105,5 +109,63 @@ describe("pure-whole-body flag (avenue ⑦, per-device) — the default Hide pat
       }
     };
     expect(loadPureWholeBody(throwing, true)).toBe(true);
+  });
+});
+
+describe("condense settings (per-device)", () => {
+  it("returns the built-in defaults when nothing is stored", () => {
+    const s = loadCondenseSettings(new FakeStorage());
+    expect(s.usePilcrows).toBe(false);
+    expect(s.retainParagraphs).toBe(false);
+    expect(s.reversal).toBe("marker");
+    expect(s.shrinkParagraphMarks).toBe(false);
+    expect(s.omissionPatterns.length).toBe(DEFAULT_CONDENSE_SETTINGS.omissionPatterns.length);
+  });
+
+  it("round-trips a full settings blob through storage", () => {
+    const s = new FakeStorage();
+    saveCondenseSettings(s, {
+      usePilcrows: true,
+      retainParagraphs: true,
+      reversal: "none",
+      shrinkParagraphMarks: true,
+      omissionPatterns: [{ open: "{", close: "}", keyword: "cut" }]
+    });
+    const loaded = loadCondenseSettings(s);
+    expect(loaded.usePilcrows).toBe(true);
+    expect(loaded.retainParagraphs).toBe(true);
+    expect(loaded.reversal).toBe("none");
+    expect(loaded.shrinkParagraphMarks).toBe(true);
+    expect(loaded.omissionPatterns).toEqual([{ open: "{", close: "}", keyword: "cut" }]);
+  });
+
+  it("falls back to defaults on malformed JSON", () => {
+    const s = new FakeStorage();
+    s.setItem(CONDENSE_SETTINGS_KEY, "{not json");
+    expect(loadCondenseSettings(s).reversal).toBe("marker");
+  });
+
+  it("validates the reversal value (anything but 'none' is the lossless 'marker')", () => {
+    const s = new FakeStorage();
+    s.setItem(CONDENSE_SETTINGS_KEY, JSON.stringify({ reversal: "bogus" }));
+    expect(loadCondenseSettings(s).reversal).toBe("marker");
+  });
+
+  it("drops omission patterns missing a delimiter, keeps valid ones", () => {
+    const s = new FakeStorage();
+    s.setItem(
+      CONDENSE_SETTINGS_KEY,
+      JSON.stringify({ omissionPatterns: [{ open: "[", close: "]", keyword: "Omitted" }, { open: "", close: "]" }, { close: "]" }] })
+    );
+    expect(loadCondenseSettings(s).omissionPatterns).toEqual([{ open: "[", close: "]", keyword: "Omitted" }]);
+  });
+
+  it("tolerates partial blobs (missing fields fall back to defaults)", () => {
+    const s = new FakeStorage();
+    s.setItem(CONDENSE_SETTINGS_KEY, JSON.stringify({ usePilcrows: true }));
+    const loaded = loadCondenseSettings(s);
+    expect(loaded.usePilcrows).toBe(true);
+    expect(loaded.retainParagraphs).toBe(false); // default
+    expect(loaded.omissionPatterns.length).toBeGreaterThan(0); // default set
   });
 });

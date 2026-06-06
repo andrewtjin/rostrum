@@ -14,6 +14,7 @@ function rv(text: string, over: Partial<RunView> = {}): RunView {
     text,
     highlight: null,
     citeStyled: false,
+    underline: false,
     hidden: false,
     eligible: true,
     ...over

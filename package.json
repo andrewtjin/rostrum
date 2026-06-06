@@ -1,6 +1,6 @@
 {
   "name": "rostrum-addin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Rostrum — Invisibility Mode: a desktop Word add-in that hides debate-card body text while keeping headings, cites, analytics, and highlighted runs. Natively reversible.",
   "engines": {

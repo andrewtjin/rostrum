@@ -5,6 +5,11 @@
 // attached). Registration order here = ribbon group order, headline tool (Invisibility) first.
 import { FeatureContribution } from "./types";
 import { invisibilityContribution } from "./invisibility/contribution";
+import { condenseContribution } from "./condense/contribution";
 import { plannedContributions } from "./planned";
 
-export const contributions: FeatureContribution[] = [invisibilityContribution, ...plannedContributions];
+export const contributions: FeatureContribution[] = [
+  invisibilityContribution,
+  condenseContribution,
+  ...plannedContributions,
+];

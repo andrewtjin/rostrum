@@ -9,7 +9,14 @@
 // Pure precedence logic + a tiny injectable Storage seam, so both are unit tested
 // with a fake store (no browser).
 
-import { DeviceDefaults, ResolvedSettings, RostrumManifest } from "./types";
+import {
+  CondenseSettings,
+  DeviceDefaults,
+  OmissionPattern,
+  ResolvedSettings,
+  ReversalStrategy,
+  RostrumManifest
+} from "./types";
 import { HIGHLIGHT_COLORS, HIGHLIGHT_COLOR_SET } from "./styles";
 
 /** localStorage key; the `.v1` suffix lets us migrate the cache shape later. */
@@ -116,4 +123,97 @@ export function loadPureWholeBody(storage: StorageLike, defaultValue = false): b
 /** Persist the per-device pure-whole-body flag (best-effort). */
 export function savePureWholeBody(storage: StorageLike, on: boolean): void {
   storage.setItem(PURE_WHOLE_BODY_KEY, on ? "true" : "false");
+}
+
+// ---------------------------------------------------------------------------
+// Condense & Shrink — per-device settings (localStorage, like the keep-color cache)
+// ---------------------------------------------------------------------------
+
+/** localStorage key for the Condense & Shrink settings blob. `.v1` lets us migrate the shape later. */
+export const CONDENSE_SETTINGS_KEY = "rostrum.condense.v1";
+
+/**
+ * The default omission markers Shrink restores to full size — Verbatim's set ([…Omitted…],
+ * [[…Omitted…]], <…Omitted…>), modeled as delimiter/keyword triples. A bracketed span counts as an
+ * omission only when it contains the keyword, so ordinary "[sic]"/"[their]" brackets are NOT un-shrunk.
+ */
+export const DEFAULT_OMISSION_PATTERNS: readonly OmissionPattern[] = [
+  { open: "[[", close: "]]", keyword: "Omitted" },
+  { open: "[", close: "]", keyword: "Omitted" },
+  { open: "<", close: ">", keyword: "Omitted" }
+];
+
+/** Built-in Condense & Shrink defaults: lossless markers, merge-all, hidden breaks, no ¶ shrink. */
+export const DEFAULT_CONDENSE_SETTINGS: CondenseSettings = {
+  usePilcrows: false,
+  retainParagraphs: false,
+  reversal: "marker",
+  shrinkParagraphMarks: false,
+  omissionPatterns: DEFAULT_OMISSION_PATTERNS.map((p) => ({ ...p }))
+};
+
+/** Validate + normalize an omission pattern list (drop non-string / empty-delimiter entries). */
+function normalizeOmissionPatterns(value: unknown): OmissionPattern[] {
+  if (!Array.isArray(value)) return DEFAULT_OMISSION_PATTERNS.map((p) => ({ ...p }));
+  const out: OmissionPattern[] = [];
+  for (const raw of value) {
+    if (raw && typeof raw === "object") {
+      const o = raw as { open?: unknown; close?: unknown; keyword?: unknown };
+      const open = typeof o.open === "string" ? o.open : "";
+      const close = typeof o.close === "string" ? o.close : "";
+      const keyword = typeof o.keyword === "string" ? o.keyword : "";
+      // An omission needs both delimiters; the keyword may be empty (matches any bracketed span).
+      if (open && close) out.push({ open, close, keyword });
+    }
+  }
+  return out;
+}
+
+/** Coerce a stored value to a valid reversal strategy, defaulting to the lossless "marker". */
+function normalizeReversal(value: unknown): ReversalStrategy {
+  return value === "none" ? "none" : "marker";
+}
+
+/**
+ * Read + validate the per-device Condense & Shrink settings from storage, filling any missing/invalid
+ * field from the built-in defaults. Garbled or throwing storage falls back to the full defaults — the
+ * feature must never be bricked by a bad cache. Pure given an injected store (fake-store tested).
+ */
+export function loadCondenseSettings(storage: StorageLike): CondenseSettings {
+  let parsed: Record<string, unknown> = {};
+  try {
+    const raw = storage.getItem(CONDENSE_SETTINGS_KEY);
+    if (raw) {
+      const candidate = JSON.parse(raw) as unknown;
+      if (candidate && typeof candidate === "object") parsed = candidate as Record<string, unknown>;
+    }
+  } catch {
+    return { ...DEFAULT_CONDENSE_SETTINGS, omissionPatterns: DEFAULT_OMISSION_PATTERNS.map((p) => ({ ...p })) };
+  }
+  return {
+    usePilcrows: typeof parsed.usePilcrows === "boolean" ? parsed.usePilcrows : DEFAULT_CONDENSE_SETTINGS.usePilcrows,
+    retainParagraphs:
+      typeof parsed.retainParagraphs === "boolean" ? parsed.retainParagraphs : DEFAULT_CONDENSE_SETTINGS.retainParagraphs,
+    reversal: parsed.reversal === undefined ? DEFAULT_CONDENSE_SETTINGS.reversal : normalizeReversal(parsed.reversal),
+    shrinkParagraphMarks:
+      typeof parsed.shrinkParagraphMarks === "boolean"
+        ? parsed.shrinkParagraphMarks
+        : DEFAULT_CONDENSE_SETTINGS.shrinkParagraphMarks,
+    omissionPatterns:
+      parsed.omissionPatterns === undefined
+        ? DEFAULT_OMISSION_PATTERNS.map((p) => ({ ...p }))
+        : normalizeOmissionPatterns(parsed.omissionPatterns)
+  };
+}
+
+/** Persist the per-device Condense & Shrink settings (normalized) to storage (best-effort). */
+export function saveCondenseSettings(storage: StorageLike, settings: CondenseSettings): void {
+  const payload: CondenseSettings = {
+    usePilcrows: !!settings.usePilcrows,
+    retainParagraphs: !!settings.retainParagraphs,
+    reversal: normalizeReversal(settings.reversal),
+    shrinkParagraphMarks: !!settings.shrinkParagraphMarks,
+    omissionPatterns: normalizeOmissionPatterns(settings.omissionPatterns)
+  };
+  storage.setItem(CONDENSE_SETTINGS_KEY, JSON.stringify(payload));
 }

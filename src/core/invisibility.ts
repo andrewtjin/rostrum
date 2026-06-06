@@ -23,7 +23,7 @@ import {
   planCrossGapSeparators
 } from "./keepers";
 import { applyRunVisibility, makeAllVisible, readRuns } from "./ooxml";
-import { assertTrackChangesOff } from "./guards";
+import { withTrackChangesGate } from "./guards";
 import { MANIFEST_SCHEMA_VERSION, clearManifestPart, saveManifest } from "./manifest";
 
 // The canonical `ParagraphAction` now lives in types.ts (so `ParagraphUpdate` can
@@ -111,38 +111,15 @@ export function classifyParagraph(
   return { index: p.index, action, changed: res.changed, ooxml: res.xml };
 }
 
-/**
- * Run a mutation under the Track-Changes gate (decision #14). With TC off, runs
- * directly. With TC on: throw unless the caller opted into auto-toggle, in which
- * case turn TC off, run, and restore the prior mode in `finally`.
- */
-async function withTrackChangesGate<T>(
-  port: WordPort,
-  opts: HideOptions,
-  body: () => Promise<T>
-): Promise<{ result: T; toggled: boolean }> {
-  const mode = await port.getChangeTrackingMode();
-  if (mode === "Off") {
-    return { result: await body(), toggled: false };
-  }
-  if (!opts.autoToggleTrackChanges) {
-    assertTrackChangesOff(mode); // throws TrackChangesActiveError
-  }
-  await port.setChangeTrackingMode("Off");
-  try {
-    return { result: await body(), toggled: true };
-  } finally {
-    await port.setChangeTrackingMode(mode);
-  }
-}
-
 /** Hide all non-keeper body text and arm the document (write manifest). */
 export async function hide(
   port: WordPort,
   settings: ResolvedSettings,
   opts: HideOptions = {}
 ): Promise<HideResult> {
-  const { result, toggled } = await withTrackChangesGate(port, opts, async () => {
+  // Reuses the shared Track-Changes gate (guards.ts) — the same one the range-scoped Condense &
+  // Shrink controller runs under, so the TC policy lives in exactly one place.
+  const { result, toggled } = await withTrackChangesGate(port, opts.autoToggleTrackChanges ?? false, async () => {
     const paras = await port.readParagraphs();
     const updates: ParagraphUpdate[] = [];
     let skipped = 0;

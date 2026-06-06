@@ -36,6 +36,39 @@ export function assertTrackChangesOff(mode: TrackChangesMode): void {
   if (mode !== "Off") throw new TrackChangesActiveError(mode);
 }
 
+/** The minimal port surface the Track-Changes gate needs (satisfied by WordPort AND RangeScopedPort). */
+export interface TrackChangesPort {
+  getChangeTrackingMode(): Promise<TrackChangesMode>;
+  setChangeTrackingMode(mode: TrackChangesMode): Promise<void>;
+}
+
+/**
+ * Run a mutation under the Track-Changes gate (decision #14), shared by the whole-body Hide engine AND
+ * the range-scoped Condense & Shrink controller so the policy lives in ONE place. With TC off, runs
+ * directly. With TC on: throw `TrackChangesActiveError` unless the caller opted into auto-toggle, in
+ * which case turn TC off, run, and restore the prior mode in `finally` — so a partial Undo can never
+ * strand the document with half-tracked revisions. Returns the body's result plus whether it toggled.
+ */
+export async function withTrackChangesGate<T>(
+  port: TrackChangesPort,
+  autoToggle: boolean,
+  body: () => Promise<T>
+): Promise<{ result: T; toggled: boolean }> {
+  const mode = await port.getChangeTrackingMode();
+  if (mode === "Off") {
+    return { result: await body(), toggled: false };
+  }
+  if (!autoToggle) {
+    assertTrackChangesOff(mode); // throws TrackChangesActiveError
+  }
+  await port.setChangeTrackingMode("Off");
+  try {
+    return { result: await body(), toggled: true };
+  } finally {
+    await port.setChangeTrackingMode(mode);
+  }
+}
+
 /**
  * The capability probe we need — `Office.context.requirements` satisfies this,
  * and tests pass a fake. Keeping it injectable means feature detection is unit

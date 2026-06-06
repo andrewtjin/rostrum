@@ -129,6 +129,21 @@ function runIsCite(runEl: any): boolean {
   return (rStyle.getAttribute("w:val") || "") === CITE_STYLE_ID;
 }
 
+/**
+ * True when the run is underlined: a `<w:u>` is present and not explicitly turned off. OOXML
+ * `<w:u w:val="…">` carries the underline STYLE ("single", "double", "wave", …); "none"/"0"/"false"
+ * mean no underline. We treat any other value (and a bare `<w:u/>`, though Word always writes a val)
+ * as underlined. This is Shrink's keep-signal — it must not key on a specific style, just presence.
+ */
+function runUnderline(runEl: any): boolean {
+  const rPr = runRPr(runEl);
+  if (!rPr) return false;
+  const u = firstDirectChild(rPr, "w:u");
+  if (!u) return false;
+  const val = (u.getAttribute("w:val") || "").toLowerCase();
+  return !(val === "none" || val === "0" || val === "false");
+}
+
 /** True when a `<w:vanish>` is present and not explicitly turned off. */
 function vanishIsOn(rPr: any): boolean {
   if (!rPr) return false;
@@ -362,6 +377,7 @@ export function readRuns(paragraphOoxml: string): RunView[] {
       text: runText(r),
       highlight: runHighlight(r),
       citeStyled: runIsCite(r),
+      underline: runUnderline(r),
       hidden: vanishIsOn(runRPr(r)),
       eligible: runIsEligible(r)
     });

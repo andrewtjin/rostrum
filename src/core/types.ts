@@ -72,6 +72,12 @@ export interface RunView {
   highlight: string | null;
   /** True when the run carries the cite character style (`w:rStyle` == CITE_STYLE_ID). */
   citeStyled: boolean;
+  /**
+   * True when the run is underlined (`<w:u>` present with a value other than none/0/false). This is
+   * Shrink's primary keep-signal: Verbatim cycles only NON-underlined text down a size, keeping the
+   * underlined cut readable. Read here so the pure shrink engine can decide keep-full-size per run.
+   */
+  underline: boolean;
   /** True when the run currently has `<w:vanish/>` (already hidden). */
   hidden: boolean;
   /**
@@ -206,4 +212,144 @@ export interface WordPort {
   writeManifest(xml: string): Promise<void>;
   /** Remove the Rostrum manifest custom XML part (no-op when absent). */
   clearManifest(): Promise<void>;
+}
+
+// ===========================================================================
+// Condense & Shrink — domain model (Rostrum's lossless answer to Verbatim's
+// Shrink + Condense). These run over a RANGE FRAGMENT (the active selection, or
+// the current paragraph when collapsed), not the whole-body paragraph array, so
+// they live behind the separate `RangeScopedPort` below — the invisibility
+// engine's one-`<w:p>`-per-write invariant is deliberately untouched.
+// ===========================================================================
+
+/**
+ * A richer per-run view than `RunView`, used by the fragment transforms: it adds the run's explicit
+ * font size and whether it is a condense break marker. `readFragmentParagraphs` produces these so the
+ * pure Shrink engine can compute the size ladder and skip markers, and Uncondense can find boundaries.
+ */
+export interface FragmentRunView extends RunView {
+  /** Explicit `<w:sz>` value in half-points on this run, or null when it inherits from the style. */
+  sizeHalfPts: number | null;
+  /** True when this run carries the condense break-marker character style (`CONDENSE_MARK_STYLE`). */
+  breakMarker: boolean;
+}
+
+/**
+ * How a Condense operation handles reversibility — the single seam that flips lossless ↔ destructive.
+ *   * `"marker"` (default): each former paragraph boundary becomes a `CONDENSE_MARK_STYLE` run, so
+ *     Uncondense is an exact inverse. Lossless.
+ *   * `"none"`: boundaries collapse to a plain space with no marker — Verbatim-style destructive,
+ *     allowed ONLY when pilcrows are off (a visible pilcrow IS a marker). Faster, not reversible.
+ */
+export type ReversalStrategy = "marker" | "none";
+
+/** The fully-resolved knobs a single Condense run executes with (resolved from settings + the mode). */
+export interface CondenseOptions {
+  /** Render each boundary marker as a visible `¶` at 6pt (Verbatim parity) vs an invisible hidden run. */
+  usePilcrows: boolean;
+  /** Keep paragraph structure and only drop blank/whitespace-only paragraphs, instead of merging all. */
+  retainParagraphs: boolean;
+  /** Lossless marker boundaries vs destructive plain-space (`"none"` requires `usePilcrows: false`). */
+  reversal: ReversalStrategy;
+}
+
+/** Result of a Condense pass over the active range. */
+export interface CondenseResult {
+  /** Paragraphs the range held before the operation. */
+  paragraphsScanned: number;
+  /** Boundary markers inserted (merge mode) or blank paragraphs removed (retain mode). */
+  boundariesMarked: number;
+  /** True when the OOXML actually changed (a no-op range reports false). */
+  changed: boolean;
+}
+
+/** Result of an Uncondense pass over the active range. */
+export interface UncondenseResult {
+  /** Boundary markers turned back into paragraph breaks. */
+  breaksRestored: number;
+  changed: boolean;
+}
+
+/**
+ * A user-configurable omission marker: a bracketed region whose text Shrink restores to full size so
+ * an "[…Omitted…]" indicator stays readable in a shrunk card. A span runs from `open` to the next
+ * `close`; it counts as an omission only when the text between them contains `keyword` (case-
+ * insensitive) — so ordinary bracketed prose ("[sic]", "[their]") is NOT un-shrunk. Defaults mirror
+ * Verbatim's set ([…Omitted…], [[…Omitted…]], <…Omitted…>).
+ */
+export interface OmissionPattern {
+  open: string;
+  close: string;
+  keyword: string;
+}
+
+/** Per-device Condense & Shrink settings (localStorage, like the keep-color defaults). */
+export interface CondenseSettings {
+  /** Default Condense marker style: visible `¶` (true) vs invisible hidden run (false). */
+  usePilcrows: boolean;
+  /** Default Condense structure handling: drop-blank-paragraphs (true) vs merge-all (false). */
+  retainParagraphs: boolean;
+  /** Default reversibility strategy. `"none"` is honored only when `usePilcrows` is false. */
+  reversal: ReversalStrategy;
+  /** Also shrink each paragraph mark to 6pt when running Shrink (Verbatim's "Shrink ¶" extra). */
+  shrinkParagraphMarks: boolean;
+  /** Omission markers Shrink restores to full size. */
+  omissionPatterns: OmissionPattern[];
+}
+
+/** Options the pure Shrink engine runs with for one press of Shrink. */
+export interface ShrinkOptions {
+  /** Resolved Normal/default font size in half-points (from the package styles), used by the ladder. */
+  normalHalfPts: number;
+  /** Canonical 0-based outline level per paragraph in the fragment (null = body), for heading refusal. */
+  outlineLevels: (number | null)[];
+  /** Omission markers whose spans are restored to Normal size. */
+  omissionPatterns: OmissionPattern[];
+  /** Also shrink each paragraph mark to 6pt (Verbatim's "Shrink ¶"). */
+  shrinkParagraphMarks: boolean;
+}
+
+/** Result of a Shrink / Unshrink pass over the active range. */
+export interface ShrinkResult {
+  paragraphsScanned: number;
+  /** True when the OOXML actually changed. */
+  changed: boolean;
+  /**
+   * The half-point size Shrink applied to non-kept runs this press, or null when it cleared sizes
+   * (the "→ Normal" rung, and every Unshrink). The pane shows this as the current shrink size.
+   * Undefined when nothing was eligible to size (e.g. a heading-only refusal).
+   */
+  appliedSizeHalfPts?: number | null;
+  /** Set when a collapsed selection on a heading refused to shrink (Verbatim parity). */
+  refusedHeading?: boolean;
+}
+
+/**
+ * What a `readActiveRangeOoxml` returns: the active range's OOXML plus the metadata the engines need.
+ * `outlineLevels` is canonical 0-based (0 = Heading 1 … 8 = Heading 9, null = body), aligned to the
+ * range's paragraphs in document order. `collapsed` is true when the selection was an insertion point
+ * (so the operation targets just the current paragraph).
+ */
+export interface RangeRead {
+  ooxml: string;
+  collapsed: boolean;
+  outlineLevels: (number | null)[];
+}
+
+/**
+ * The SECOND document-access seam (beside `WordPort`), for the range-scoped Condense & Shrink ops.
+ * It reads the active selection (or current paragraph) as ONE OOXML fragment and replaces it whole —
+ * which is exactly what Condense's paragraph merge needs and what `WordPort`'s single-`<w:p>` write
+ * contract forbids by design. Track-Changes is gated through the same two methods Hide uses, so the
+ * shared gate keeps a partial Undo from stranding the document.
+ */
+export interface RangeScopedPort {
+  /** Read the document's current change-tracking mode (for the shared TC gate). */
+  getChangeTrackingMode(): Promise<TrackChangesMode>;
+  /** Set the document's change-tracking mode (for the shared TC gate). */
+  setChangeTrackingMode(mode: TrackChangesMode): Promise<void>;
+  /** Read the active selection — or the current paragraph when collapsed — as one OOXML fragment. */
+  readActiveRangeOoxml(): Promise<RangeRead>;
+  /** Replace the active range with new OOXML (`insertOoxml(…, "Replace")`). */
+  replaceActiveRangeOoxml(ooxml: string): Promise<void>;
 }
