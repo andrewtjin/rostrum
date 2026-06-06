@@ -10,7 +10,7 @@ import { openWorkspaceDialog } from "../dialog/open";
 
 /** A pane-first planned tool: one ribbon "Open" button → its deep-linked ComingSoon pane. */
 function plannedPane(
-  fields: Pick<FeatureContribution, "id" | "title" | "tagline" | "glyph"> & { unavailableReason: string }
+  fields: Pick<FeatureContribution, "id" | "title" | "tagline" | "glyph" | "highlights"> & { unavailableReason: string }
 ): FeatureContribution {
   return {
     status: "planned",
@@ -30,7 +30,7 @@ function plannedPane(
  *  full-window ComingSoon workspace. The open command is host-runnable (it just shows the
  *  ComingSoon); the `planned` status is what makes the surface say "coming soon". */
 function plannedDialog(
-  fields: Pick<FeatureContribution, "id" | "title" | "tagline" | "glyph"> & { unavailableReason: string }
+  fields: Pick<FeatureContribution, "id" | "title" | "tagline" | "glyph" | "highlights"> & { unavailableReason: string }
 ): FeatureContribution {
   const openId = `open_${fields.id}`;
   const openControl: RibbonControl = { kind: "action", commandId: openId, label: "Open", tip: fields.unavailableReason };
@@ -68,6 +68,11 @@ export const plannedContributions: FeatureContribution[] = [
     title: "Format & Condense",
     tagline: "One-click styles cleanup, condensing, and legacy-file migration.",
     glyph: "🧹",
+    highlights: [
+      "Collapse a brief's tangle of one-off styles down to a clean, canonical set",
+      "Merge duplicate and typo'd styles (e.g. Analytic → Analytics)",
+      "Condense spacing and bring legacy files up to today's format",
+    ],
     unavailableReason: "Planned — extends today's Apply-Styles + condense work.",
   }),
   plannedDialog({
@@ -75,6 +80,11 @@ export const plannedContributions: FeatureContribution[] = [
     title: "Flow",
     tagline: "Track arguments across a round in a speech-doc surface.",
     glyph: "🗒️",
+    highlights: [
+      "Lay out a round's arguments side by side in a speech-ready view",
+      "Pull cards and tags straight from your open brief",
+      "Track what's been answered and what's still standing",
+    ],
     unavailableReason: "Planned — the flowing / speech-doc surface.",
   }),
   plannedPane({
@@ -82,6 +92,11 @@ export const plannedContributions: FeatureContribution[] = [
     title: "Cite & Paste",
     tagline: "Generate citations and paste cards with clean formatting.",
     glyph: "🔖",
+    highlights: [
+      "Build a clean citation from a source in seconds",
+      "Paste cards with formatting that survives the move",
+      "Flag cites that are missing fields before a round",
+    ],
     unavailableReason: "Planned — citation + paste-with-formatting helpers.",
   }),
 ];

@@ -28,7 +28,14 @@ function WorkspaceSurface(props: { feature: RostrumFeature; features: FeatureSup
 }
 
 function DialogWorkspace(): React.ReactElement {
-  const host = useHost();
+  // SOFT gate (`requireSupport: false`): the dialog runs in a document-DETACHED Office runtime
+  // whose `requirements` probe under-reports the desktop API sets, so the pane's hard capability
+  // gate would falsely declare a capable host "lacks WordApiDesktop 1.2" here. The dialog is only
+  // opened from an already-capable host and only shows ComingSoon placeholders (which need no
+  // capability), so it must not refuse to render on a detection it can't trust. (When a real
+  // capability-using dialog surface ships, it should receive caps from the OPENER — see
+  // dialog/open.ts — rather than re-detecting them in this runtime.)
+  const host = useHost({ requireSupport: false });
   // The routed feature is fixed when the dialog opens (one tool per workspace window).
   const [featureId] = useState<string | null>(() => featureIdFromHash(window.location.hash));
 

@@ -108,6 +108,13 @@ export interface FeatureContribution {
   isAvailable: (features: FeatureSupport) => boolean;
   /** Shown on ComingSoon when `isAvailable` is false or `status` is planned. */
   unavailableReason?: string;
+  /**
+   * A few concrete things this tool will do, rendered as bullets on its ComingSoon placeholder so
+   * the suite PREVIEWS what's coming instead of just asserting that something is. Optional and
+   * metadata-only — never affects the ribbon or the generated manifest. Keep to 2–4 short,
+   * plain-language phrases (a debater who's never seen Verbatim should get it).
+   */
+  highlights?: string[];
   /** This feature's ribbon group — the static ribbon is generated from these. */
   ribbon: RibbonGroup;
   /** Ribbon + headless-invokable commands this feature contributes. */
