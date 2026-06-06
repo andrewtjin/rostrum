@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  Rostrum workspace dialog host page. Same pattern as taskpane.html: office.js loads
+  first (it defines the `Office` global the bundle awaits via useHost), and
+  html-webpack-plugin injects the compiled dialog.js after this template. Styles are
+  inlined (the project deliberately uses no CSS loader); the launcher/tile/badge classes
+  mirror the pane so the shared Launcher/ComingSoon render identically here, with a wider
+  workspace layout.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rostrum — Workspace</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+      :root {
+        --r-fg: #1b1b1b;
+        --r-muted: #666;
+        --r-accent: #2b579a;
+        --r-bg: #faf9f8;
+        --r-border: #e1dfdd;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 14px;
+        color: var(--r-fg);
+        background: var(--r-bg);
+      }
+      .r-workspace { padding: 20px; max-width: 980px; margin: 0 auto; }
+      .r-loading, .r-unsupported { padding: 24px; }
+      .r-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+      .r-header__brand { display: flex; align-items: baseline; gap: 8px; }
+      .r-header h1 { font-size: 22px; margin: 0; color: var(--r-accent); }
+      .r-subtitle { color: var(--r-muted); font-size: 13px; }
+      .r-header__actions { display: flex; gap: 8px; }
+
+      .r-btn {
+        border: 1px solid var(--r-border); background: #fff; color: var(--r-fg);
+        padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      }
+      .r-btn:hover:not(:disabled) { border-color: var(--r-accent); }
+      .r-btn:disabled { opacity: 0.5; cursor: default; }
+      .r-btn--primary { background: var(--r-accent); color: #fff; border-color: var(--r-accent); }
+      .r-btn--ghost { background: transparent; }
+      .r-btn:focus-visible { outline: 2px solid var(--r-accent); outline-offset: 2px; }
+      .r-hint { font-size: 13px; color: var(--r-muted); }
+
+      /* Feature-scoped workspace + ComingSoon (shared badge/soon classes with the pane). The
+         workspace renders ONE tool, opened directly from its ribbon button — no launcher grid. */
+      .r-badge { align-self: flex-start; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 8px; background: #eee; color: var(--r-muted); }
+      .r-badge--planned { background: #eef0f4; color: #5b6370; }
+
+      .r-soon { text-align: center; padding: 48px 24px; color: var(--r-muted); }
+      .r-soon__glyph { font-size: 56px; }
+      .r-soon h2 { color: var(--r-fg); margin-bottom: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

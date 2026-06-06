@@ -9,14 +9,16 @@
 
 import * as React from "react";
 import { FeatureSupport } from "../../core/types";
-import { ControllerStatus } from "../controller";
 import { formatEntry, LogEntry, LogLevel, tracer } from "../../core/debug";
 
 const LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
+// Cross-cutting suite chrome: the host-capability matrix + the live tracer. This is NOT a
+// feature — it's diagnostics for the whole add-in — so it takes only the detected host
+// capabilities. Per-feature state (e.g. invisibility's armed/keep-colors) lives in that
+// feature's own panel, not here.
 export function DiagnosticsPanel(props: {
   features: FeatureSupport | null;
-  status: ControllerStatus;
 }): React.ReactElement {
   const [entries, setEntries] = React.useState<LogEntry[]>(() => tracer.getBuffer());
   const [level, setLevel] = React.useState<LogLevel>(tracer.getMinLevel());
@@ -52,7 +54,6 @@ export function DiagnosticsPanel(props: {
       <summary>Diagnostics</summary>
 
       <FeatureMatrix features={props.features} />
-      <ManifestState status={props.status} />
 
       <div className="r-diag__controls">
         <label>
@@ -114,15 +115,6 @@ function FeatureMatrix(props: { features: FeatureSupport | null }): React.ReactE
         ))}
       </tbody>
     </table>
-  );
-}
-
-function ManifestState(props: { status: ControllerStatus }): React.ReactElement {
-  return (
-    <p className="r-hint">
-      Armed: <b>{props.status.armed ? "yes" : "no"}</b> · keep-colors:{" "}
-      <b>{props.status.keepColors.length ? props.status.keepColors.join(", ") : "(all)"}</b>
-    </p>
   );
 }
 

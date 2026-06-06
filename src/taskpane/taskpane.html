@@ -31,7 +31,9 @@
         background: var(--r-bg);
       }
       .r-app { padding: 12px; }
-      .r-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+      .r-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+      .r-header__brand { display: flex; align-items: baseline; gap: 8px; }
+      .r-header__actions { display: flex; gap: 6px; }
       .r-header h1 { font-size: 18px; margin: 0; color: var(--r-accent); }
       .r-subtitle { color: var(--r-muted); font-size: 12px; }
       .r-loading, .r-unsupported { padding: 16px; }
@@ -45,6 +47,9 @@
       .r-btn:disabled { opacity: 0.5; cursor: default; }
       .r-btn--primary { background: var(--r-accent); color: #fff; border-color: var(--r-accent); }
       .r-btn--ghost { background: transparent; }
+      /* Guaranteed-visible focus ring (the Word-blue primary button can swallow the UA default). */
+      .r-btn:focus-visible, .r-section > summary:focus-visible, .r-color input:focus-visible,
+      .r-color:focus-within { outline: 2px solid var(--r-accent); outline-offset: 2px; }
 
       .r-status { margin-bottom: 10px; }
       .r-chips { display: flex; gap: 6px; margin-bottom: 6px; }
@@ -52,7 +57,8 @@
         font-size: 11px; padding: 2px 8px; border-radius: 10px;
         background: #eee; color: var(--r-muted);
       }
-      .r-chip--on { background: #dff6dd; color: var(--r-ok); }
+      /* Darker than --r-ok (#107c10) so this 11px chip text clears WCAG AA on the light-green chip. */
+      .r-chip--on { background: #dff6dd; color: #0b5e0b; }
       .r-progress { position: relative; height: 18px; background: #eee; border-radius: 3px; overflow: hidden; }
       .r-progress__bar { height: 100%; background: var(--r-accent); transition: width 0.15s; }
       .r-progress__label { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 18px; }
@@ -67,7 +73,7 @@
       .r-section > summary { cursor: pointer; font-weight: 600; }
       .r-hint { font-size: 12px; color: var(--r-muted); }
       .r-colorgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-      .r-color { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+      .r-color { display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 24px; }
       .r-swatch { width: 12px; height: 12px; border: 1px solid #aaa; display: inline-block; }
       .r-live { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 8px; }
 
@@ -89,6 +95,17 @@
       .r-modal__card { background: #fff; border-radius: 6px; padding: 16px; max-width: 320px; }
       .r-modal__card h3 { margin-top: 0; }
       .r-modal__actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+      /* Feature surfaces + ComingSoon. The pane is feature-SCOPED (one tool, opened directly
+         from the ribbon) — there is no launcher grid. The badge + ComingSoon classes are shared
+         with the dialog workspace so a planned tool renders identically on both surfaces. */
+      .r-feature { display: block; }
+      .r-empty { padding: 16px 4px; }
+      .r-badge { align-self: flex-start; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 8px; background: #eee; color: var(--r-muted); white-space: nowrap; }
+      .r-badge--planned { background: #eef0f4; color: #5b6370; }
+      .r-soon { text-align: center; padding: 28px 12px; color: var(--r-muted); }
+      .r-soon__glyph { font-size: 44px; }
+      .r-soon h2 { color: var(--r-fg); margin-bottom: 4px; }
     </style>
   </head>
   <body>

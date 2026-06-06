@@ -1,0 +1,263 @@
+// Manifest generator — turns the headless feature contributions into the add-in manifest's ribbon
+// (one <Group> per feature) and its resources. This is the extensibility payoff: the static
+// manifest Office reads at sideload becomes a faithful PROJECTION of the registry, so adding a
+// tool never means hand-editing XML — you register it and run `npm run gen:manifest`.
+//
+// Pure + host-free: `buildManifestXml` takes the contributions + a static config and returns the
+// full XML string (no fs, no Office), so it is unit-tested in Node and the committed manifest.xml
+// is guarded against drift by a test that re-generates and compares.
+//
+// Office constraint encoded here: a manifest **resid** is capped at 32 chars, so generated resids
+// are short opaque counters (Lbl0/Tip0/Url0/Grp0) while the human text lives in the DefaultValue
+// (uncapped) and element `id`s (cap 125) stay descriptive for debugging.
+import { FeatureContribution } from "./types";
+
+/** The non-feature-derived manifest values (mirrors the current manifest's static header). */
+export interface ManifestConfig {
+  id: string;
+  version: string;
+  providerName: string;
+  defaultLocale: string;
+  displayName: string;
+  description: string;
+  /** Top-level catalog icons (separate from the in-app ribbon icons). */
+  iconUrl: string;
+  highResolutionIconUrl: string;
+  supportUrl: string;
+  /** Dev/prod origin that all SourceLocation + asset URLs are built from. */
+  origin: string;
+  getStarted: { title: string; description: string; learnMoreUrl: string };
+  tab: { id: string; label: string };
+}
+
+/** The live config — the static half of the manifest. Bump `version` when the ribbon changes. */
+export const manifestConfig: ManifestConfig = {
+  id: "16270306-fc6b-47f5-809b-e15b151475e6",
+  // PRODUCT VERSION (semver; mirrors package.json). 0.1.0 = the initial GitHub ship of Invisibility
+  // Mode ALONE. 1.0.0 is RESERVED for the full suite — every tool (Format & Condense, Flow, Cite &
+  // Paste, …) actually WIRED rather than "coming soon" — the build that truly competes with Verbatim,
+  // and the first AppSource-submittable build (AppSource requires Version ≥ 1.0). Until then we stay
+  // in 0.x. The Office <Version> is 4-part: keep the first three == the semver and bump the 4th
+  // ("revision") for a ribbon-STRUCTURE re-register within the same product version — Office caches
+  // the ribbon by Id+Version, so only a Version change drops a removed group on re-sideload. (Earlier
+  // builds were mis-numbered 1.x; correcting DOWN to 0.x is a one-time WEF cache clear before the next
+  // re-sideload, since Office won't treat a lower version as an update.)
+  version: "0.1.0.0",
+  providerName: "Rostrum",
+  defaultLocale: "en-US",
+  displayName: "Rostrum",
+  description:
+    "Rostrum — an extensible debating suite for Word. Feature #1, Invisibility Mode, hides debate-card body text while keeping headings, cites, analytics, and highlighted runs. Natively reversible.",
+  iconUrl: "https://localhost:3000/assets/icon-32.png",
+  highResolutionIconUrl: "https://localhost:3000/assets/icon-80.png",
+  supportUrl: "https://example.com/rostrum/support",
+  origin: "https://localhost:3000",
+  getStarted: {
+    title: "Rostrum is ready.",
+    description: "Open a tool from the Rostrum tab. Invisibility Mode: Hide collapses card bodies; Show All reverses.",
+    learnMoreUrl: "https://example.com/rostrum",
+  },
+  tab: { id: "Rostrum.Tab", label: "Rostrum" },
+};
+
+/** Escape a value for an XML attribute / text node. */
+function xml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** The 3 ribbon icon references (shared across every group + control), indented to `pad`. */
+function iconXml(pad: string): string {
+  return [
+    `${pad}<Icon>`,
+    `${pad}  <bt:Image size="16" resid="Rostrum.Icon.16" />`,
+    `${pad}  <bt:Image size="32" resid="Rostrum.Icon.32" />`,
+    `${pad}  <bt:Image size="80" resid="Rostrum.Icon.80" />`,
+    `${pad}</Icon>`,
+  ].join("\n");
+}
+
+/**
+ * Build the complete manifest XML from the contributions + config. Deterministic (stable order +
+ * counters) so the output is byte-stable for the drift test.
+ */
+export function buildManifestXml(features: FeatureContribution[], config: ManifestConfig): string {
+  const taskpaneBase = `${config.origin}/taskpane.html`;
+  const commandsUrl = `${config.origin}/commands.html`;
+  const icon = (size: number): string => `${config.origin}/assets/icon-${size}.png`;
+
+  // Resource accumulators (resids stay ≤32 chars; text goes in DefaultValue).
+  const shortStrings: Array<{ id: string; value: string }> = [];
+  const longStrings: Array<{ id: string; value: string }> = [];
+  const urls: Array<{ id: string; value: string }> = [];
+  let grpN = 0;
+  let lblN = 0;
+  let tipN = 0;
+  let urlN = 0;
+
+  const groupsXml = features
+    .map((feature) => {
+      const groupLabelId = `Grp${grpN++}`;
+      shortStrings.push({ id: groupLabelId, value: feature.ribbon.label });
+
+      const controlsXml = feature.ribbon.controls
+        .map((control) => {
+          const labelId = `Lbl${lblN++}`;
+          const tipId = `Tip${tipN++}`;
+          shortStrings.push({ id: labelId, value: control.label });
+          longStrings.push({ id: tipId, value: control.tip });
+
+          const disc = control.kind === "action" ? control.commandId : "pane";
+          const controlId = `Rostrum.${feature.id}.${disc}`;
+
+          let actionXml: string;
+          if (control.kind === "action") {
+            actionXml = [
+              `                  <Action xsi:type="ExecuteFunction">`,
+              `                    <FunctionName>${xml(control.commandId)}</FunctionName>`,
+              `                  </Action>`,
+            ].join("\n");
+          } else {
+            const urlId = `Url${urlN++}`;
+            urls.push({ id: urlId, value: `${taskpaneBase}#${feature.id}` });
+            // Distinct TaskpaneId per pane-bearing feature → each feature is its own pane.
+            const taskpaneId = `Rostrum.Tp.${feature.id}`;
+            actionXml = [
+              `                  <Action xsi:type="ShowTaskpane">`,
+              `                    <TaskpaneId>${xml(taskpaneId)}</TaskpaneId>`,
+              `                    <SourceLocation resid="${urlId}" />`,
+              `                  </Action>`,
+            ].join("\n");
+          }
+
+          return [
+            `                <Control xsi:type="Button" id="${xml(controlId)}">`,
+            `                  <Label resid="${labelId}" />`,
+            `                  <Supertip>`,
+            `                    <Title resid="${labelId}" />`,
+            `                    <Description resid="${tipId}" />`,
+            `                  </Supertip>`,
+            iconXml("                  "),
+            actionXml,
+            `                </Control>`,
+          ].join("\n");
+        })
+        .join("\n");
+
+      return [
+        `              <Group id="Rostrum.Group.${xml(feature.id)}">`,
+        `                <Label resid="${groupLabelId}" />`,
+        iconXml("                "),
+        controlsXml,
+        `              </Group>`,
+      ].join("\n");
+    })
+    .join("\n");
+
+  const imagesXml = [16, 32, 80]
+    .map((s) => `        <bt:Image id="Rostrum.Icon.${s}" DefaultValue="${xml(icon(s))}" />`)
+    .join("\n");
+
+  const urlsXml = [
+    `        <bt:Url id="Rostrum.Commands.Url" DefaultValue="${xml(commandsUrl)}" />`,
+    `        <bt:Url id="Rostrum.GetStarted.LearnMoreUrl" DefaultValue="${xml(config.getStarted.learnMoreUrl)}" />`,
+    ...urls.map((u) => `        <bt:Url id="${u.id}" DefaultValue="${xml(u.value)}" />`),
+  ].join("\n");
+
+  const shortStringsXml = [
+    `        <bt:String id="Rostrum.GetStarted.Title" DefaultValue="${xml(config.getStarted.title)}" />`,
+    `        <bt:String id="Rostrum.Tab.Label" DefaultValue="${xml(config.tab.label)}" />`,
+    ...shortStrings.map((s) => `        <bt:String id="${s.id}" DefaultValue="${xml(s.value)}" />`),
+  ].join("\n");
+
+  const longStringsXml = [
+    `        <bt:String id="Rostrum.GetStarted.Description" DefaultValue="${xml(config.getStarted.description)}" />`,
+    ...longStrings.map((s) => `        <bt:String id="${s.id}" DefaultValue="${xml(s.value)}" />`),
+  ].join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Rostrum add-in manifest. GENERATED by tools/gen-manifest.ts from the feature registry
+  (src/features/contributions.ts) — DO NOT EDIT BY HAND. To change the ribbon, edit a feature's
+  ribbon descriptor and run \`npm run gen:manifest\`. A drift test (__tests__/ribbonManifest.test.ts)
+  fails if the committed file and the generator diverge.
+
+  Desktop-only: the hide engine relies on font-hidden / <w:vanish/> (WordApiDesktop 1.2), so the
+  <Requirements> floor hard-blocks Word for the web and old perpetual builds.
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+
+  <Id>${xml(config.id)}</Id>
+  <Version>${xml(config.version)}</Version>
+  <ProviderName>${xml(config.providerName)}</ProviderName>
+  <DefaultLocale>${xml(config.defaultLocale)}</DefaultLocale>
+  <DisplayName DefaultValue="${xml(config.displayName)}" />
+  <Description DefaultValue="${xml(config.description)}" />
+  <IconUrl DefaultValue="${xml(config.iconUrl)}" />
+  <HighResolutionIconUrl DefaultValue="${xml(config.highResolutionIconUrl)}" />
+  <SupportUrl DefaultValue="${xml(config.supportUrl)}" />
+
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApiDesktop" MinVersion="1.2" />
+      <Set Name="WordApi" MinVersion="1.4" />
+    </Sets>
+  </Requirements>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="${xml(taskpaneBase)}" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="Rostrum.GetStarted.Title" />
+            <Description resid="Rostrum.GetStarted.Description" />
+            <LearnMoreUrl resid="Rostrum.GetStarted.LearnMoreUrl" />
+          </GetStarted>
+          <FunctionFile resid="Rostrum.Commands.Url" />
+
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <CustomTab id="${xml(config.tab.id)}">
+${groupsXml}
+              <Label resid="Rostrum.Tab.Label" />
+            </CustomTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+${imagesXml}
+      </bt:Images>
+      <bt:Urls>
+${urlsXml}
+      </bt:Urls>
+      <bt:ShortStrings>
+${shortStringsXml}
+      </bt:ShortStrings>
+      <bt:LongStrings>
+${longStringsXml}
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
+`;
+}

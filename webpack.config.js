@@ -23,7 +23,12 @@ module.exports = async (env, argv) => {
     devtool: dev ? "source-map" : false,
     entry: {
       taskpane: "./src/taskpane/index.tsx",
-      commands: "./src/commands/commands.ts"
+      commands: "./src/commands/commands.ts",
+      // The full-window workspace dialog (opt-in space-heavy surface) — its own bundle so
+      // it loads independently of the pane.
+      dialog: "./src/dialog/index.tsx",
+      // The ribbon progress pop-out — a tiny dialog shown only while a ribbon op runs.
+      progress: "./src/progress/index.tsx"
     },
     output: {
       path: path.resolve(__dirname, "dist"),
@@ -48,6 +53,16 @@ module.exports = async (env, argv) => {
         filename: "commands.html",
         template: "./src/commands/commands.html",
         chunks: ["commands"]
+      }),
+      new HtmlWebpackPlugin({
+        filename: "dialog.html",
+        template: "./src/dialog/dialog.html",
+        chunks: ["dialog"]
+      }),
+      new HtmlWebpackPlugin({
+        filename: "progress.html",
+        template: "./src/progress/progress.html",
+        chunks: ["progress"]
       }),
       new CopyWebpackPlugin({
         patterns: [{ from: "assets", to: "assets", noErrorOnMissing: true }]

@@ -1,93 +1,53 @@
-// Ribbon command handlers — Hide / Re-hide / Show All without opening the pane.
+// Ribbon command handlers — generalized over the HEADLESS feature contributions. Instead of
+// hand-wiring Hide / Re-hide / Show All / Apply-Styles, we associate EVERY contributed command
+// by id (which equals its manifest <FunctionName>). Adding a ribbon command for a new feature is
+// then just contributing it — this file never changes.
 //
-// These reuse the SAME tested RostrumController the task pane uses (one source of
-// truth for orchestration), so the ribbon and the pane behave identically. The only
-// difference is the surface: a function-command can't host the Track-Changes modal,
-// so when the gate blocks a Hide, we log a clear instruction (visible in the pane's
-// diagnostics) and complete the event — the user finishes the choice in the pane.
-// Every path calls `event.completed()` so a button can never hang.
-
-import { assertCanRun, detectFeatureSupport } from "../core/guards";
+// Importing the headless `contributions` (not the React `registry`) keeps this bundle React-free:
+// the ribbon function-file has no DOM/React, so it must not drag the component tree in.
+//
+// Each handler runs the command in the ribbon runtime, logs the normalized result (a
+// function-command can't host UI like the Track-Changes modal, so a `blocked` op is logged for
+// the user to finish in the pane), and ALWAYS calls event.completed() so a ribbon button can
+// never hang.
 import { logger } from "../core/debug";
-import { OpOutcome, RostrumController } from "../taskpane/controller";
+import { contributions } from "../features/contributions";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const log = logger("ribbon");
 
-// One controller per command runtime, built lazily on first use.
-let controllerPromise: Promise<RostrumController> | null = null;
-
-async function getController(): Promise<RostrumController> {
-  if (!controllerPromise) {
-    controllerPromise = (async () => {
-      const features = detectFeatureSupport(Office.context.requirements);
-      assertCanRun(features); // throws UnsupportedHostError on web / old perpetual
-      const controller = new RostrumController({ features });
-      await controller.init();
-      return controller;
-    })();
+/** Wire every contributed command to its manifest FunctionName via Office.actions.associate. */
+function associateAll(): void {
+  const actions = (Office as any).actions;
+  if (!actions?.associate) {
+    log.warn("Office.actions.associate unavailable — ribbon commands not wired");
+    return;
   }
-  return controllerPromise;
-}
-
-/** Shared runner: execute one ribbon action, surface the outcome, always complete. */
-async function runRibbon(
-  label: string,
-  op: (c: RostrumController) => Promise<OpOutcome>,
-  event: Office.AddinCommands.Event
-): Promise<void> {
-  const span = log.span(`ribbon:${label}`);
-  try {
-    const controller = await getController();
-    const out = await op(controller);
-    switch (out.status) {
-      case "trackChanges":
-        log.warn(
-          `${label} is blocked because Track Changes is "${out.mode}". Open the Rostrum pane and ` +
-            `choose "Turn off & continue", or turn Track Changes off in Review.`,
-          { mode: out.mode }
-        );
-        break;
-      case "error":
-        log.error(`${label} failed`, { message: out.message });
-        break;
-      default:
-        log.info(`${label} done`, { status: out.status });
-    }
-    span.end({ status: out.status });
-  } catch (e) {
-    log.caught(`ribbon ${label} crashed`, e);
-    span.fail(e);
-  } finally {
-    event.completed();
+  const commands = contributions.flatMap((feature) => feature.commands);
+  for (const command of commands) {
+    actions.associate(command.id, (event: Office.AddinCommands.Event) => {
+      const span = log.span(`ribbon:${command.id}`);
+      command
+        .run()
+        .then((result) => {
+          if (result.status === "error") log.error(`${command.id} failed`, { message: result.message });
+          else if (result.status === "blocked") log.warn(`${command.id} blocked`, { message: result.message });
+          else log.info(`${command.id} done`, { status: result.status });
+          span.end({ status: result.status });
+        })
+        .catch((e) => {
+          log.caught(`ribbon ${command.id} crashed`, e);
+          span.fail(e);
+        })
+        .finally(() => event.completed());
+    });
   }
+  log.debug("ribbon handlers associated", { count: commands.length });
 }
 
-function hide(event: Office.AddinCommands.Event): void {
-  void runRibbon("hide", (c) => c.hide(), event);
-}
-function reHide(event: Office.AddinCommands.Event): void {
-  void runRibbon("reHide", (c) => c.reHide(), event);
-}
-function showAll(event: Office.AddinCommands.Event): void {
-  void runRibbon("showAll", (c) => c.showAll(), event);
-}
-function applyStyles(event: Office.AddinCommands.Event): void {
-  void runRibbon("applyStyles", (c) => c.applyStyles(), event);
-}
-
-// Associate the handlers with the manifest's <FunctionName> ids once Office is ready.
-// Guarded so importing this module never touches `Office` off-host.
+// Associate once Office is ready. Guarded so importing this module never touches `Office`
+// in a non-host environment (e.g. a unit test).
 if (typeof Office !== "undefined" && typeof Office.onReady === "function") {
-  Office.onReady(() => {
-    const actions = (Office as any).actions;
-    if (actions?.associate) {
-      actions.associate("hide", hide as any);
-      actions.associate("reHide", reHide as any);
-      actions.associate("showAll", showAll as any);
-      actions.associate("applyStyles", applyStyles as any);
-      log.debug("ribbon handlers associated");
-    }
-  });
+  Office.onReady(() => associateAll());
 }
