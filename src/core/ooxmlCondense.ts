@@ -189,13 +189,31 @@ function runRStyle(runEl: any): string | null {
   return rStyle ? rStyle.getAttribute("w:val") || null : null;
 }
 
-function runUnderline(runEl: any): boolean {
+/**
+ * Tri-state DIRECT underline on a run: true (`<w:u>` present with a value other than none/0/false),
+ * false (explicitly none/0/false), or undefined (no direct `<w:u>` → inherit from the character style).
+ * Kept tri-state so a direct `<w:u w:val="none"/>` can OVERRIDE a character style that underlines.
+ */
+function directUnderlineTri(runEl: any): boolean | undefined {
   const rPr = runRPr(runEl);
-  if (!rPr) return false;
+  if (!rPr) return undefined;
   const u = firstDirectChild(rPr, "w:u");
-  if (!u) return false;
+  if (!u) return undefined;
   const val = (u.getAttribute("w:val") || "").toLowerCase();
   return !(val === "none" || val === "0" || val === "false");
+}
+
+/**
+ * Tri-state DIRECT character box (`<w:bdr>`) on a run: true (a real border), false (nil/none), or
+ * undefined (no direct `<w:bdr>` → inherit from the character style). Same override semantics as underline.
+ */
+function directBoxTri(runEl: any): boolean | undefined {
+  const rPr = runRPr(runEl);
+  if (!rPr) return undefined;
+  const b = firstDirectChild(rPr, "w:bdr");
+  if (!b) return undefined;
+  const val = (b.getAttribute("w:val") || "").toLowerCase();
+  return !(val === "nil" || val === "none" || val === "");
 }
 
 function vanishOn(rPr: any): boolean {
@@ -356,14 +374,94 @@ function existingMarkRPr(pEl: any): any | null {
 // Reads
 // ---------------------------------------------------------------------------
 
-/** One run's read-only view (size + underline + marker flag) for the pure engines. */
-function readRun(runEl: any, index: number): FragmentRunView {
+/** A character style's resolved emphasis: whether it ultimately underlines and/or character-boxes its text. */
+export interface StyleEmphasis {
+  underline: boolean;
+  boxed: boolean;
+}
+
+/** Tri-state underline parsed from a style's `<w:rPr>` XML (true / explicit-off / undefined=absent). */
+function ownUnderlineTri(rPrXml: string): boolean | undefined {
+  const m = /<w:u\b([^>]*?)\/?>/.exec(rPrXml);
+  if (!m) return undefined;
+  const val = ((/\bw:val="([^"]*)"/.exec(m[1]) || [])[1] || "").toLowerCase();
+  return !(val === "none" || val === "0" || val === "false");
+}
+
+/** Tri-state character box parsed from a style's `<w:rPr>` XML (true / explicit-off / undefined=absent). */
+function ownBoxTri(rPrXml: string): boolean | undefined {
+  const m = /<w:bdr\b([^>]*?)\/?>/.exec(rPrXml);
+  if (!m) return undefined;
+  const val = ((/\bw:val="([^"]*)"/.exec(m[1]) || [])[1] || "").toLowerCase();
+  return !(val === "nil" || val === "none" || val === "");
+}
+
+/**
+ * Map each style id to its RESOLVED emphasis (underline / character-box), following the `basedOn`
+ * cascade, parsed from the fragment's bundled styles.xml. The real keep-signal in briefs is applied
+ * through a character STYLE (StyleUnderline, Emphasis, …), so Shrink must resolve the STRUCTURAL signal
+ * through the style — never by hardcoding style NAMES (lesson #3). Regex scan (like
+ * `resolveNormalSizeHalfPts` / outline.ts) — styles.xml is flat and well-formed as Word emits it. A bare
+ * `<w:p>` fixture with no styles part yields an empty map (a run's direct rPr still resolves).
+ */
+export function resolveStyleEmphasis(fragmentXml: string): Map<string, StyleEmphasis> {
+  // 1) Each style's OWN tri-state underline/box + its basedOn parent.
+  interface RawStyle {
+    basedOn: string | null;
+    ownU: boolean | undefined;
+    ownBox: boolean | undefined;
+  }
+  const raw = new Map<string, RawStyle>();
+  const styleRe = /<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g;
+  let m: RegExpExecArray | null;
+  while ((m = styleRe.exec(fragmentXml)) !== null) {
+    const idMatch = /\bw:styleId="([^"]*)"/.exec(m[1]);
+    if (!idMatch) continue;
+    const body = m[2];
+    const basedMatch = /<w:basedOn\b[^>]*\bw:val="([^"]*)"/.exec(body);
+    // Only the style's own <w:rPr> carries character formatting (skip a paragraph style's pPr borders).
+    const rPrMatch = /<w:rPr>([\s\S]*?)<\/w:rPr>/.exec(body);
+    const rPr = rPrMatch ? rPrMatch[1] : "";
+    raw.set(idMatch[1], { basedOn: basedMatch ? basedMatch[1] : null, ownU: ownUnderlineTri(rPr), ownBox: ownBoxTri(rPr) });
+  }
+  // 2) Resolve each style through its basedOn chain (memoized; cycle-guarded).
+  const resolved = new Map<string, StyleEmphasis>();
+  const resolveOne = (id: string, seen: Set<string>): StyleEmphasis => {
+    const cached = resolved.get(id);
+    if (cached) return cached;
+    const r = raw.get(id);
+    if (!r || seen.has(id)) return { underline: false, boxed: false };
+    seen.add(id);
+    const base = r.basedOn ? resolveOne(r.basedOn, seen) : { underline: false, boxed: false };
+    const out: StyleEmphasis = {
+      underline: r.ownU !== undefined ? r.ownU : base.underline,
+      boxed: r.ownBox !== undefined ? r.ownBox : base.boxed
+    };
+    resolved.set(id, out);
+    return out;
+  };
+  for (const id of raw.keys()) resolveOne(id, new Set());
+  return resolved;
+}
+
+/**
+ * One run's read-only view for the pure engines. `underline`/`boxed` are resolved DIRECT-then-STYLE: a
+ * direct `<w:u>`/`<w:bdr>` on the run wins (tri-state, so an explicit none overrides), otherwise the
+ * run's character style's resolved emphasis (from `styleMap`) decides — because in real briefs the cut is
+ * underlined/boxed through a character STYLE (StyleUnderline / Emphasis), not a direct rPr.
+ */
+function readRun(runEl: any, index: number, styleMap: Map<string, StyleEmphasis>): FragmentRunView {
+  const rStyle = runRStyle(runEl);
+  const styleEmph = rStyle ? styleMap.get(rStyle) : undefined;
+  const directU = directUnderlineTri(runEl);
+  const directBox = directBoxTri(runEl);
   return {
     index,
     text: runTextView(runEl),
     highlight: runHighlight(runEl),
-    citeStyled: runRStyle(runEl) === CITE_STYLE_ID,
-    underline: runUnderline(runEl),
+    citeStyled: rStyle === CITE_STYLE_ID,
+    underline: directU !== undefined ? directU : styleEmph ? styleEmph.underline : false,
+    boxed: directBox !== undefined ? directBox : styleEmph ? styleEmph.boxed : false,
     hidden: vanishOn(runRPr(runEl)),
     eligible: runEligible(runEl),
     sizeHalfPts: runSizeHalfPts(runEl),
@@ -378,8 +476,11 @@ function readRun(runEl: any, index: number): FragmentRunView {
  */
 export function readFragmentParagraphs(fragmentXml: string): FragmentRunView[][] {
   const doc = parse(fragmentXml);
+  // The keep-signal (underline / box) is usually applied through a character style, so resolve the
+  // fragment's bundled styles.xml ONCE and thread the map down to each run view.
+  const styleMap = resolveStyleEmphasis(fragmentXml);
   const paras = storyParagraphs(bodyScope(doc));
-  return paras.map((p) => paragraphRuns(p).map((r, i) => readRun(r, i)));
+  return paras.map((p) => paragraphRuns(p).map((r, i) => readRun(r, i, styleMap)));
 }
 
 /**
