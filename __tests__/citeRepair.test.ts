@@ -13,6 +13,7 @@
 // Leak-safety framing: a FALSE POSITIVE keeps body text that should be hidden (a real
 // invisibility leak), so the false-positive guards are as important as the positive case.
 
+import * as fs from "fs";
 import * as path from "path";
 import {
   applyCiteStyleToParagraphXml,
@@ -67,11 +68,16 @@ const NUM_PR = `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`;
 // ---------------------------------------------------------------------------
 // 1. REAL regression — the ndca "Valcke et al. 20" cite
 // ---------------------------------------------------------------------------
-describe("real regression: ndca-semis 'Valcke et al. 20' mis-styled cite", () => {
+// The ndca sample lives in the gitignored samples/ dir — present locally, ABSENT in CI. Skip
+// this real-doc regression when the fixture is missing rather than failing the build (the
+// synthetic suites below are the engine coverage CI can actually run). describe.skip keeps the
+// skip VISIBLE in the report instead of silently passing.
+const NDCA_SAMPLE = path.join(SAMPLES_DIR, "[small] 2ac---ndca---semis.docx");
+const describeNdca = fs.existsSync(NDCA_SAMPLE) ? describe : describe.skip;
+
+describeNdca("real regression: ndca-semis 'Valcke et al. 20' mis-styled cite", () => {
   it("is not kept before repair, is planned, and is kept after the rStyle injection", async () => {
-    const { documentXml } = await readDocxParts(
-      path.join(SAMPLES_DIR, "[small] 2ac---ndca---semis.docx")
-    );
+    const { documentXml } = await readDocxParts(NDCA_SAMPLE);
     const pkg = new WholeBodyPackage(documentXml);
 
     // Find the cite paragraph by TEXT (never a hardcoded index).

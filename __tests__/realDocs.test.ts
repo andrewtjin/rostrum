@@ -185,6 +185,10 @@ describe("commitXml part coverage across real briefs (Stage 4.2g formatting guar
     it("no .docx samples to guard — drop files into rostrum/samples", () => {
       expect(all).toHaveLength(0);
     });
+    // No fixtures (e.g. CI — samples/ is gitignored): skip the data-driven guard. Calling
+    // `it.each([])` is a hard Jest error ("empty Array of table data"), so we must `return`
+    // BEFORE it, mirroring the guard in the "real Word documents (samples/)" block above.
+    return;
   }
 
   it.each(all)(
