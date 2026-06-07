@@ -1,0 +1,8 @@
+# Windows batch installers MUST be CRLF in every working tree — including the
+# Linux GitHub Actions runner that builds dist/ and deploys them to Pages. Git
+# normalizes to LF in the repo; `eol=crlf` forces CRLF back on checkout on all
+# platforms (core.autocrlf alone only does this on Windows checkouts, so a Linux
+# CI deploy would otherwise ship LF-only .bat files, where multi-line if() blocks
+# can misbehave in cmd.exe).
+*.bat text eol=crlf
+*.cmd text eol=crlf
