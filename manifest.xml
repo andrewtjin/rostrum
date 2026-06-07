@@ -16,7 +16,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.0</Version>
+  <Version>0.3.0.1</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
@@ -33,7 +33,6 @@
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
-      <Set Name="SharedRuntime" MinVersion="1.0" />
     </Sets>
   </Requirements>
 

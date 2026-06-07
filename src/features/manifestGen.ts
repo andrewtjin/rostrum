@@ -47,10 +47,15 @@ export const manifestConfig: ManifestConfig = {
   // 4th digit re-registers the ribbon within a product version; bumping the MINOR already forces Office
   // to re-read the new "Condense" group on re-sideload, so the revision stays 0.
   // 0.3.0 = the SHARED-RUNTIME migration enabling Always-On (auto-load on every document, toggleable
-  // off). It adds <Runtimes> + the SharedRuntime 1.0 requirement — a manifest-STRUCTURE change, so the
-  // MINOR bump is mandatory for Office to drop the old single-runtime registration on re-sideload (a
-  // WEF cache clear may still be needed on a machine that had a prior version). Revision stays 0.
-  version: "0.3.0.0",
+  // off). It adds the <Runtimes lifetime="long"> block — a manifest-STRUCTURE change, so the MINOR
+  // bump is mandatory for Office to drop the old single-runtime registration on re-sideload.
+  // Revision .1: the first 0.3.0.0 attempt put `SharedRuntime 1.0` in the HARD base <Requirements>,
+  // which made Word FILTER THE ADD-IN OUT of My Add-ins on a real M365 build (the requirement gate
+  // decides visibility). The shared runtime must NOT hard-gate visibility — it's configured via
+  // <Runtimes> and the Always-On UI cap-gates SharedRuntime support at RUNTIME (officeStartup.ts), so
+  // the add-in loads everywhere and degrades gracefully. Removing the requirement is a re-register, so
+  // bump the 4th digit to force Office to re-read.
+  version: "0.3.0.1",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",
@@ -277,7 +282,6 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
-      <Set Name="SharedRuntime" MinVersion="1.0" />
     </Sets>
   </Requirements>
 

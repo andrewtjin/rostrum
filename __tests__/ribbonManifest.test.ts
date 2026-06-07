@@ -111,8 +111,11 @@ describe("buildManifestXml — robustness", () => {
 describe("shared runtime (Always-On enablement, 0.3.0)", () => {
   const xml = buildManifestXml(contributions, manifestConfig);
 
-  it("declares the SharedRuntime 1.0 requirement", () => {
-    expect(xml).toContain(`<Set Name="SharedRuntime" MinVersion="1.0" />`);
+  it("does NOT hard-gate visibility on SharedRuntime (it filtered the add-in out of My Add-ins)", () => {
+    // The shared runtime is configured via <Runtimes> below and cap-gated at RUNTIME
+    // (officeStartup.ts). Putting SharedRuntime in the base <Requirements> made Word refuse to
+    // surface the add-in at all on a real M365 build — so the add-in must load without it.
+    expect(xml).not.toContain(`<Set Name="SharedRuntime"`);
   });
 
   it("emits a long-lived <Runtime> pointing at the taskpane runtime page", () => {
@@ -126,8 +129,8 @@ describe("shared runtime (Always-On enablement, 0.3.0)", () => {
     expect(xml).not.toContain("Rostrum.Commands.Url");
   });
 
-  it("bumped to the 0.3.0 shared-runtime product version", () => {
-    expect(manifestConfig.version).toBe("0.3.0.0");
+  it("bumped to the 0.3.0.1 shared-runtime product version (revision .1 = requirement-filter fix)", () => {
+    expect(manifestConfig.version).toBe("0.3.0.1");
   });
 });
 
