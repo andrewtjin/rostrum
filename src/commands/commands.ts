@@ -3,13 +3,15 @@
 // by id (which equals its manifest <FunctionName>). Adding a ribbon command for a new feature is
 // then just contributing it — this file never changes.
 //
-// Importing the headless `contributions` (not the React `registry`) keeps this bundle React-free:
-// the ribbon function-file has no DOM/React, so it must not drag the component tree in.
+// Importing the headless `contributions` (not the React `registry`) keeps the association logic
+// itself React-free; it is invoked from the SHARED-RUNTIME startup (src/taskpane/index.tsx), which
+// is the manifest's <FunctionFile> + long-lived <Runtime> page now that commands.html is gone.
+// (Pre-0.3.0 this module was its own ephemeral commands.js entry that self-ran on Office.onReady;
+// under the shared runtime the one runtime page wires the ribbon AND hosts the on-demand pane.)
 //
-// Each handler runs the command in the ribbon runtime, logs the normalized result (a
-// function-command can't host UI like the Track-Changes modal, so a `blocked` op is logged for
-// the user to finish in the pane), and ALWAYS calls event.completed() so a ribbon button can
-// never hang.
+// Each handler runs the command, logs the normalized result (a function-command can't host UI like
+// the Track-Changes modal, so a `blocked` op is logged for the user to finish in the pane), and
+// ALWAYS calls event.completed() so a ribbon button can never hang.
 import { logger } from "../core/debug";
 import { contributions } from "../features/contributions";
 
@@ -17,8 +19,12 @@ import { contributions } from "../features/contributions";
 
 const log = logger("ribbon");
 
-/** Wire every contributed command to its manifest FunctionName via Office.actions.associate. */
-function associateAll(): void {
+/**
+ * Wire every contributed command to its manifest FunctionName via Office.actions.associate. Called
+ * once from the shared-runtime startup; guarded so a host without `Office.actions` (e.g. a unit test)
+ * is a safe no-op.
+ */
+export function associateAll(): void {
   const actions = (Office as any).actions;
   if (!actions?.associate) {
     log.warn("Office.actions.associate unavailable — ribbon commands not wired");
@@ -44,10 +50,4 @@ function associateAll(): void {
     });
   }
   log.debug("ribbon handlers associated", { count: commands.length });
-}
-
-// Associate once Office is ready. Guarded so importing this module never touches `Office`
-// in a non-host environment (e.g. a unit test).
-if (typeof Office !== "undefined" && typeof Office.onReady === "function") {
-  Office.onReady(() => associateAll());
 }

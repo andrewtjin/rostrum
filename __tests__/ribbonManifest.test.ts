@@ -108,6 +108,29 @@ describe("buildManifestXml — robustness", () => {
   });
 });
 
+describe("shared runtime (Always-On enablement, 0.3.0)", () => {
+  const xml = buildManifestXml(contributions, manifestConfig);
+
+  it("declares the SharedRuntime 1.0 requirement", () => {
+    expect(xml).toContain(`<Set Name="SharedRuntime" MinVersion="1.0" />`);
+  });
+
+  it("emits a long-lived <Runtime> pointing at the taskpane runtime page", () => {
+    expect(xml).toContain(`<Runtime resid="Rostrum.Taskpane.Url" lifetime="long" />`);
+    expect(xml).toContain(`<bt:Url id="Rostrum.Taskpane.Url" DefaultValue="${manifestConfig.origin}/taskpane.html" />`);
+  });
+
+  it("points the FunctionFile at the runtime page (not the removed commands.html)", () => {
+    expect(xml).toContain(`<FunctionFile resid="Rostrum.Taskpane.Url" />`);
+    expect(xml).not.toContain("commands.html");
+    expect(xml).not.toContain("Rostrum.Commands.Url");
+  });
+
+  it("bumped to the 0.3.0 shared-runtime product version", () => {
+    expect(manifestConfig.version).toBe("0.3.0.0");
+  });
+});
+
 describe("manifest.xml drift guard", () => {
   it("the committed manifest.xml equals the generator output — run `npm run gen:manifest`", () => {
     const committed = readFileSync(resolve(__dirname, "..", "manifest.xml"), "utf8");
@@ -176,7 +199,8 @@ describe("prodConfig (hosted-origin override layer)", () => {
     const xml = buildManifestXml(contributions, prodConfig({ origin: ORIGIN }));
     expect(xml).toContain(`<Id>${PROD_ID}</Id>`);
     expect(xml).toContain(`DefaultValue="${ORIGIN}/taskpane.html"`);
-    expect(xml).toContain(`DefaultValue="${ORIGIN}/commands.html"`);
+    // The shared-runtime page (taskpane.html) is now the FunctionFile + Runtime; commands.html is gone.
+    expect(xml).not.toContain("commands.html");
     expect(xml).toContain(`DefaultValue="${ORIGIN}/assets/icon-32.png"`);
     expect(xml).not.toContain("localhost");
     // Pane deep-links must also carry the prod origin.

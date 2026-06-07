@@ -28,8 +28,9 @@ describe("appPageUrl", () => {
   });
 
   it("resolves correctly even when the CALLER is itself the dialog/progress page", () => {
-    // commands.html (the ribbon function-file runtime) opens the pop-out — a sibling, not the root.
-    withLocation("https://andrewtjin.github.io/rostrum/commands.html#somecmd");
+    // The shared-runtime page (taskpane.html) is the ribbon function-file runtime that opens the
+    // pop-out — a sibling, not the root.
+    withLocation("https://andrewtjin.github.io/rostrum/taskpane.html#somecmd");
     expect(appPageUrl("progress.html")).toBe("https://andrewtjin.github.io/rostrum/progress.html");
   });
 

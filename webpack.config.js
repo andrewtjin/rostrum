@@ -22,8 +22,10 @@ module.exports = async (env, argv) => {
   return {
     devtool: dev ? "source-map" : false,
     entry: {
+      // The shared runtime: ONE long-lived page (taskpane.html) that hosts the React pane AND wires
+      // the ribbon command handlers (it imports ../commands/commands). Since 0.3.0 there is no
+      // separate commands.js entry — the manifest's <Runtime> + <FunctionFile> both point here.
       taskpane: "./src/taskpane/index.tsx",
-      commands: "./src/commands/commands.ts",
       // The full-window workspace dialog (opt-in space-heavy surface) — its own bundle so
       // it loads independently of the pane.
       dialog: "./src/dialog/index.tsx",
@@ -53,11 +55,6 @@ module.exports = async (env, argv) => {
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
         chunks: ["taskpane"]
-      }),
-      new HtmlWebpackPlugin({
-        filename: "commands.html",
-        template: "./src/commands/commands.html",
-        chunks: ["commands"]
       }),
       new HtmlWebpackPlugin({
         filename: "dialog.html",

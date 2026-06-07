@@ -63,8 +63,8 @@ describe("withProgressDialog", () => {
       clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
       // `href` (not just `origin`) because the pop-out URL is now resolved RELATIVE to the
       // current page (core/appUrl.ts) so it survives a project-Pages subpath. The ribbon
-      // command runtime that opens the pop-out is served from commands.html.
-      location: { origin: "https://localhost:3000", href: "https://localhost:3000/commands.html" },
+      // command runtime that opens the pop-out is the shared-runtime page (taskpane.html).
+      location: { origin: "https://localhost:3000", href: "https://localhost:3000/taskpane.html" },
     };
   });
 

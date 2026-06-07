@@ -46,7 +46,11 @@ export const manifestConfig: ManifestConfig = {
   // (MINOR digit climbs as the suite fills in toward the 1.0.0 full-suite milestone — see LESSONS). The
   // 4th digit re-registers the ribbon within a product version; bumping the MINOR already forces Office
   // to re-read the new "Condense" group on re-sideload, so the revision stays 0.
-  version: "0.2.0.0",
+  // 0.3.0 = the SHARED-RUNTIME migration enabling Always-On (auto-load on every document, toggleable
+  // off). It adds <Runtimes> + the SharedRuntime 1.0 requirement — a manifest-STRUCTURE change, so the
+  // MINOR bump is mandatory for Office to drop the old single-runtime registration on re-sideload (a
+  // WEF cache clear may still be needed on a machine that had a prior version). Revision stays 0.
+  version: "0.3.0.0",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",
@@ -144,7 +148,6 @@ function iconXml(pad: string): string {
  */
 export function buildManifestXml(features: FeatureContribution[], config: ManifestConfig): string {
   const taskpaneBase = `${config.origin}/taskpane.html`;
-  const commandsUrl = `${config.origin}/commands.html`;
   const icon = (size: number): string => `${config.origin}/assets/icon-${size}.png`;
 
   // Resource accumulators (resids stay ≤32 chars; text goes in DefaultValue).
@@ -220,7 +223,10 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
     .join("\n");
 
   const urlsXml = [
-    `        <bt:Url id="Rostrum.Commands.Url" DefaultValue="${xml(commandsUrl)}" />`,
+    // The shared-runtime page: it is BOTH the long-lived runtime (loads on document open, wires the
+    // ribbon command handlers) AND the deep-linked pane shown on demand — so the <Runtime> and the
+    // <FunctionFile> both point here (taskpane.html), replacing the old separate commands.html.
+    `        <bt:Url id="Rostrum.Taskpane.Url" DefaultValue="${xml(taskpaneBase)}" />`,
     `        <bt:Url id="Rostrum.GetStarted.LearnMoreUrl" DefaultValue="${xml(config.getStarted.learnMoreUrl)}" />`,
     ...urls.map((u) => `        <bt:Url id="${u.id}" DefaultValue="${xml(u.value)}" />`),
   ].join("\n");
@@ -271,6 +277,7 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
+      <Set Name="SharedRuntime" MinVersion="1.0" />
     </Sets>
   </Requirements>
 
@@ -282,13 +289,19 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
     <Hosts>
       <Host xsi:type="Document">
+        <!-- Shared runtime (lifetime="long"): one persistent runtime that starts on document open,
+             so Always-On (Office.addin.setStartupBehavior) can auto-load the tab on every document.
+             It hosts the ribbon command handlers AND the on-demand pane (same taskpane.html page). -->
+        <Runtimes>
+          <Runtime resid="Rostrum.Taskpane.Url" lifetime="long" />
+        </Runtimes>
         <DesktopFormFactor>
           <GetStarted>
             <Title resid="Rostrum.GetStarted.Title" />
             <Description resid="Rostrum.GetStarted.Description" />
             <LearnMoreUrl resid="Rostrum.GetStarted.LearnMoreUrl" />
           </GetStarted>
-          <FunctionFile resid="Rostrum.Commands.Url" />
+          <FunctionFile resid="Rostrum.Taskpane.Url" />
 
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <CustomTab id="${xml(config.tab.id)}">
