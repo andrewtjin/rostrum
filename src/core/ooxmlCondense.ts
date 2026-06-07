@@ -252,9 +252,23 @@ function isPPrDataRun(runEl: any): boolean {
   return isMarkerRun(runEl) && vanishOn(runRPr(runEl)) && runTextRaw(runEl).trimStart().startsWith("<w:pPr");
 }
 
+/**
+ * A marker run that stores a retain-mode dropped blank's ORIGINAL mark `<w:rPr>` (vanished; text begins
+ * `<w:rPr`). Parked when the dropped paragraph's mark carried a foreign character style we had to swap for
+ * our break style, so Uncondense can restore the user's mark exactly.
+ */
+function isMarkRPrDataRun(runEl: any): boolean {
+  return isMarkerRun(runEl) && vanishOn(runRPr(runEl)) && runTextRaw(runEl).trimStart().startsWith("<w:rPr");
+}
+
+/** A marker run carrying a serialized-XML payload (a stored pPr or mark rPr) rather than a visible glyph. */
+function isDataRun(runEl: any): boolean {
+  return isPPrDataRun(runEl) || isMarkRPrDataRun(runEl);
+}
+
 /** A marker run that is the VISIBLE boundary glyph (a space or `¶`) — the actual paragraph break. */
 function isGlyphMarkerRun(runEl: any): boolean {
-  return isMarkerRun(runEl) && !isPPrDataRun(runEl);
+  return isMarkerRun(runEl) && !isDataRun(runEl);
 }
 
 // ---------------------------------------------------------------------------
@@ -544,8 +558,14 @@ function makeGlyphMarker(doc: any, glyph: string, sizeHalfPts: number | null): a
   return r;
 }
 
-/** Build a hidden pPr-payload run (vanished, styled), carrying a divergent following paragraph's pPr. */
-function makePPrDataRun(doc: any, pPrXml: string): any {
+/**
+ * Build a hidden, vanished, break-styled run whose `<w:t>` carries a serialized-XML payload — either a
+ * divergent following paragraph's `<w:pPr>` (merge mode) or a dropped blank's original mark `<w:rPr>`
+ * (retain mode). Stored as TEXT: the serializer escapes it (`<`->`&lt;`), Uncondense un-escapes and re-
+ * parses. Self-describing (its own tag identifies it), so it travels with the paragraph (copy/paste-safe;
+ * no global state).
+ */
+function makeDataRun(doc: any, payloadXml: string): any {
   const r = doc.createElement("w:r");
   const rPr = doc.createElement("w:rPr");
   const rStyle = doc.createElement("w:rStyle");
@@ -555,9 +575,7 @@ function makePPrDataRun(doc: any, pPrXml: string): any {
   r.appendChild(rPr);
   const t = doc.createElement("w:t");
   t.setAttribute("xml:space", "preserve");
-  // The pPr XML is stored as TEXT — the serializer escapes it (`<`->`&lt;`), Uncondense un-escapes and
-  // re-parses it. Self-describing, so it travels with the paragraph (copy/paste-safe; no global state).
-  t.appendChild(doc.createTextNode(pPrXml));
+  t.appendChild(doc.createTextNode(payloadXml));
   r.appendChild(t);
   return r;
 }
@@ -647,7 +665,7 @@ function mergeParagraphs(doc: any, paras: any[], opts: CondenseOptions): number 
       // a clone of the base. When src == base (the uniform card-body common case) no payload is stored
       // and the split clones the base pPr — exact by construction.
       if (srcPPr !== basePPr) {
-        target.appendChild(makePPrDataRun(doc, srcPPr || "<w:pPr/>"));
+        target.appendChild(makeDataRun(doc, srcPPr || "<w:pPr/>"));
       }
       boundaries++;
     } else {
@@ -679,22 +697,29 @@ function dropBlankParagraphs(doc: any, paras: any[], reversal: CondenseOptions["
     if (directParagraphs(bodyScope(doc)).length <= 1) break; // keep at least one paragraph
     if (reversal === "marker") {
       // Lossless removal stamps the paragraph mark with the break style + `<w:vanish/>`, so it collapses
-      // now and Uncondense (which keys on the break style) restores it. If the mark already carries a
-      // FOREIGN character style, we cannot stamp our style without clobbering the user's — and vanishing
-      // it under a foreign style would hide it PERMANENTLY (Uncondense would never un-hide it). So skip
-      // such a paragraph rather than irreversibly lose it (the adversarial styled-blank-mark defect).
+      // now and Uncondense (which keys on the break style) restores it. rPr allows only ONE `<w:rStyle>`,
+      // so when the mark already carries a FOREIGN character style — e.g. an underlined-but-empty newline
+      // styled `StyleUnderline` (real briefs underline via a char style) — we can't simply add ours. We
+      // park the pristine original mark rPr in a hidden, self-describing payload run, THEN swap the live
+      // rStyle to our break style: the blank condenses like any other, and Uncondense restores the user's
+      // mark verbatim from the payload — lossless, where we previously had to skip such paragraphs.
       const existing = existingMarkRPr(p);
       const existingRStyle = existing ? firstDirectChild(existing, "w:rStyle") : null;
-      if (existingRStyle && (existingRStyle.getAttribute("w:val") || "") !== CONDENSE_MARK_STYLE) {
-        continue;
+      const foreignStyle =
+        !!existingRStyle && (existingRStyle.getAttribute("w:val") || "") !== CONDENSE_MARK_STYLE;
+      if (foreignStyle) {
+        p.appendChild(makeDataRun(doc, serialize(existing))); // park the original (captured pre-mutation)
+        existingRStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
+        if (!firstDirectChild(existing, "w:vanish")) existing.appendChild(doc.createElement("w:vanish"));
+      } else {
+        const markRPr = ensureMarkRPr(doc, p);
+        if (!firstDirectChild(markRPr, "w:rStyle")) {
+          const rStyle = doc.createElement("w:rStyle");
+          rStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
+          markRPr.insertBefore(rStyle, markRPr.firstChild);
+        }
+        if (!firstDirectChild(markRPr, "w:vanish")) markRPr.appendChild(doc.createElement("w:vanish"));
       }
-      const markRPr = ensureMarkRPr(doc, p);
-      if (!firstDirectChild(markRPr, "w:rStyle")) {
-        const rStyle = doc.createElement("w:rStyle");
-        rStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
-        markRPr.insertBefore(rStyle, markRPr.firstChild);
-      }
-      if (!firstDirectChild(markRPr, "w:vanish")) markRPr.appendChild(doc.createElement("w:vanish"));
       count++;
     } else if (p.parentNode) {
       p.parentNode.removeChild(p);
@@ -741,10 +766,19 @@ export function uncondenseFragmentOoxml(fragmentXml: string): UncondenseOoxmlRes
     const markRPr = pPr ? firstDirectChild(pPr, "w:rPr") : null;
     const rStyle = markRPr ? firstDirectChild(markRPr, "w:rStyle") : null;
     if (rStyle && (rStyle.getAttribute("w:val") || "") === CONDENSE_MARK_STYLE) {
-      for (const v of directChildren(markRPr, "w:vanish")) markRPr.removeChild(v);
-      markRPr.removeChild(rStyle);
+      // If we parked a foreign mark rPr when dropping this blank (see dropBlankParagraphs), restore it
+      // verbatim from the payload run; otherwise just strip our break style + vanish back off the mark.
+      const dataRun = paragraphRuns(p).find((r) => isMarkRPrDataRun(r));
+      const original = dataRun ? importRPr(doc, runTextRaw(dataRun).trim()) : null;
+      if (dataRun && dataRun.parentNode) dataRun.parentNode.removeChild(dataRun);
+      if (original) {
+        pPr.replaceChild(original, markRPr);
+      } else {
+        for (const v of directChildren(markRPr, "w:vanish")) markRPr.removeChild(v);
+        markRPr.removeChild(rStyle);
+        removeIfEmpty(markRPr);
+      }
       // Leave no empty `<w:rPr/>`/`<w:pPr/>` residue behind (keeps the retain round-trip clean).
-      removeIfEmpty(markRPr);
       removeIfEmpty(pPr);
       breaks++;
     }
@@ -823,6 +857,18 @@ function importPPr(doc: any, pPrXml: string): any | null {
     const frag = parse(wrapped);
     const pPr = frag.getElementsByTagName("w:pPr").item(0);
     return pPr ? doc.importNode(pPr, true) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse a stored mark `<w:rPr>` string and import it into `doc` (namespace-wrapped so `w:` resolves). */
+function importRPr(doc: any, rPrXml: string): any | null {
+  try {
+    const wrapped = `<w:p xmlns:w="${W_NS}"><w:pPr>${rPrXml}</w:pPr></w:p>`;
+    const frag = parse(wrapped);
+    const rPr = frag.getElementsByTagName("w:rPr").item(0);
+    return rPr ? doc.importNode(rPr, true) : null;
   } catch {
     return null;
   }

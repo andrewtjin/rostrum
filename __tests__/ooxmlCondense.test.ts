@@ -199,14 +199,37 @@ describe("retain-paragraphs mode", () => {
     expect(paraTexts(out.xml)).toEqual(["AAA", "BBB"]);
   });
 
-  it("does NOT irreversibly hide a blank paragraph whose mark has a foreign style (adversarial)", () => {
-    // A blank paragraph already carrying a non-Rostrum mark style must be skipped, not vanished under a
-    // style Uncondense can't recognize (which would hide it forever).
+  it("losslessly condenses a blank paragraph whose mark has a foreign style, restoring it on uncondense", () => {
+    // A blank paragraph carrying a non-Rostrum mark style used to be SKIPPED (the original style collides
+    // with our break style in the single rStyle slot). Now we park the pristine mark rPr in a hidden
+    // payload and swap in our break style, so the blank IS condensed and the user's style round-trips.
     const styledBlank = `<w:p><w:pPr><w:rPr><w:rStyle w:val="SomeOtherStyle"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">  </w:t></w:r></w:p>`;
     const xml = body(p(run("AAA")), styledBlank, p(run("BBB")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
-    expect(out.boundariesMarked).toBe(0); // skipped — nothing reversibly removed
-    expect(out.xml).not.toContain("<w:vanish/>"); // the foreign-styled blank was NOT hidden
-    expect(out.xml).toContain("SomeOtherStyle"); // its style is untouched
+    expect(out.boundariesMarked).toBe(1); // the foreign-styled blank IS now condensed
+    expect(out.xml).toContain("<w:vanish/>"); // hidden
+    expect(out.xml).toContain("SomeOtherStyle"); // original mark style preserved (parked in the payload)
+    expect(readFragmentParagraphs(out.xml)).toHaveLength(3); // structure retained
+
+    const restored = uncondenseFragmentOoxml(out.xml);
+    expect(restored.xml).not.toContain(CONDENSE_MARK_STYLE); // our break style + payload gone
+    expect(restored.xml).toContain(`<w:rStyle w:val="SomeOtherStyle"/>`); // user's mark style restored exactly
+    expect(restored.xml).not.toContain("<w:vanish/>"); // un-hidden
+    expect(readFragmentParagraphs(restored.xml)).toHaveLength(3);
+  });
+
+  it("condenses an underlined-but-empty newline whose mark is styled via a char style (the reported bug)", () => {
+    // Repro: a newline whose paragraph mark is underlined via a character style, with NO text. It must
+    // collapse under retain-paragraphs mode — it didn't before, because the foreign mark style made us
+    // skip it. The underline char style must come back on Uncondense.
+    const underlinedNewline = `<w:p><w:pPr><w:rPr><w:rStyle w:val="StyleUnderline"/></w:rPr></w:pPr></w:p>`;
+    const xml = body(p(run("AAA")), underlinedNewline, p(run("BBB")));
+    const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
+    expect(out.boundariesMarked).toBe(1); // the underlined empty newline is condensed
+    expect(out.xml).toContain("<w:vanish/>");
+
+    const restored = uncondenseFragmentOoxml(out.xml);
+    expect(restored.xml).toContain(`<w:rStyle w:val="StyleUnderline"/>`);
+    expect(restored.xml).not.toContain(CONDENSE_MARK_STYLE);
   });
 });
