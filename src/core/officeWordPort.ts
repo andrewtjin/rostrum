@@ -686,7 +686,9 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   /**
    * Replace the active range with new OOXML via `insertOoxml(…, "Replace")`. Re-derives the same range
    * `readActiveRangeOoxml` chose (selection, or the current paragraph when collapsed), so Condense's
-   * merged single paragraph lands exactly where the cards were. One `Word.run`, one atomic sync.
+   * merged single paragraph lands exactly where the cards were, then RE-SELECTS the inserted content so a
+   * repeated Shrink/Condense press keeps acting on the whole block (not just the collapsed cursor's
+   * paragraph). One `Word.run`, one atomic sync.
    */
   async replaceActiveRangeOoxml(ooxml: string): Promise<void> {
     const op = this.log.child("rangeWrite");
@@ -701,8 +703,13 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
         const collapsed = (typeof sel.text === "string" ? sel.text : "") === "";
         const range = collapsed && selParas.items.length > 0 ? selParas.items[0].getRange() : sel;
-        range.insertOoxml(ooxml, "Replace");
-        await ctx.sync(); // sync 2: the atomic replace
+        // RE-SELECT the inserted content: insertOoxml("Replace") otherwise collapses the selection to a
+        // cursor, so a repeated Shrink/Condense press would only act on the current paragraph (the
+        // collapsed-cursor fallback) instead of the whole multi-paragraph block the user shrank. Selecting
+        // the returned range keeps the original selection live across presses — no keyboard shortcut needed.
+        const inserted = range.insertOoxml(ooxml, "Replace");
+        inserted.select();
+        await ctx.sync(); // sync 2: the atomic replace + reselect
       });
       span.end();
     } catch (e) {

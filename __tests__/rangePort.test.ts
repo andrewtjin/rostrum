@@ -23,11 +23,17 @@ const pkg = (bodyInner: string): string =>
  */
 function makeRunner(opts: { selText: string; rangeOoxml: string; outlines: number[] }) {
   const inserts: string[] = [];
+  const selects: string[] = []; // xml of inserted ranges that were re-selected (bug-2 reselect guard)
+  // insertOoxml returns a Word.Range; the adapter calls .select() on it to keep the selection live.
+  const insert = (xml: string): any => {
+    inserts.push(xml);
+    return { select: () => selects.push(xml) };
+  };
   const paragraphRange: any = {
     load() {},
     paragraphs: { load() {}, items: opts.outlines.map((lvl) => ({ load() {}, outlineLevel: lvl })) },
     getOoxml: () => ({ value: opts.rangeOoxml }),
-    insertOoxml: (xml: string) => inserts.push(xml)
+    insertOoxml: insert
   };
   const selectionParas = opts.outlines.map((lvl) => ({ load() {}, outlineLevel: lvl, getRange: () => paragraphRange }));
   const selection: any = {
@@ -36,11 +42,11 @@ function makeRunner(opts: { selText: string; rangeOoxml: string; outlines: numbe
     paragraphs: { load() {}, items: selectionParas },
     getOoxml: () => ({ value: opts.rangeOoxml }),
     getRange: () => paragraphRange,
-    insertOoxml: (xml: string) => inserts.push(xml)
+    insertOoxml: insert
   };
   const ctx: any = { document: { getSelection: () => selection }, sync: async () => undefined };
   const runner = <T,>(batch: (c: any) => Promise<T>): Promise<T> => batch(ctx);
-  return { runner, inserts };
+  return { runner, inserts, selects };
 }
 
 describe("readActiveRangeOoxml", () => {
@@ -66,10 +72,11 @@ describe("readActiveRangeOoxml", () => {
 });
 
 describe("replaceActiveRangeOoxml", () => {
-  it("writes back via insertOoxml on the active range", async () => {
-    const { runner, inserts } = makeRunner({ selText: "x", rangeOoxml: pkg("<w:p/>"), outlines: [10] });
+  it("writes back via insertOoxml AND re-selects the inserted content (bug-2: selection persists)", async () => {
+    const { runner, inserts, selects } = makeRunner({ selText: "x", rangeOoxml: pkg("<w:p/>"), outlines: [10] });
     const port = createOfficeWordPort({ runner });
     await port.replaceActiveRangeOoxml("<NEW/>");
     expect(inserts).toEqual(["<NEW/>"]);
+    expect(selects).toEqual(["<NEW/>"]); // re-selected so a repeated Shrink keeps the whole block live
   });
 });

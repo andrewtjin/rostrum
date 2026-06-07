@@ -26,12 +26,21 @@ const SIX_PT_HALF = 12;
 
 /**
  * A run is kept at FULL size (never shrunk) when it carries Shrink's keep-signal: it is underlined (the
- * cut), highlighted, cite-styled, a structural/ineligible run (fields, footnote refs, drawings), or a
- * condense break marker. Mirrors decision #2 ("keep underlined OR highlighted runs full-size, plus
- * cites/headings/structural always"). Headings are handled per-paragraph by the caller, not here.
+ * cut) or character-boxed — BOTH resolved through the run's character style too, since real briefs apply
+ * the cut via StyleUnderline / Emphasis rather than a direct rPr — or highlighted, cite-styled, a
+ * structural/ineligible run (fields, footnote refs, drawings), or a condense break marker. Mirrors
+ * decision #2 ("keep underlined OR highlighted runs full-size, plus boxed/cites/headings/structural
+ * always"). Headings are handled per-paragraph by the caller, not here.
  */
 export function keepFullSize(run: FragmentRunView): boolean {
-  return run.breakMarker || !run.eligible || run.underline || run.highlight !== null || run.citeStyled;
+  return (
+    run.breakMarker ||
+    !run.eligible ||
+    run.underline ||
+    run.boxed ||
+    run.highlight !== null ||
+    run.citeStyled
+  );
 }
 
 /** The effective current size of a run in half-points: its explicit `<w:sz>`, else the Normal size. */

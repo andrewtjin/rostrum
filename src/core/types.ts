@@ -232,6 +232,14 @@ export interface FragmentRunView extends RunView {
   sizeHalfPts: number | null;
   /** True when this run carries the condense break-marker character style (`CONDENSE_MARK_STYLE`). */
   breakMarker: boolean;
+  /**
+   * True when the run is character-boxed (`<w:bdr>` with a real border) — directly OR through its
+   * character style. Shrink keeps boxed runs full-size alongside underlined ones (debate emphasis).
+   * NOTE: for this fragment view, BOTH `underline` and `boxed` are STYLE-RESOLVED — in real briefs the
+   * cut/emphasis is applied through a character style (StyleUnderline / Emphasis), not a direct rPr — so
+   * resolving only the run's own `<w:u>`/`<w:bdr>` (as the invisibility reader does) misses the signal.
+   */
+  boxed: boolean;
 }
 
 /**

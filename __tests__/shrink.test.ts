@@ -7,7 +7,7 @@ import {
   shrinkFragment,
   unshrinkFragment
 } from "../src/core/shrink";
-import { readFragmentParagraphs } from "../src/core/ooxmlCondense";
+import { readFragmentParagraphs, resolveStyleEmphasis } from "../src/core/ooxmlCondense";
 import { OmissionPattern, ShrinkOptions } from "../src/core/types";
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -28,6 +28,20 @@ function run(text: string, o: RunOpts = {}): string {
   return `<w:r>${rPrXml}<w:t xml:space="preserve">${text}</w:t></w:r>`;
 }
 const bareP = (inner: string): string => `<w:p xmlns:w="${W_NS}">${inner}</w:p>`;
+
+/** A run carrying a character STYLE (rStyle) instead of direct formatting — how real briefs encode the cut. */
+const runStyled = (text: string, styleId: string): string =>
+  `<w:r><w:rPr><w:rStyle w:val="${styleId}"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
+
+/** Character-style defs mirroring a real brief: StyleUnderline (u), Emphasis (u + box), Plain (bold only). */
+const STYLE_DEFS =
+  `<w:style w:type="character" w:styleId="StyleUnderline"><w:basedOn w:val="DefaultParagraphFont"/><w:rPr><w:u w:val="single"/></w:rPr></w:style>` +
+  `<w:style w:type="character" w:styleId="Emphasis"><w:basedOn w:val="DefaultParagraphFont"/><w:rPr><w:u w:val="single"/><w:bdr w:val="single"/></w:rPr></w:style>` +
+  `<w:style w:type="character" w:styleId="Plain"><w:rPr><w:b/></w:rPr></w:style>`;
+
+/** A fragment with a styles part + a one-paragraph body, so style-resolved emphasis applies (like a range read). */
+const styledP = (inner: string): string =>
+  `<pkg xmlns:w="${W_NS}"><w:styles>${STYLE_DEFS}</w:styles><w:body><w:p>${inner}</w:p></w:body></pkg>`;
 
 /** Sizes (half-points) per run in the (single) paragraph after a transform. */
 const sizes = (xml: string): (number | null)[] => readFragmentParagraphs(xml)[0].map((r) => r.sizeHalfPts);
@@ -70,6 +84,62 @@ describe("keepFullSize predicate", () => {
     expect(keepFullSize(view(run("hl", { highlight: "yellow" })))).toBe(true);
     expect(keepFullSize(view(run("cite", { cite: true })))).toBe(true);
     expect(keepFullSize(view(`<w:r><w:fldChar w:fldCharType="begin"/></w:r>`))).toBe(true); // ineligible
+  });
+});
+
+describe("keepFullSize — style-resolved underline/box (real-brief encoding, bug-1)", () => {
+  const first = (frag: string): ReturnType<typeof readFragmentParagraphs>[0][0] => readFragmentParagraphs(frag)[0][0];
+  it("keeps a run underlined via a character STYLE (StyleUnderline), not a direct <w:u>", () => {
+    const r = first(styledP(runStyled("the cut", "StyleUnderline")));
+    expect(r.underline).toBe(true);
+    expect(keepFullSize(r)).toBe(true);
+  });
+  it("keeps a BOXED run via a character style (Emphasis = underline + box)", () => {
+    const r = first(styledP(runStyled("emph", "Emphasis")));
+    expect(r.boxed).toBe(true);
+    expect(keepFullSize(r)).toBe(true);
+  });
+  it("still shrinks a styled run with no underline/box (Plain = bold only)", () => {
+    expect(keepFullSize(first(styledP(runStyled("loud", "Plain"))))).toBe(false);
+  });
+  it('a direct <w:u w:val="none"/> overrides a style that underlines', () => {
+    const r = first(styledP(`<w:r><w:rPr><w:rStyle w:val="StyleUnderline"/><w:u w:val="none"/></w:rPr><w:t>x</w:t></w:r>`));
+    expect(r.underline).toBe(false);
+    expect(keepFullSize(r)).toBe(false);
+  });
+});
+
+describe("shrinkFragment — keeps style-underlined/boxed runs full-size (bug-1 end-to-end)", () => {
+  it("shrinks only the plain run; StyleUnderline + Emphasis stay full-size", () => {
+    const xml = styledP(runStyled("plain ", "Plain") + runStyled("cut", "StyleUnderline") + runStyled("emph", "Emphasis"));
+    const out = shrinkFragment(xml, opts());
+    expect(out.changed).toBe(true);
+    expect(sizes(out.xml)).toEqual([16, null, null]); // plain → 8pt; styled keepers untouched
+  });
+});
+
+describe("resolveStyleEmphasis (basedOn cascade)", () => {
+  const styles =
+    `<w:styles xmlns:w="${W_NS}">` +
+    `<w:style w:type="character" w:styleId="U"><w:rPr><w:u w:val="single"/></w:rPr></w:style>` +
+    `<w:style w:type="character" w:styleId="Box"><w:rPr><w:bdr w:val="single"/></w:rPr></w:style>` +
+    `<w:style w:type="character" w:styleId="ChildOfU"><w:basedOn w:val="U"/><w:rPr><w:b/></w:rPr></w:style>` +
+    `<w:style w:type="character" w:styleId="NoneOverU"><w:basedOn w:val="U"/><w:rPr><w:u w:val="none"/></w:rPr></w:style>` +
+    `<w:style w:type="character" w:styleId="Plain"><w:rPr><w:b/></w:rPr></w:style>` +
+    `</w:styles>`;
+  const map = resolveStyleEmphasis(styles);
+  it("reads own underline/box", () => {
+    expect(map.get("U")).toEqual({ underline: true, boxed: false });
+    expect(map.get("Box")).toEqual({ underline: false, boxed: true });
+  });
+  it("inherits underline through basedOn", () => {
+    expect(map.get("ChildOfU")?.underline).toBe(true);
+  });
+  it("a child overrides inherited underline to none", () => {
+    expect(map.get("NoneOverU")?.underline).toBe(false);
+  });
+  it("a non-emphasis style is neither underlined nor boxed", () => {
+    expect(map.get("Plain")).toEqual({ underline: false, boxed: false });
   });
 });
 

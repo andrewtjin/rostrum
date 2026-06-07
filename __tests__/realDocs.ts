@@ -24,9 +24,22 @@
 import * as fs from "fs";
 import * as path from "path";
 import JSZip from "jszip";
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
 import { parseStyleDefs, outlineNumberOf, type StyleDef } from "../src/core/outline";
 import { FakePara } from "./fakeWord";
+
+// xmldom node handles vary across versions; public signatures stay fully typed (string in/out) and we
+// use a localized `any` for the node objects — the same pragmatic choice ooxmlCondense.ts/ooxmlPackage.ts make.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** WordprocessingML main namespace — the only prefix the Shrink/Condense engine inspects. Exported so the
+ *  real-doc test suites share ONE source of the literal (no per-file re-declaration to drift). */
+export const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+/** Flat-OPC package namespace, as Word's `Range.getOoxml()` emits it. */
+export const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
+/** DOM Node.ELEMENT_NODE — named for the same reason ooxmlPackage.ts/ooxmlCondense.ts name it (no bare `1`). */
+const ELEMENT_NODE = 1;
 
 /** rostrum/samples — one level above the add-in package (this file is in __tests__). */
 export const SAMPLES_DIR = path.resolve(__dirname, "../../samples");
@@ -119,4 +132,98 @@ export function paragraphsFromDocumentXml(documentXml: string, stylesXml: string
     out.push({ xml, outlineNumber: outlineNumberOf(xml, defs), inTable: false });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Flat-OPC RANGE-package reconstruction (for the Shrink real-doc suite).
+//
+// The Stage-4.2g per-paragraph package (`WholeBodyPackage.paragraphXml`) is deliberately style-LESS, so
+// it CANNOT drive Shrink: `resolveStyleEmphasis`/`resolveNormalSizeHalfPts` regex-scan the fragment for
+// `<w:style>`/`<w:docDefaults>`, and real briefs apply the cut through a CHARACTER STYLE — with no styles
+// part, every run resolves to "no emphasis" and the genuine cut would shrink. The helpers below instead
+// rebuild the TWO-part shape Word's live `Range.getOoxml()` returns — a `/word/document.xml` part AND a
+// `/word/styles.xml` part — which is exactly what Shrink consumes on the host. (`rangePort.test.ts::pkg()`
+// models the same flat-OPC shape but with only the document part.)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip a leading UTF-8 BOM and/or XML prolog (`<?xml …?>`) so a whole part can be embedded MID-package
+ * inside `<pkg:xmlData>`. JSZip decodes parts as UTF-8 and may retain the BOM, and Word's
+ * `document.xml`/`styles.xml` each begin with a prolog; an interior BOM/prolog is not well-formed, so both
+ * are removed before wrapping. The explicit BOM strip is LOAD-BEARING, not decorative: the prolog regex's
+ * `^\s*` would absorb a BOM only when one PRECEDES `<?xml`, so a part that has a BOM but no prolog needs
+ * the dedicated strip. (JS `\s` does include U+FEFF, but only the prolog branch relies on that.)
+ */
+export function stripProlog(xml: string): string {
+  return xml.replace(/^﻿/, "").replace(/^\s*<\?xml[^>]*\?>\s*/, "");
+}
+
+/**
+ * Reconstruct a faithful flat-OPC RANGE package — a `document.xml` part PLUS a `styles.xml` part — the
+ * exact two-part shape Word's live `Range.getOoxml()` returns and the ONLY shape that can drive Shrink
+ * against a real brief (the engine needs both the body paragraphs and the style definitions in one
+ * string). Each part keeps its own root namespace declarations (Word emits self-contained parts), so the
+ * `w:` prefix resolves inside `<pkg:xmlData>`.
+ */
+export function buildRangePackage(documentXml: string, stylesXml: string): string {
+  return (
+    `<pkg:package xmlns:pkg="${PKG_NS}">` +
+    `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData>${stripProlog(documentXml)}</pkg:xmlData></pkg:part>` +
+    `<pkg:part pkg:name="/word/styles.xml"><pkg:xmlData>${stripProlog(stylesXml)}</pkg:xmlData></pkg:part>` +
+    `</pkg:package>`
+  );
+}
+
+/**
+ * Extract the first body STORY `<w:p>` whose serialized XML satisfies `predicate` (e.g. "contains
+ * `rStyle="StyleUnderline"`") and wrap ONLY that paragraph in a minimal `<w:document><w:body>` that
+ * REUSES the source document's verbatim `<w:document …>` start tag — so every namespace the paragraph's
+ * runs reference resolves exactly as Word declared it (xmldom also re-declares the prefixes the subtree
+ * uses onto the serialized `<w:p>`, so the result is robust even for a richer paragraph). Returns null
+ * when no paragraph matches.
+ *
+ * WHY ONE PARAGRAPH: an end-to-end Shrink over a single non-heading card paragraph runs with
+ * `outlineLevels: [null]` — no per-paragraph outline alignment, no heading-refusal edge — so the test
+ * exercises the size ladder + keep predicate cleanly. Only TOP-LEVEL `<w:p>` children are considered
+ * (mirroring the engine's body story: textbox-nested paragraphs are not part of the story).
+ */
+export function singleParagraphDocumentXml(
+  documentXml: string,
+  predicate: (paragraphXml: string) => boolean
+): string | null {
+  const body = stripProlog(documentXml);
+  const doc: any = new DOMParser().parseFromString(body, "text/xml");
+  const serializer = new XMLSerializer();
+  const bodies = doc.getElementsByTagName("w:body");
+  const scope: any = bodies && bodies.length > 0 ? bodies.item(0) : null;
+  if (!scope) return null;
+
+  let matchXml: string | null = null;
+  const kids = scope.childNodes;
+  for (let i = 0; i < kids.length; i++) {
+    const k: any = kids.item ? kids.item(i) : kids[i];
+    // Direct-child `<w:p>` only — top-level body paragraphs, never a textbox/table-nested one.
+    if (k && k.nodeType === ELEMENT_NODE && k.nodeName === "w:p") {
+      const xml = serializer.serializeToString(k);
+      if (predicate(xml)) {
+        matchXml = xml;
+        break;
+      }
+    }
+  }
+  if (matchXml === null) return null;
+
+  // Reuse the source `<w:document>`'s OWN start tag (every `xmlns:*` decl + `mc:Ignorable`) so the lone
+  // paragraph stays in the exact namespace/MC context Word emitted — the same fidelity rationale as
+  // `WholeBodyPackage.documentAttrs`. Built by SHALLOW-cloning the parsed root and serializing it (xmldom
+  // escapes attribute values and re-emits every namespace correctly), then turning the empty self-closing
+  // tag into an open tag — no regex over raw XML, so an attribute value can never break it. Falls back to
+  // a bare `xmlns:w` only when the source has no `<w:document>` (synthetic fixtures).
+  const root: any = doc.documentElement;
+  let openTag = `<w:document xmlns:w="${W_NS}">`;
+  if (root && root.nodeName === "w:document") {
+    const shell = serializer.serializeToString(root.cloneNode(false)); // attributes only, no children
+    openTag = shell.endsWith("/>") ? `${shell.slice(0, -2)}>` : shell.replace(/<\/w:document>\s*$/, "");
+  }
+  return `${openTag}<w:body>${matchXml}</w:body></w:document>`;
 }
