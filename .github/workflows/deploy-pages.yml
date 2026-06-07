@@ -1,0 +1,60 @@
+# Build the add-in bundle + the production manifest and publish them to GitHub Pages.
+#
+# What gets deployed (the dist/ folder):
+#   • the hashed JS bundles + the four html pages (taskpane/commands/dialog/progress)
+#   • assets/ (icons)
+#   • index.html (the landing/sideload page, copied from site/ by webpack)
+#   • manifest.xml (PROD manifest, written AFTER the build by gen:manifest:prod)
+#
+# The deploy is GATED on green tests + a clean typecheck, so a broken bundle can't reach users.
+#
+# ONE-TIME manual setup (cannot be scripted): repo Settings ▸ Pages ▸ Source = "GitHub Actions".
+# Confirm the published URL is exactly https://andrewtjin.github.io/rostrum/ — if the repo name
+# differs, update the --origin below (it must match the real Pages base path) and the landing page.
+name: Deploy add-in to Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+# Least privilege: read the repo, write the Pages artifact, mint the OIDC token deploy-pages needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes an in-flight run rather than racing it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      # Prod manifest is written AFTER build (build's `clean` wipes dist first); --origin must
+      # match the deployed Pages base path exactly or the manifest's URLs 404.
+      - run: npm run gen:manifest:prod -- --origin=https://andrewtjin.github.io/rostrum
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

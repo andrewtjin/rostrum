@@ -50,8 +50,34 @@ buttons directly.
 To stop: `npm stop`. To rebuild without sideloading: `npm run build` (production) or
 `npm run build:dev`.
 
-> Before distributing, regenerate `<Id>` in `manifest.xml` per environment and point
-> `SourceLocation` / icon URLs at your host instead of `https://localhost:3000`.
+### Install for the public (sideload from GitHub Pages)
+
+End users **host nothing** — the add-in runs from the hosted bundle; they just register one
+manifest file in Word, once. The install page with step-by-step instructions for **Windows and
+Mac** lives at:
+
+> **https://andrewtjin.github.io/rostrum/**
+
+It links the production `manifest.xml` and walks through the Trusted-Add-in-Catalog (Windows) /
+`wef` folder (Mac) sideload. This is **Stage A** distribution (motivated early adopters); a future
+**Stage B** adds one-click AppSource install.
+
+### Producing the production manifest
+
+The committed `manifest.xml` is the **dev** manifest (`https://localhost:3000`). The production
+manifest is a build artifact, generated against the hosted origin — never committed, so the
+manifest **drift test stays green**:
+
+```bash
+npm run build                                                            # dist/ (hashed bundles, assets, landing page)
+npm run gen:manifest:prod -- --origin=https://andrewtjin.github.io/rostrum   # → dist/manifest.xml
+```
+
+`gen:manifest:prod` rebases every `SourceLocation` / icon / support URL onto the origin and stamps
+the production `<Id>` (distinct from dev, so both can be sideloaded on one machine). It **fails
+loudly** if `--origin` is missing or not `https://`. CI (`.github/workflows/deploy-pages.yml`)
+runs exactly these steps on every push to `main` and publishes `dist/` to GitHub Pages — gated on
+green tests + a clean typecheck. (One-time: repo **Settings ▸ Pages ▸ Source = GitHub Actions**.)
 
 ---
 

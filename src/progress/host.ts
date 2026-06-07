@@ -10,6 +10,7 @@
 import type { ProgressInfo } from "../core/officeWordPort";
 import type { CommandResult } from "../features/types";
 import { logger } from "../core/debug";
+import { appPageUrl } from "../core/appUrl";
 
 const log = logger("progress");
 
@@ -182,8 +183,12 @@ function openDialog(label: string): Promise<Office.Dialog | null> {
       resolve(null);
       return;
     }
-    const url = `${window.location.origin}/progress.html#${encodeURIComponent(label)}`;
     try {
+      // Resolve progress.html RELATIVE to the current page so it loads on a project-Pages subpath
+      // (location.origin would drop the `/rostrum` segment → 404). See core/appUrl.ts. Kept INSIDE
+      // the try so a (theoretical) missing-`window` throw becomes the graceful "run without pop-out"
+      // fallback rather than an unhandled rejection.
+      const url = appPageUrl("progress.html", encodeURIComponent(label));
       Office.context.ui.displayDialogAsync(url, { height: 18, width: 28, displayInIframe: false }, (res) => {
         if (res.status === Office.AsyncResultStatus.Succeeded) {
           resolve(res.value);

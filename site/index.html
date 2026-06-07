@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<!--
+  Rostrum public landing + sideload page. Served at the Pages site root (…/rostrum/), copied
+  verbatim into dist/ by webpack's CopyWebpackPlugin. PURE static HTML — no bundle, no JS
+  framework — so it loads instantly and can't break when the add-in bundle changes.
+
+  It is the "front door" for Stage A distribution: it offers the prod manifest download and the
+  per-OS sideload steps. Stage B (AppSource one-click) will later add a store button here.
+
+  The manifest.xml it links is written into dist/ by `npm run gen:manifest:prod` AFTER the build,
+  so on the deployed site `./manifest.xml` resolves next to this page.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rostrum — install for Word (desktop)</title>
+    <meta
+      name="description"
+      content="Rostrum is a desktop Word add-in that hides debate-card body text while keeping headings, cites, analytics, and highlights — natively reversible."
+    />
+    <link rel="icon" href="./assets/icon-32.png" />
+    <style>
+      /* Self-contained styles: no external CSS so the page is a single request and never
+         depends on the add-in bundle. System font stack keeps it native on Win/Mac. */
+      :root {
+        --ink: #1a1f24;
+        --muted: #5a646e;
+        --line: #e2e6ea;
+        --accent: #1f3a5f; /* the Rostrum navy */
+        --accent-ink: #ffffff;
+        --warn-bg: #fff7e6;
+        --warn-line: #f0c97a;
+        --card: #f7f9fb;
+        --radius: 10px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: #fff;
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+      header { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+      header img { width: 56px; height: 56px; }
+      h1 { font-size: 2rem; margin: 0; letter-spacing: -0.01em; }
+      .tagline { color: var(--muted); font-size: 1.125rem; margin: 4px 0 28px; }
+      h2 { font-size: 1.25rem; margin: 40px 0 12px; }
+      h3 { font-size: 1.02rem; margin: 22px 0 8px; }
+      p { margin: 10px 0; }
+      a { color: var(--accent); }
+      ol, ul { margin: 10px 0; padding-left: 22px; }
+      li { margin: 6px 0; }
+      code, kbd {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.9em;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+      }
+      .cta {
+        display: inline-block;
+        background: var(--accent);
+        color: var(--accent-ink);
+        text-decoration: none;
+        font-weight: 600;
+        padding: 13px 22px;
+        border-radius: var(--radius);
+        margin: 8px 0 4px;
+      }
+      .cta:focus-visible { outline: 3px solid #88aadd; outline-offset: 2px; }
+      .download-note { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+      .banner {
+        background: var(--warn-bg);
+        border: 1px solid var(--warn-line);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        margin: 22px 0;
+      }
+      .banner strong { color: #8a5a00; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 4px 20px 16px;
+        margin: 14px 0;
+      }
+      footer {
+        margin-top: 56px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .path { word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <img src="./assets/icon-80.png" alt="" width="56" height="56" />
+        <h1>Rostrum</h1>
+      </header>
+      <p class="tagline">
+        A Word add-in that hides debate-card <em>body</em> text while keeping headings, cites,
+        analytics, and highlighted runs — and is <strong>natively reversible</strong>, even without
+        the add-in.
+      </p>
+
+      <a class="cta" href="./manifest.xml" download="manifest.xml">Download manifest.xml</a>
+      <p class="download-note">
+        You install the add-in by registering this one file in Word — once. Rostrum runs from this
+        site; you host nothing and run no server.
+      </p>
+
+      <div class="banner" role="note">
+        <strong>Desktop Word only.</strong> Rostrum hides text with Word's <em>Hidden font</em>
+        attribute (<code>WordApiDesktop&nbsp;1.2</code>), which exists on <strong>Word for Windows
+        and Mac</strong> but <strong>not</strong> Word for the web. On an unsupported host the add-in
+        explains the manual fallback instead of failing silently.
+      </div>
+
+      <h2>Install (sideload)</h2>
+      <p>
+        Pick your platform. After the one-time setup, Rostrum appears under
+        <strong>Insert ▸ My Add-ins</strong> and adds a <strong>Rostrum</strong> tab to the ribbon.
+      </p>
+
+      <div class="card">
+        <h3>Windows</h3>
+        <ol>
+          <li>Save <a href="./manifest.xml" download="manifest.xml">manifest.xml</a> into a folder,
+            e.g. <code>C:\Users\you\Documents\rostrum-addin</code>.</li>
+          <li>Right-click that folder ▸ <strong>Properties ▸ Sharing ▸ Share…</strong> and share it
+            with yourself. Copy the network path (it looks like
+            <code class="path">\\YOUR-PC\rostrum-addin</code>).</li>
+          <li>In Word: <strong>File ▸ Options ▸ Trust Center ▸ Trust Center Settings ▸ Trusted
+            Add-in Catalogs</strong>.</li>
+          <li>Paste the share path into <em>Catalog Url</em>, click <strong>Add catalog</strong>,
+            tick <strong>Show in Menu</strong>, then <strong>OK</strong>.</li>
+          <li><strong>Restart Word.</strong></li>
+          <li><strong>Insert ▸ My Add-ins ▸ Shared Folder ▸ Rostrum ▸ Add.</strong></li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h3>Mac</h3>
+        <ol>
+          <li>Copy <a href="./manifest.xml" download="manifest.xml">manifest.xml</a> into this folder
+            (create the <code>wef</code> folder if it doesn't exist):
+            <br /><code class="path">~/Library/Containers/com.microsoft.Word/Data/Documents/wef/</code></li>
+          <li><strong>Restart Word.</strong></li>
+          <li><strong>Insert ▸ My Add-ins ▸ Rostrum.</strong> (If you don't see it, also check the
+            <em>Developer Add-ins</em> group of that menu.)</li>
+        </ol>
+      </div>
+
+      <h2>Reading a Rostrum document without the add-in</h2>
+      <p>
+        Hidden text uses Word's standard <em>Hidden font</em> attribute, so anyone can recover it
+        with no add-in installed:
+      </p>
+      <ol>
+        <li>Select the text (<kbd>Ctrl</kbd>+<kbd>A</kbd> for the whole document).</li>
+        <li><strong>Home ▸ Font dialog</strong> (<kbd>Ctrl</kbd>+<kbd>D</kbd>) ▸ clear the
+          <strong>Hidden</strong> checkbox — or toggle <strong>Home ▸ ¶</strong> to view hidden
+          text.</li>
+      </ol>
+
+      <footer>
+        <p>
+          Trouble installing or a bug to report?
+          <a href="https://github.com/andrewtjin/rostrum/issues">Open an issue on GitHub</a>.
+        </p>
+        <p>Rostrum is open source · MIT-style use · built for debaters.</p>
+      </footer>
+    </main>
+  </body>
+</html>

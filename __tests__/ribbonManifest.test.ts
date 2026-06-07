@@ -4,7 +4,7 @@
 // panes) and that the committed file hasn't drifted from the generator (run `npm run gen:manifest`).
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { buildManifestXml, manifestConfig } from "../src/features/manifestGen";
+import { buildManifestXml, manifestConfig, prodConfig, PROD_ID } from "../src/features/manifestGen";
 import { contributions } from "../src/features/contributions";
 import { FeatureContribution } from "../src/features/types";
 
@@ -115,5 +115,75 @@ describe("manifest.xml drift guard", () => {
     // Normalize line endings so git autocrlf can't trip the byte comparison.
     const norm = (s: string): string => s.replace(/\r\n/g, "\n");
     expect(norm(committed)).toBe(norm(generated));
+  });
+});
+
+describe("prodConfig (hosted-origin override layer)", () => {
+  const ORIGIN = "https://andrewtjin.github.io/rostrum";
+
+  it("rebases EVERY hosted URL field onto the prod origin", () => {
+    const cfg = prodConfig({ origin: ORIGIN });
+    expect(cfg.origin).toBe(ORIGIN);
+    expect(cfg.iconUrl).toBe(`${ORIGIN}/assets/icon-32.png`);
+    expect(cfg.highResolutionIconUrl).toBe(`${ORIGIN}/assets/icon-80.png`);
+    // No localhost survives anywhere in the override (the bug we're shipping to avoid).
+    expect(JSON.stringify(cfg)).not.toContain("localhost");
+  });
+
+  it("uses PROD_ID by default — DISTINCT from the dev id so both can be sideloaded together", () => {
+    const cfg = prodConfig({ origin: ORIGIN });
+    expect(cfg.id).toBe(PROD_ID);
+    expect(cfg.id).not.toBe(manifestConfig.id);
+  });
+
+  it("tolerates a trailing slash on the origin (no `//assets` doubling)", () => {
+    const cfg = prodConfig({ origin: `${ORIGIN}/` });
+    expect(cfg.origin).toBe(ORIGIN);
+    expect(cfg.iconUrl).toBe(`${ORIGIN}/assets/icon-32.png`);
+  });
+
+  it("defaults support + learn-more to the repo issues page and the Pages landing root", () => {
+    const cfg = prodConfig({ origin: ORIGIN });
+    expect(cfg.supportUrl).toBe("https://github.com/andrewtjin/rostrum/issues");
+    expect(cfg.getStarted.learnMoreUrl).toBe(`${ORIGIN}/`);
+  });
+
+  it("honors explicit overrides for id / support / learn-more", () => {
+    const cfg = prodConfig({
+      origin: ORIGIN,
+      id: "11111111-2222-3333-4444-555555555555",
+      supportUrl: "https://example.com/support",
+      learnMoreUrl: "https://example.com/learn",
+    });
+    expect(cfg.id).toBe("11111111-2222-3333-4444-555555555555");
+    expect(cfg.supportUrl).toBe("https://example.com/support");
+    expect(cfg.getStarted.learnMoreUrl).toBe("https://example.com/learn");
+  });
+
+  it("does NOT mutate the shared dev manifestConfig (pure override)", () => {
+    const beforeId = manifestConfig.id;
+    const beforeOrigin = manifestConfig.origin;
+    const beforeLearn = manifestConfig.getStarted.learnMoreUrl;
+    prodConfig({ origin: ORIGIN });
+    expect(manifestConfig.id).toBe(beforeId);
+    expect(manifestConfig.origin).toBe(beforeOrigin);
+    // The nested getStarted object must be cloned, not aliased — else the spread would leak.
+    expect(manifestConfig.getStarted.learnMoreUrl).toBe(beforeLearn);
+    expect(manifestConfig.origin).toBe("https://localhost:3000");
+  });
+
+  it("projects through buildManifestXml: every emitted URL is prod, none localhost", () => {
+    const xml = buildManifestXml(contributions, prodConfig({ origin: ORIGIN }));
+    expect(xml).toContain(`<Id>${PROD_ID}</Id>`);
+    expect(xml).toContain(`DefaultValue="${ORIGIN}/taskpane.html"`);
+    expect(xml).toContain(`DefaultValue="${ORIGIN}/commands.html"`);
+    expect(xml).toContain(`DefaultValue="${ORIGIN}/assets/icon-32.png"`);
+    expect(xml).not.toContain("localhost");
+    // Pane deep-links must also carry the prod origin.
+    for (const f of contributions) {
+      if (f.ribbon.controls.some((c) => c.kind === "pane")) {
+        expect(xml).toContain(`${ORIGIN}/taskpane.html#${f.id}`);
+      }
+    }
   });
 });

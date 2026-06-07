@@ -32,7 +32,12 @@ module.exports = async (env, argv) => {
     },
     output: {
       path: path.resolve(__dirname, "dist"),
-      filename: "[name].js",
+      // Content-hash the JS so Office's WebView (which caches add-in assets very aggressively)
+      // is FORCED to refetch when the bundle changes — without this, users get stuck on stale
+      // code after an update. HTML filenames stay stable (taskpane/commands/dialog/progress.html)
+      // so the manifest + appPageUrl keep pointing at fixed pages; HtmlWebpackPlugin rewrites the
+      // hashed <script> tags inside them automatically.
+      filename: "[name].[contenthash].js",
       clean: true
     },
     resolve: {
@@ -65,7 +70,13 @@ module.exports = async (env, argv) => {
         chunks: ["progress"]
       }),
       new CopyWebpackPlugin({
-        patterns: [{ from: "assets", to: "assets", noErrorOnMissing: true }]
+        patterns: [
+          { from: "assets", to: "assets", noErrorOnMissing: true },
+          // The static landing/sideload page → dist root, so the Pages site serves it at
+          // `…/rostrum/` (alongside the prod manifest written there post-build). It's plain
+          // HTML with no bundle, so it isn't a webpack entry — just copied verbatim.
+          { from: "site", to: ".", noErrorOnMissing: true }
+        ]
       })
     ],
     devServer: {

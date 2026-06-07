@@ -64,6 +64,59 @@ export const manifestConfig: ManifestConfig = {
   tab: { id: "Rostrum.Tab", label: "Rostrum" },
 };
 
+// ── Production hosting override layer ────────────────────────────────────────
+// `manifestConfig` above is the DEV manifest (localhost:3000), and the committed
+// manifest.xml is its byte-exact projection — the drift test pins that. To ship the
+// add-in on a real host (GitHub Pages) we must NOT mutate that const (it would red the
+// drift test) and must NOT overwrite the committed file. Instead `prodConfig()` returns
+// a NEW config with every hosted-URL field rebased onto a real origin; the generator
+// writes that to a build artifact (dist/manifest.xml), never to the committed file.
+
+/** Prod add-in identity — DISTINCT from the dev `id` so the localhost-dev manifest and the
+ *  Pages-hosted prod manifest can be sideloaded on the SAME machine without their ribbons
+ *  colliding (Office caches the ribbon by Id+Version; a shared Id makes the two clobber each
+ *  other in the WEF cache). Minted ONCE with `[guid]::NewGuid()`; never change it — changing
+ *  it orphans every prior install (Office treats a new Id as a different add-in). */
+export const PROD_ID = "ea3fb238-6832-4f91-9654-b9e7ef24d926";
+
+/** The overrides a caller supplies to target a hosted origin. Only `origin` is required;
+ *  the rest default to sensible repo-derived values so a one-arg call is enough. */
+export interface ProdOverrides {
+  /** Hosted origin, e.g. `https://andrewtjin.github.io/rostrum` (a trailing slash is tolerated). */
+  origin: string;
+  /** Add-in `<Id>`; defaults to {@link PROD_ID}. Override only for a separate staging install. */
+  id?: string;
+  /** `<SupportUrl>`; defaults to the repo issues page. */
+  supportUrl?: string;
+  /** GetStarted "Learn more" link; defaults to the Pages landing page (`origin/`). */
+  learnMoreUrl?: string;
+}
+
+/**
+ * Project the dev `manifestConfig` onto a hosted `origin`, returning a NEW config (the dev
+ * const is never mutated). `buildManifestXml` already builds taskpane/commands/ribbon-icon
+ * URLs from `config.origin`, so rebasing `origin` covers those automatically; the top-level
+ * catalog icons + support/learn URLs are hardcoded to localhost in the dev const, so they are
+ * the fields this helper must explicitly rewrite.
+ */
+export function prodConfig(o: ProdOverrides): ManifestConfig {
+  // Tolerate a trailing slash so callers can paste a Pages URL verbatim; all URL building
+  // below assumes no trailing slash (otherwise we'd emit `…/rostrum//assets/...`).
+  const origin = o.origin.replace(/\/+$/, "");
+  return {
+    ...manifestConfig,
+    id: o.id ?? PROD_ID,
+    origin,
+    iconUrl: `${origin}/assets/icon-32.png`,
+    highResolutionIconUrl: `${origin}/assets/icon-80.png`,
+    supportUrl: o.supportUrl ?? "https://github.com/andrewtjin/rostrum/issues",
+    getStarted: {
+      ...manifestConfig.getStarted,
+      learnMoreUrl: o.learnMoreUrl ?? `${origin}/`,
+    },
+  };
+}
+
 /** Escape a value for an XML attribute / text node. */
 function xml(s: string): string {
   return s
