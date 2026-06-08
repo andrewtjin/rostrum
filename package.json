@@ -15,7 +15,6 @@
     "watch": "webpack --mode development --watch",
     "test": "jest",
     "test:watch": "jest --watch",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "gen:manifest": "tsx tools/gen-manifest.ts",
     "gen:manifest:prod": "tsx tools/gen-manifest.ts --out=dist/manifest.xml"
