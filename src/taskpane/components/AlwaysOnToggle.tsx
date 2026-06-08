@@ -5,9 +5,9 @@
 // invisibility controller. It's rendered inside the Invisibility "Settings" pane only because that is
 // the settings surface the ribbon "Settings" button opens; it shares none of that feature's engine.
 //
-// Cap-gate: when the host lacks the shared runtime (`SharedRuntime 1.0`) — which is every build until
-// the shared-runtime manifest is sideloaded — `readAlwaysOn` reports `supported: false` and this
-// renders NOTHING. So the toggle simply doesn't appear where the lever can't work, and today's build
+// Cap-gate: when the host lacks the shared runtime (`SharedRuntime 1.1`) — e.g. a manifest that doesn't
+// activate it, or desktop Word older than ~mid-2022 — `readAlwaysOn` reports `supported: false` and this
+// renders NOTHING. So the toggle simply doesn't appear where the lever can't work, and such a build
 // looks identical. On a shared-runtime host it shows a checkbox wired to `setAlwaysOn`.
 import * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";

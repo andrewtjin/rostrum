@@ -6,7 +6,8 @@
   fails if the committed file and the generator diverge.
 
   Desktop-only: the hide engine relies on font-hidden / <w:vanish/> (WordApiDesktop 1.2), so the
-  <Requirements> floor hard-blocks Word for the web and old perpetual builds.
+  <Requirements> floor hard-blocks Word for the web and old perpetual builds. Since 0.3.0.2 the floor
+  also includes SharedRuntime 1.1 (mandatory to activate the long-lived <Runtime> that powers Always-On).
 -->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -16,7 +17,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.1</Version>
+  <Version>0.3.0.2</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
@@ -33,6 +34,11 @@
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
+      <!-- SharedRuntime 1.1 is the set's FIRST real version (there is NO 1.0). It is REQUIRED for the
+           long-lived <Runtime> below to activate — omitting it leaves the runtime inert (Office.addin
+           undefined), which silently kills Always-On. 1.1 ⇒ Win M365 ≥2205 / Mac ≥16.61; the engine's
+           WordApiDesktop 1.2 floor already excludes the web, so this only narrows OLD desktop builds. -->
+      <Set Name="SharedRuntime" MinVersion="1.1" />
     </Sets>
   </Requirements>
 

@@ -36,7 +36,9 @@ export function createOfficeStartupHost(): StartupBehaviorHost {
         const addin = (Office as any)?.addin;
         const reqs = (Office as any)?.context?.requirements;
         const sb = (Office as any)?.StartupBehavior;
-        const sharedRuntime = !!reqs && typeof reqs.isSetSupported === "function" && reqs.isSetSupported("SharedRuntime", "1.0");
+        // SharedRuntime 1.1 is the FIRST published version of the set (there is no 1.0) and the one
+        // that exposes the Office.addin.* startup-behavior APIs — so gate on 1.1, not a non-existent 1.0.
+        const sharedRuntime = !!reqs && typeof reqs.isSetSupported === "function" && reqs.isSetSupported("SharedRuntime", "1.1");
         return (
           sharedRuntime &&
           !!addin &&

@@ -49,13 +49,21 @@ export const manifestConfig: ManifestConfig = {
   // 0.3.0 = the SHARED-RUNTIME migration enabling Always-On (auto-load on every document, toggleable
   // off). It adds the <Runtimes lifetime="long"> block — a manifest-STRUCTURE change, so the MINOR
   // bump is mandatory for Office to drop the old single-runtime registration on re-sideload.
-  // Revision .1: the first 0.3.0.0 attempt put `SharedRuntime 1.0` in the HARD base <Requirements>,
-  // which made Word FILTER THE ADD-IN OUT of My Add-ins on a real M365 build (the requirement gate
-  // decides visibility). The shared runtime must NOT hard-gate visibility — it's configured via
-  // <Runtimes> and the Always-On UI cap-gates SharedRuntime support at RUNTIME (officeStartup.ts), so
-  // the add-in loads everywhere and degrades gracefully. Removing the requirement is a re-register, so
-  // bump the 4th digit to force Office to re-read.
-  version: "0.3.0.1",
+  // Revision history within 0.3.0 (the 4th digit = a structural re-register, NOT a bugfix):
+  //   .0 — first attempt; declared `SharedRuntime 1.0` in the base <Requirements>. `1.0` is NOT a real
+  //        version of the set (its first published version is 1.1), so the manifest was invalid and
+  //        Word FILTERED THE ADD-IN OUT of My Add-ins entirely on a real M365 build.
+  //   .1 — over-corrected by REMOVING SharedRuntime from <Requirements> altogether. That restored
+  //        visibility but silently DISABLED the shared runtime: per MS docs the SharedRuntime
+  //        requirement is MANDATORY for a long-lived <Runtime> to activate, so `Office.addin` was
+  //        undefined, setStartupBehavior(load) never ran, and Always-On no-op'd — the per-document
+  //        auto-load bug came straight back.
+  //   .2 — the CORRECT config: SharedRuntime back in <Requirements> at the REAL version 1.1 (the
+  //        Microsoft-documented value). A valid manifest stays visible AND the shared runtime
+  //        activates, so Always-On works. Tradeoff: SharedRuntime 1.1 (Win M365 ≥2205 / Mac ≥16.61)
+  //        gates out desktop Word older than ~mid-2022; the engine's WordApiDesktop 1.2 floor already
+  //        excludes the web. See __tests__/ribbonManifest.test.ts for the regression guard on 1.0.
+  version: "0.3.0.2",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",
@@ -255,7 +263,8 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
   fails if the committed file and the generator diverge.
 
   Desktop-only: the hide engine relies on font-hidden / <w:vanish/> (WordApiDesktop 1.2), so the
-  <Requirements> floor hard-blocks Word for the web and old perpetual builds.
+  <Requirements> floor hard-blocks Word for the web and old perpetual builds. Since 0.3.0.2 the floor
+  also includes SharedRuntime 1.1 (mandatory to activate the long-lived <Runtime> that powers Always-On).
 -->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -282,6 +291,11 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
+      <!-- SharedRuntime 1.1 is the set's FIRST real version (there is NO 1.0). It is REQUIRED for the
+           long-lived <Runtime> below to activate — omitting it leaves the runtime inert (Office.addin
+           undefined), which silently kills Always-On. 1.1 ⇒ Win M365 ≥2205 / Mac ≥16.61; the engine's
+           WordApiDesktop 1.2 floor already excludes the web, so this only narrows OLD desktop builds. -->
+      <Set Name="SharedRuntime" MinVersion="1.1" />
     </Sets>
   </Requirements>
 

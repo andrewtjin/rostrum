@@ -17,10 +17,10 @@ export type StartupBehavior = "load" | "none";
 
 /**
  * The slice of `Office.addin` we depend on, as an injectable seam. `isSupported()` folds together the
- * two facts that gate everything: the host advertises `SharedRuntime 1.0` AND `Office.addin` actually
- * exposes the startup-behavior API. When false, every operation below is a graceful no-op — today's
- * build (no shared runtime) reports false, so this whole feature stays dormant until the shared-runtime
- * manifest is sideloaded. Production wiring: {@link import("./officeStartup").createOfficeStartupHost}.
+ * two facts that gate everything: the host advertises `SharedRuntime 1.1` (the set's first real version)
+ * AND `Office.addin` actually exposes the startup-behavior API. When false, every operation below is a
+ * graceful no-op — a build whose manifest doesn't activate the shared runtime reports false, so this
+ * whole feature stays dormant. Production wiring: {@link import("./officeStartup").createOfficeStartupHost}.
  */
 export interface StartupBehaviorHost {
   /** True only when the shared-runtime startup API is genuinely callable on this host. */
