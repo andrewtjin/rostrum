@@ -1,35 +1,29 @@
-// Shared-runtime entry point (manifest <FunctionFile> + long-lived <Runtime> page, since 0.3.0).
+// Task-pane entry point — the manifest's <FunctionFile> + task-pane page (one bundle).
 //
-// This ONE page does three things in the single persistent runtime:
+// This ONE page does two things, in whichever runtime Office loads it:
 //   1. Mounts the React pane immediately. `useRostrum` awaits `Office.onReady()` internally and shows
 //      a "loading" view until the host is ready, so the pane is correct whether shown now or later.
-//   2. Wires the ribbon command handlers (`associateAll`) — the job the old ephemeral commands.js did.
-//   3. Reconciles Always-On on first launch: registers `setStartupBehavior(load)` so the tab auto-loads
-//      on every document (a no-op where the shared runtime / startup API is unavailable).
+//   2. Wires the ribbon command handlers (`associateAll`) — so a ribbon ExecuteFunction button finds
+//      its function in the ephemeral function-file runtime Office spins up for it.
 // Office.js itself is loaded by the <script> tag in taskpane.html before this bundle runs.
+//
+// (Pre-0.3.0 the ribbon used a separate ephemeral commands.html; the 0.3.x always-on spike made this
+// page a long-lived shared runtime. Always-On is retired — see the removal plan — so this is back to a
+// plain TaskPaneApp: taskpane.html is both the on-demand pane and the function file, no shared runtime.)
 
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { associateAll } from "../commands/commands";
-import { reconcileStartupBehavior } from "../core/alwaysOn";
-import { createOfficeStartupHost, startupStorage } from "../core/officeStartup";
-import { logger } from "../core/debug";
-
-const log = logger("runtime");
 
 const container = document.getElementById("root");
 if (container) {
   createRoot(container).render(<App />);
 }
 
-// Ribbon wiring + Always-On reconciliation run once the host is ready. Guarded so importing this
-// bundle in a non-host environment never touches `Office`.
+// Ribbon wiring runs once the host is ready. Guarded so importing this bundle in a non-host
+// environment never touches `Office`.
 if (typeof Office !== "undefined" && typeof Office.onReady === "function") {
   Office.onReady(() => {
     associateAll();
-    // First manual launch self-registers auto-load; later launches are idempotent. Never throws.
-    reconcileStartupBehavior(createOfficeStartupHost(), startupStorage()).catch((e) =>
-      log.caught("always-on reconciliation failed (ignored)", e)
-    );
   });
 }

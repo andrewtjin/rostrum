@@ -4,15 +4,12 @@ import {
   saveDeviceDefaults,
   loadPureWholeBody,
   savePureWholeBody,
-  loadAlwaysOn,
-  saveAlwaysOn,
   loadCondenseSettings,
   saveCondenseSettings,
   DEFAULT_KEEP_COLORS,
   DEFAULT_CONDENSE_SETTINGS,
   DEVICE_DEFAULTS_KEY,
   PURE_WHOLE_BODY_KEY,
-  ALWAYS_ON_KEY,
   CONDENSE_SETTINGS_KEY,
   StorageLike
 } from "../src/core/settings";
@@ -115,34 +112,8 @@ describe("pure-whole-body flag (avenue ⑦, per-device) — the default Hide pat
   });
 });
 
-describe("always-on flag (auto-load on every document, per-device) — default ON", () => {
-  it("defaults to ON when unset (production default ⇒ auto-load)", () => {
-    expect(loadAlwaysOn(new FakeStorage())).toBe(true); // function default is true
-    expect(loadAlwaysOn(new FakeStorage(), true)).toBe(true);
-  });
-
-  it("an explicitly stored opt-out WINS over the default-on", () => {
-    const s = new FakeStorage();
-    saveAlwaysOn(s, false);
-    expect(s.getItem(ALWAYS_ON_KEY)).toBe("false");
-    expect(loadAlwaysOn(s)).toBe(false); // user opt-out beats default-on
-    saveAlwaysOn(s, true);
-    expect(loadAlwaysOn(s, true)).toBe(true);
-  });
-
-  it("returns the default when storage throws on read", () => {
-    const throwing: StorageLike = {
-      getItem() {
-        throw new Error("storage blocked");
-      },
-      setItem() {
-        throw new Error("storage blocked");
-      }
-    };
-    expect(loadAlwaysOn(throwing, true)).toBe(true);
-    expect(loadAlwaysOn(throwing, false)).toBe(false);
-  });
-});
+// (The always-on flag was removed 2026-06-08 — "load Rostrum on every document" is now the
+// Trusted-Catalog sideload, not a per-device localStorage intent. See the removal plan.)
 
 describe("condense settings (per-device)", () => {
   it("returns the built-in defaults when nothing is stored", () => {

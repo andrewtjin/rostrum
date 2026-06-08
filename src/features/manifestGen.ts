@@ -46,45 +46,31 @@ export const manifestConfig: ManifestConfig = {
   // (MINOR digit climbs as the suite fills in toward the 1.0.0 full-suite milestone — see LESSONS). The
   // 4th digit re-registers the ribbon within a product version; bumping the MINOR already forces Office
   // to re-read the new "Condense" group on re-sideload, so the revision stays 0.
-  // 0.3.0 = the SHARED-RUNTIME migration enabling Always-On (auto-load on every document, toggleable
-  // off). It adds the <Runtimes lifetime="long"> block — a manifest-STRUCTURE change, so the MINOR
-  // bump is mandatory for Office to drop the old single-runtime registration on re-sideload.
-  // Revision history within 0.3.0 (the 4th digit = a structural re-register, NOT a bugfix):
-  //   .0 — first attempt; declared `SharedRuntime 1.0` in the base <Requirements>. `1.0` is NOT a real
-  //        version of the set (its first published version is 1.1), so the manifest was invalid and
-  //        Word FILTERED THE ADD-IN OUT of My Add-ins entirely on a real M365 build.
-  //   .1 — over-corrected by REMOVING SharedRuntime from <Requirements> altogether. That restored
-  //        visibility but silently DISABLED the shared runtime: per MS docs the SharedRuntime
-  //        requirement is MANDATORY for a long-lived <Runtime> to activate, so `Office.addin` was
-  //        undefined, setStartupBehavior(load) never ran, and Always-On no-op'd — the per-document
-  //        auto-load bug came straight back.
-  //   .2 — the CORRECT config: SharedRuntime back in <Requirements> at the REAL version 1.1 (the
-  //        Microsoft-documented value). A valid manifest stays visible AND the shared runtime
-  //        activates, so Always-On works. Tradeoff: SharedRuntime 1.1 (Win M365 ≥2205 / Mac ≥16.61)
-  //        gates out desktop Word older than ~mid-2022; the engine's WordApiDesktop 1.2 floor already
-  //        excludes the web. See __tests__/ribbonManifest.test.ts for the regression guard on 1.0.
-  //   .3 — Settings group added: Always-On relocated out of the Invisibility pane into its own
-  //        suite-level Settings group/pane, and the per-feature pane buttons renamed "Settings"→
-  //        "Options" to disambiguate. Ribbon STRUCTURE changed (a new <Group> + relabeled controls) but
-  //        no requirement-set changed, so only the revision bumps — Office re-registers the new group on
-  //        re-sideload (it caches the ribbon by Id+Version).
-  //   .4 — Settings group moved to FIRST/leftmost on the Rostrum tab (was rightmost). Ribbon group ORDER
-  //        changed (+ pane a11y tweaks), so the revision bumps for Office to re-read the order on re-sideload.
-  //   .5 — Settings group given its own GEAR ribbon icon (per-feature icon support added to the generator)
-  //        instead of the shared Rostrum "R" logo. New per-feature image resources → ribbon re-register.
-  version: "0.3.0.5",
+  // 0.3.0 = the Settings group (a suite-level, app-wide settings home with its own gear-iconned ribbon
+  // group + deep-linked pane). NOTE: 0.3.x began as a SHARED-RUNTIME "Always-On" spike (auto-load on
+  // every document via Office.addin.setStartupBehavior) — that feature was RETIRED 2026-06-08: it can
+  // never reach a brand-new doc (setStartupBehavior is per-document), and "Rostrum on every document"
+  // is now delivered by the Trusted-Catalog sideload instead. So this manifest is a PLAIN TaskPaneApp
+  // again — no <Runtimes lifetime="long">, no SharedRuntime requirement — and only the Settings group
+  // survives from the spike.
+  //   .1 — the always-on removal: <Runtimes> + the SharedRuntime requirement stripped, the Settings
+  //        group kept (leftmost, gear icon). This RESETS the abandoned .2–.5 shared-runtime revisions
+  //        (each of which only existed to make Always-On work). Because the structure shrank back to a
+  //        plain TaskPaneApp, re-sideloading over a machine that saw the old .5 spike needs a one-time
+  //        WEF cache clear (Office won't treat a lower revision as an update — see LESSONS).
+  version: "0.3.0.1",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",
   description:
-    "Rostrum — an extensible debating suite for Word. Feature #1, Invisibility Mode, hides debate-card body text while keeping headings, cites, analytics, and highlighted runs. Natively reversible.",
+    "Rostrum — a debating suite for Microsoft Word: hide card bodies, condense and shrink cards, and apply debate styles, all while keeping headings, cites, analytics, and highlighted runs — and natively reversible, even without the add-in.",
   iconUrl: "https://localhost:3000/assets/icon-32.png",
   highResolutionIconUrl: "https://localhost:3000/assets/icon-80.png",
   supportUrl: "https://example.com/rostrum/support",
   origin: "https://localhost:3000",
   getStarted: {
     title: "Rostrum is ready.",
-    description: "Open a tool from the Rostrum tab. Invisibility Mode: Hide collapses card bodies; Show All reverses.",
+    description: "Open a tool from the Rostrum tab — Invisibility hides card bodies (Show All reverses), Condense & Shrink compress them. Every change is natively reversible.",
     learnMoreUrl: "https://example.com/rostrum",
   },
   tab: { id: "Rostrum.Tab", label: "Rostrum" },
@@ -258,9 +244,9 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
   ].join("\n");
 
   const urlsXml = [
-    // The shared-runtime page: it is BOTH the long-lived runtime (loads on document open, wires the
-    // ribbon command handlers) AND the deep-linked pane shown on demand — so the <Runtime> and the
-    // <FunctionFile> both point here (taskpane.html), replacing the old separate commands.html.
+    // taskpane.html is BOTH the ribbon function file (Office loads it in an ephemeral runtime to run an
+    // ExecuteFunction command's handler) AND the deep-linked pane shown on demand — so the <FunctionFile>
+    // points here. (It replaced the old separate commands.html in 0.3.0; there is no shared runtime.)
     `        <bt:Url id="Rostrum.Taskpane.Url" DefaultValue="${xml(taskpaneBase)}" />`,
     `        <bt:Url id="Rostrum.GetStarted.LearnMoreUrl" DefaultValue="${xml(config.getStarted.learnMoreUrl)}" />`,
     ...urls.map((u) => `        <bt:Url id="${u.id}" DefaultValue="${xml(u.value)}" />`),
@@ -285,8 +271,8 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
   fails if the committed file and the generator diverge.
 
   Desktop-only: the hide engine relies on font-hidden / <w:vanish/> (WordApiDesktop 1.2), so the
-  <Requirements> floor hard-blocks Word for the web and old perpetual builds. Since 0.3.0.2 the floor
-  also includes SharedRuntime 1.1 (mandatory to activate the long-lived <Runtime> that powers Always-On).
+  <Requirements> floor hard-blocks Word for the web and old perpetual builds. (No SharedRuntime: the
+  0.3.x Always-On spike that needed it was retired — this is a plain TaskPaneApp again.)
 -->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -313,11 +299,6 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
-      <!-- SharedRuntime 1.1 is the set's FIRST real version (there is NO 1.0). It is REQUIRED for the
-           long-lived <Runtime> below to activate — omitting it leaves the runtime inert (Office.addin
-           undefined), which silently kills Always-On. 1.1 ⇒ Win M365 ≥2205 / Mac ≥16.61; the engine's
-           WordApiDesktop 1.2 floor already excludes the web, so this only narrows OLD desktop builds. -->
-      <Set Name="SharedRuntime" MinVersion="1.1" />
     </Sets>
   </Requirements>
 
@@ -329,12 +310,6 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
     <Hosts>
       <Host xsi:type="Document">
-        <!-- Shared runtime (lifetime="long"): one persistent runtime that starts on document open,
-             so Always-On (Office.addin.setStartupBehavior) can auto-load the tab on every document.
-             It hosts the ribbon command handlers AND the on-demand pane (same taskpane.html page). -->
-        <Runtimes>
-          <Runtime resid="Rostrum.Taskpane.Url" lifetime="long" />
-        </Runtimes>
         <DesktopFormFactor>
           <GetStarted>
             <Title resid="Rostrum.GetStarted.Title" />

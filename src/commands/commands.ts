@@ -4,10 +4,11 @@
 // then just contributing it — this file never changes.
 //
 // Importing the headless `contributions` (not the React `registry`) keeps the association logic
-// itself React-free; it is invoked from the SHARED-RUNTIME startup (src/taskpane/index.tsx), which
-// is the manifest's <FunctionFile> + long-lived <Runtime> page now that commands.html is gone.
+// itself React-free; it is invoked from the task-pane startup (src/taskpane/index.tsx), which is the
+// manifest's <FunctionFile> + pane page (one bundle) now that commands.html is gone.
 // (Pre-0.3.0 this module was its own ephemeral commands.js entry that self-ran on Office.onReady;
-// under the shared runtime the one runtime page wires the ribbon AND hosts the on-demand pane.)
+// 0.3.0 merged it into taskpane.html. There is no shared runtime — the Always-On spike that needed
+// one was retired — so Office loads taskpane.html in an ephemeral runtime to run each ribbon command.)
 //
 // Each handler runs the command, logs the normalized result (a function-command can't host UI like
 // the Track-Changes modal, so a `blocked` op is logged for the user to finish in the pane), and
@@ -21,7 +22,7 @@ const log = logger("ribbon");
 
 /**
  * Wire every contributed command to its manifest FunctionName via Office.actions.associate. Called
- * once from the shared-runtime startup; guarded so a host without `Office.actions` (e.g. a unit test)
+ * once from the task-pane startup; guarded so a host without `Office.actions` (e.g. a unit test)
  * is a safe no-op.
  */
 export function associateAll(): void {

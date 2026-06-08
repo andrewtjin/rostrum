@@ -122,32 +122,36 @@ describe("buildManifestXml — robustness", () => {
   });
 });
 
-describe("shared runtime (Always-On enablement, 0.3.0)", () => {
+describe("plain TaskPaneApp (Always-On / shared runtime REMOVED, 0.3.0.1)", () => {
   const xml = buildManifestXml(contributions, manifestConfig);
 
-  it("declares SharedRuntime at the REAL version 1.1 (mandatory to activate the long <Runtime>)", () => {
-    // Per MS docs the long-lived <Runtime> below only activates when the manifest requires the
-    // SharedRuntime set — omit it and the runtime stays inert (Office.addin undefined → Always-On
-    // dies). The set's FIRST published version is 1.1; the 0.3.0.0 bug declared the nonexistent 1.0,
-    // which invalidated the manifest and made Word hide the add-in. So: present, and pinned to 1.1.
-    expect(xml).toContain(`<Set Name="SharedRuntime" MinVersion="1.1" />`);
-    // Regression guard: the AWOL version (and any stray 1.0 requirement) must never come back.
+  it("declares NO SharedRuntime requirement (the 0.3.x Always-On spike was retired)", () => {
+    // Always-On (Office.addin.setStartupBehavior) was removed 2026-06-08 — it can't reach a brand-new
+    // doc, and the Trusted-Catalog sideload now loads Rostrum on every document. So the manifest is a
+    // plain TaskPaneApp again: no SharedRuntime requirement at all (and never the bogus 1.0 that once
+    // made Word hide the add-in — the LESSONS regression guard stays). Assert the absence of the actual
+    // <Set> element, not the bare word, which still appears in the header comment explaining the removal.
+    expect(xml).not.toContain(`Name="SharedRuntime"`);
     expect(xml).not.toContain(`MinVersion="1.0"`);
   });
 
-  it("emits a long-lived <Runtime> pointing at the taskpane runtime page", () => {
-    expect(xml).toContain(`<Runtime resid="Rostrum.Taskpane.Url" lifetime="long" />`);
-    expect(xml).toContain(`<bt:Url id="Rostrum.Taskpane.Url" DefaultValue="${manifestConfig.origin}/taskpane.html" />`);
+  it("emits NO long-lived <Runtime> / <Runtimes> block (no shared runtime)", () => {
+    expect(xml).not.toContain("<Runtimes>");
+    expect(xml).not.toContain(`lifetime="long"`);
   });
 
-  it("points the FunctionFile at the runtime page (not the removed commands.html)", () => {
+  it("still points the FunctionFile at taskpane.html (ribbon commands run there; commands.html stays gone)", () => {
+    // Even without a shared runtime, taskpane.html is the function file: Office loads it in an
+    // ephemeral runtime to run an ExecuteFunction command. commands.html was removed in 0.3.0 and
+    // does not come back.
     expect(xml).toContain(`<FunctionFile resid="Rostrum.Taskpane.Url" />`);
+    expect(xml).toContain(`<bt:Url id="Rostrum.Taskpane.Url" DefaultValue="${manifestConfig.origin}/taskpane.html" />`);
     expect(xml).not.toContain("commands.html");
     expect(xml).not.toContain("Rostrum.Commands.Url");
   });
 
-  it("bumped to 0.3.0.5 (.5 = Settings gear icon → per-feature image resources → ribbon re-register)", () => {
-    expect(manifestConfig.version).toBe("0.3.0.5");
+  it("reset to 0.3.0.1 (.1 = always-on stripped → plain TaskPaneApp; .2–.5 shared-runtime spike dropped)", () => {
+    expect(manifestConfig.version).toBe("0.3.0.1");
   });
 });
 

@@ -1,7 +1,8 @@
 // Settings — the HEADLESS contribution (no React). The suite's home for GENERAL, app-wide settings
-// that belong to no single tool — starting with Always-On ("load Rostrum on every document"). It is a
-// first-class feature so it gets its own ribbon group + deep-linked pane via the same registry seam as
-// every tool; the React pane lives in `panel.tsx` and is attached in `feature.ts`.
+// that belong to no single tool. It is a first-class feature so it gets its own ribbon group +
+// deep-linked pane via the same registry seam as every tool; the React pane lives in `panel.tsx` and
+// is attached in `feature.ts`. (It currently surfaces how Rostrum loads on every document — via the
+// Trusted-Catalog install — and where to turn that off; the dead Always-On toggle was removed.)
 //
 // Unlike Invisibility / Condense this feature contributes NO ribbon ExecuteFunction commands — it is a
 // single deep-linked pane (the same pattern the planned panes use), so its one ribbon button is a
@@ -17,7 +18,7 @@ const ribbon: RibbonGroup = {
     {
       kind: "pane",
       label: "Open",
-      tip: "Open Rostrum's general settings — including Always-On (load Rostrum on every document).",
+      tip: "Open Rostrum's general settings — including how Rostrum loads on every document and how to turn that off.",
     },
   ],
 };
@@ -31,9 +32,9 @@ export const settingsContribution: FeatureContribution = {
   glyph: "⚙", // text-presentation gear (not the ⚙️ emoji variant, which renders inconsistently small)
   status: "stable",
   primarySurface: "pane",
-  // Always openable wherever the suite loads — the pane itself needs no special capability. The
-  // SharedRuntime cap-gate lives INSIDE the Always-On widget (it self-hides where the lever can't work),
-  // never on the whole feature: gating visibility on an optional cap is the trap LESSONS already records.
+  // Always openable wherever the suite loads — the pane is purely informational (it shows how Rostrum
+  // is installed on every document and where to turn that off), so it needs no special capability and
+  // must never gate its visibility on an optional cap (the trap LESSONS already records).
   isAvailable: () => true,
   ribbon,
   commands: [],

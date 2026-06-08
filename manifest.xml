@@ -6,8 +6,8 @@
   fails if the committed file and the generator diverge.
 
   Desktop-only: the hide engine relies on font-hidden / <w:vanish/> (WordApiDesktop 1.2), so the
-  <Requirements> floor hard-blocks Word for the web and old perpetual builds. Since 0.3.0.2 the floor
-  also includes SharedRuntime 1.1 (mandatory to activate the long-lived <Runtime> that powers Always-On).
+  <Requirements> floor hard-blocks Word for the web and old perpetual builds. (No SharedRuntime: the
+  0.3.x Always-On spike that needed it was retired — this is a plain TaskPaneApp again.)
 -->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -17,11 +17,11 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.5</Version>
+  <Version>0.3.0.1</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
-  <Description DefaultValue="Rostrum — an extensible debating suite for Word. Feature #1, Invisibility Mode, hides debate-card body text while keeping headings, cites, analytics, and highlighted runs. Natively reversible." />
+  <Description DefaultValue="Rostrum — a debating suite for Microsoft Word: hide card bodies, condense and shrink cards, and apply debate styles, all while keeping headings, cites, analytics, and highlighted runs — and natively reversible, even without the add-in." />
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
   <SupportUrl DefaultValue="https://example.com/rostrum/support" />
@@ -34,11 +34,6 @@
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApiDesktop" MinVersion="1.2" />
       <Set Name="WordApi" MinVersion="1.4" />
-      <!-- SharedRuntime 1.1 is the set's FIRST real version (there is NO 1.0). It is REQUIRED for the
-           long-lived <Runtime> below to activate — omitting it leaves the runtime inert (Office.addin
-           undefined), which silently kills Always-On. 1.1 ⇒ Win M365 ≥2205 / Mac ≥16.61; the engine's
-           WordApiDesktop 1.2 floor already excludes the web, so this only narrows OLD desktop builds. -->
-      <Set Name="SharedRuntime" MinVersion="1.1" />
     </Sets>
   </Requirements>
 
@@ -50,12 +45,6 @@
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
     <Hosts>
       <Host xsi:type="Document">
-        <!-- Shared runtime (lifetime="long"): one persistent runtime that starts on document open,
-             so Always-On (Office.addin.setStartupBehavior) can auto-load the tab on every document.
-             It hosts the ribbon command handlers AND the on-demand pane (same taskpane.html page). -->
-        <Runtimes>
-          <Runtime resid="Rostrum.Taskpane.Url" lifetime="long" />
-        </Runtimes>
         <DesktopFormFactor>
           <GetStarted>
             <Title resid="Rostrum.GetStarted.Title" />
@@ -363,8 +352,8 @@
         <bt:String id="Lbl12" DefaultValue="Open" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="Rostrum.GetStarted.Description" DefaultValue="Open a tool from the Rostrum tab. Invisibility Mode: Hide collapses card bodies; Show All reverses." />
-        <bt:String id="Tip0" DefaultValue="Open Rostrum&apos;s general settings — including Always-On (load Rostrum on every document)." />
+        <bt:String id="Rostrum.GetStarted.Description" DefaultValue="Open a tool from the Rostrum tab — Invisibility hides card bodies (Show All reverses), Condense &amp; Shrink compress them. Every change is natively reversible." />
+        <bt:String id="Tip0" DefaultValue="Open Rostrum&apos;s general settings — including how Rostrum loads on every document and how to turn that off." />
         <bt:String id="Tip1" DefaultValue="Hide all non-keeper body text (cards), keeping headings, cites, analytics, and highlighted runs. Run it again after editing to hide newly typed or pasted text." />
         <bt:String id="Tip2" DefaultValue="Reveal everything Rostrum hid. Convergent — safe to run from any state." />
         <bt:String id="Tip3" DefaultValue="Apply Rostrum heading/cite sizes and the pocket box, and repair mis-styled cites. Reflows the document; needs desktop Word 1.5+." />

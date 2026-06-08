@@ -117,8 +117,8 @@ describe("default suite registry", () => {
     // Registered first → its group renders leftmost on the Rostrum tab.
     expect(all[0]?.id).toBe("settings");
     expect(settings?.status).toBe("stable");
-    // Always openable on ANY host where the suite loads — the SharedRuntime cap-gate lives inside the
-    // Always-On widget (it self-hides), never on the whole feature (that would repeat the visibility trap).
+    // Always openable on ANY host where the suite loads — the Settings pane is purely informational
+    // (no optional-cap dependency), so its visibility is never gated (that would repeat the trap).
     expect(settings?.isAvailable(desktopCaps)).toBe(true);
     expect(settings?.isAvailable(webCaps)).toBe(true);
     // A real rendered pane, exactly one pane control, and NO ribbon ExecuteFunction commands.

@@ -509,8 +509,8 @@ export function InvisibilityPanel({ features }: FeaturePanelProps): React.ReactE
 
       <KeepColorPicker keepColors={ui.status.keepColors} busy={ui.busy} onChange={ui.setKeepColors} />
       <WholeBodyModeToggle status={ui.status} busy={ui.busy} onChange={ui.setPureWholeBody} />
-      {/* Always-On ("load Rostrum on every document") moved OUT to the dedicated Settings pane — it's a
-          suite-level setting, not invisibility's. See src/features/settings/panel.tsx. */}
+      {/* "Load Rostrum on every document" is NOT invisibility's concern: it's now the Trusted-Catalog
+          install (the in-app Always-On toggle was retired). The Settings pane explains it. */}
       <ManifestState status={ui.status} />
 
       {ui.trackChangesMode && (

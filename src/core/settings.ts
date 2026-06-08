@@ -125,42 +125,9 @@ export function savePureWholeBody(storage: StorageLike, on: boolean): void {
   storage.setItem(PURE_WHOLE_BODY_KEY, on ? "true" : "false");
 }
 
-// ---------------------------------------------------------------------------
-// Always-On — auto-load Rostrum on every document (per-device intent)
-// ---------------------------------------------------------------------------
-//
-// "Always on" makes the Rostrum tab + engine load automatically on every document the user opens,
-// instead of having to relaunch from Home ▸ Add-ins per document. The ACTUAL lever is Office's
-// `Office.addin.setStartupBehavior(load|none)` (requires a shared runtime); this localStorage key is
-// only the per-device INTENT (the seed the first-launch reconciliation reads, and the value the
-// Settings toggle persists). Office's `getStartupBehavior()` is the source of truth at runtime —
-// this flag exists so the intent survives even on a host that can't (yet) report startup behavior.
-//
-// Default is ON (decision #3, 2026-06-07): the first time the user opens Rostrum — exactly what they
-// already do today — it self-registers for auto-load, so every later document has the tab with no
-// action. The Settings toggle flips it OFF (stop auto-activating; the add-in stays installed). The
-// reconciliation + Office seam live in `core/alwaysOn.ts`; this is just the persisted bit.
-export const ALWAYS_ON_KEY = "rostrum.alwaysOn.v1";
-
-/**
- * Read the per-device always-on intent. Returns the stored value when the user has explicitly set it
- * (so an opt-OUT sticks across sessions); otherwise `defaultValue`. Production passes
- * `defaultValue = true` (default ON). Garbled / throwing storage falls back to `defaultValue` — the
- * feature must never be bricked by a bad cache. Mirrors {@link loadPureWholeBody} byte-for-byte.
- */
-export function loadAlwaysOn(storage: StorageLike, defaultValue = true): boolean {
-  try {
-    const v = storage.getItem(ALWAYS_ON_KEY);
-    return v === null ? defaultValue : v === "true";
-  } catch {
-    return defaultValue;
-  }
-}
-
-/** Persist the per-device always-on intent (best-effort). */
-export function saveAlwaysOn(storage: StorageLike, on: boolean): void {
-  storage.setItem(ALWAYS_ON_KEY, on ? "true" : "false");
-}
+// (Always-On removed 2026-06-08: "load Rostrum on every document" is now the Trusted-Catalog
+// sideload, not an in-app `setStartupBehavior` toggle — so the per-device always-on intent key and
+// its load/save helpers are gone.)
 
 // ---------------------------------------------------------------------------
 // Condense & Shrink — per-device settings (localStorage, like the keep-color cache)
