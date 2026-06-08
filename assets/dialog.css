@@ -1,0 +1,52 @@
+/*
+  Rostrum workspace-dialog stylesheet. Extracted verbatim from the former inline <style> in
+  dialog.html. Kept PER-SURFACE (not merged with taskpane.css) on purpose: this is the spacious
+  ~980px workspace, so its shared-named r-* classes carry larger values than the compact pane's.
+  Copied to dist/assets by CopyWebpackPlugin; dialog.html links it as ./assets/dialog.css.
+*/
+:root {
+  --r-fg: #1b1b1b;
+  --r-muted: #666;
+  --r-accent: #2b579a;
+  --r-bg: #faf9f8;
+  --r-border: #e1dfdd;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--r-fg);
+  background: var(--r-bg);
+}
+.r-workspace { padding: 20px; max-width: 980px; margin: 0 auto; }
+.r-loading, .r-unsupported { padding: 24px; }
+.r-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.r-header__brand { display: flex; align-items: baseline; gap: 8px; }
+.r-header h1 { font-size: 22px; margin: 0; color: var(--r-accent); }
+.r-subtitle { color: var(--r-muted); font-size: 13px; }
+.r-header__actions { display: flex; gap: 8px; }
+
+.r-btn {
+  border: 1px solid var(--r-border); background: #fff; color: var(--r-fg);
+  padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.r-btn:hover:not(:disabled) { border-color: var(--r-accent); }
+.r-btn:disabled { opacity: 0.5; cursor: default; }
+.r-btn--primary { background: var(--r-accent); color: #fff; border-color: var(--r-accent); }
+.r-btn--ghost { background: transparent; }
+.r-btn:focus-visible { outline: 2px solid var(--r-accent); outline-offset: 2px; }
+.r-hint { font-size: 13px; color: var(--r-muted); }
+
+/* Feature-scoped workspace + ComingSoon (shared badge/soon classes with the pane). The
+   workspace renders ONE tool, opened directly from its ribbon button — no launcher grid. */
+.r-badge { align-self: flex-start; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 8px; background: #eee; color: var(--r-muted); }
+.r-badge--planned { background: #eef0f4; color: #5b6370; }
+
+.r-soon { text-align: center; padding: 48px 24px; color: var(--r-muted); }
+.r-soon__glyph { font-size: 56px; }
+.r-soon h2 { color: var(--r-fg); margin-bottom: 4px; }
+.r-soon__tagline { color: var(--r-fg); font-size: 15px; margin-bottom: 4px; }
+.r-soon__label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 20px 0 6px; color: var(--r-muted); }
+.r-soon__list { display: inline-block; text-align: left; margin: 0 auto; padding-left: 20px; font-size: 14px; line-height: 1.6; color: var(--r-fg); max-width: 36ch; }
+.r-soon__list li { margin: 3px 0; }
