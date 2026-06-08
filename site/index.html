@@ -112,8 +112,8 @@
       <a class="cta" href="./manifest.xml" download="manifest.xml">Download manifest.xml</a>
       <p class="download-note">
         You install the add-in by registering this one file in Word — once. Rostrum runs from this
-        site; you host nothing and run no server. <strong>On Windows, the easiest path is the
-        one-click installer below</strong> — this file is for Mac or installing by hand.
+        site; you host nothing and run no server. <strong>Windows</strong> registers it as a trusted
+        add-in catalog (steps below); <strong>Mac</strong> drops it into Word's <code>wef</code> folder.
       </p>
 
       <div class="banner" role="note">
@@ -130,44 +130,33 @@
       </p>
 
       <div class="card">
-        <h3>Windows — one-click installer</h3>
+        <h3>Windows — register the add-in (one-time)</h3>
         <p>
-          <a class="cta" href="./install.bat" download="install.bat">Download the Windows installer</a>
+          Rostrum installs as a <strong>trusted add-in catalog</strong>: a shared folder holding
+          <code>manifest.xml</code>. Once registered, the <strong>Rostrum</strong> tab appears on the
+          ribbon of <strong>every document automatically</strong> — new and existing — with no
+          per-document re-adding, and it survives restarting Word.
         </p>
         <ol>
-          <li>Double-click the downloaded <code>install.bat</code>.</li>
-          <li>If Windows shows <strong>“Windows protected your PC,”</strong> click
-            <strong>More info ▸ Run anyway</strong>. The file is unsigned, not unsafe — it only
-            registers Rostrum for your account (no admin rights, nothing installed system-wide). You
-            can open it in Notepad first to read exactly what it does.</li>
-          <li><strong>Restart Word</strong>, then look for the <strong>Rostrum</strong> tab on the
-            ribbon — or find it under <strong>Home ▸ Add-ins ▸ Developer Add-ins</strong>.</li>
-          <li>Open Rostrum once. After that it stays on the ribbon automatically every time you open
-            Word — no need to re-add it per document. To go back to plain Word, turn it off in the
-            Rostrum pane under <strong>Settings ▸ Always on</strong> (it stays installed; the
-            uninstaller below removes it fully).</li>
+          <li>Save <a href="./manifest.xml" download="manifest.xml">manifest.xml</a> into a folder,
+            e.g. <code>C:\Users\you\Documents\rostrum-addin</code>.</li>
+          <li>Right-click that folder ▸ <strong>Properties ▸ Sharing ▸ Share…</strong> and share it
+            with yourself. Copy the network path (it looks like
+            <code class="path">\\YOUR-PC\rostrum-addin</code>). This one-time share is what lets Word
+            load Rostrum on every document.</li>
+          <li>In Word: <strong>File ▸ Options ▸ Trust Center ▸ Trust Center Settings ▸ Trusted
+            Add-in Catalogs</strong>.</li>
+          <li>Paste the share path into <em>Catalog Url</em>, click <strong>Add catalog</strong>,
+            tick <strong>Show in Menu</strong>, then <strong>OK</strong>.</li>
+          <li><strong>Restart Word.</strong></li>
+          <li><strong>Insert ▸ My Add-ins ▸ Shared Folder ▸ Rostrum ▸ Add.</strong> The Rostrum tab is
+            now on the ribbon of every document.</li>
         </ol>
         <p class="download-note">
-          Re-running the installer later is also how you update — it re-fetches the current Rostrum,
-          so a new button or tab shows up after the next run. On a school-managed laptop that blocks
-          downloaded scripts, use the manual steps below instead.
+          <strong>Updating:</strong> when a release changes the ribbon, replace the
+          <code>manifest.xml</code> in your shared folder with the latest and restart Word.
+          Behavior-only fixes are served live from this site — just restart Word.
         </p>
-        <details>
-          <summary>Prefer to install by hand? (or the installer was blocked)</summary>
-          <ol>
-            <li>Save <a href="./manifest.xml" download="manifest.xml">manifest.xml</a> into a folder,
-              e.g. <code>C:\Users\you\Documents\rostrum-addin</code>.</li>
-            <li>Right-click that folder ▸ <strong>Properties ▸ Sharing ▸ Share…</strong> and share it
-              with yourself. Copy the network path (it looks like
-              <code class="path">\\YOUR-PC\rostrum-addin</code>).</li>
-            <li>In Word: <strong>File ▸ Options ▸ Trust Center ▸ Trust Center Settings ▸ Trusted
-              Add-in Catalogs</strong>.</li>
-            <li>Paste the share path into <em>Catalog Url</em>, click <strong>Add catalog</strong>,
-              tick <strong>Show in Menu</strong>, then <strong>OK</strong>.</li>
-            <li><strong>Restart Word.</strong></li>
-            <li><strong>Insert ▸ My Add-ins ▸ Shared Folder ▸ Rostrum ▸ Add.</strong></li>
-          </ol>
-        </details>
       </div>
 
       <div class="card">
@@ -213,31 +202,25 @@
 
       <div class="card">
         <h3>Windows</h3>
-        <p>
-          <strong>Installed with the one-click installer?</strong> Download and run
-          <a href="./uninstall.bat" download="uninstall.bat">uninstall.bat</a>, then restart Word —
-          that undoes everything <code>install.bat</code> did.
+        <ol>
+          <li><strong>Quick remove (current document):</strong> <strong>Insert ▸ My Add-ins</strong>,
+            right-click <strong>Rostrum</strong> ▸ <strong>Remove</strong>. To remove it everywhere,
+            continue below.</li>
+          <li>Close Word.</li>
+          <li><strong>File ▸ Options ▸ Trust Center ▸ Trust Center Settings ▸ Trusted Add-in
+            Catalogs.</strong> Select the Rostrum folder row and untick <strong>Show in Menu</strong>,
+            then tick <strong>Next time Office starts, clear all previously-started web add-ins
+            cache</strong> (Word 2108+) ▸ <strong>OK</strong>.</li>
+          <li><strong>Restart Word.</strong> The Rostrum tab and its <em>My Add-ins</em> entry are
+            gone from every document.</li>
+        </ol>
+        <p class="download-note">
+          Still lingering, or an older Word without that checkbox? With Word closed, delete everything
+          inside <code class="path">%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\</code> — note this clears
+          <em>all</em> sideloaded add-ins, not just Rostrum. <strong>Ran an older Rostrum installer?</strong>
+          Also delete the value <code>ea3fb238-…</code> under
+          <code class="path">HKCU\Software\Microsoft\Office\16.0\WEF\Developer</code>.
         </p>
-        <details>
-          <summary>Installed by hand, or want to remove it manually?</summary>
-          <ol>
-            <li><strong>Quick remove (current document):</strong> <strong>Insert ▸ My Add-ins</strong>,
-              right-click <strong>Rostrum</strong> ▸ <strong>Remove</strong>. To remove it for good,
-              continue below.</li>
-            <li>Close Word.</li>
-            <li><strong>File ▸ Options ▸ Trust Center ▸ Trust Center Settings ▸ Trusted Add-in
-              Catalogs.</strong> Select the Rostrum folder row and untick <strong>Show in Menu</strong>,
-              then tick <strong>Next time Office starts, clear all previously-started web add-ins
-              cache</strong> (Word 2108+) ▸ <strong>OK</strong>.</li>
-            <li><strong>Restart Word.</strong> The Rostrum tab and its <em>My Add-ins</em> entry are
-              gone.</li>
-          </ol>
-          <p class="download-note">
-            Still lingering, or an older Word without that checkbox? With Word closed, delete everything
-            inside <code class="path">%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\</code> — note this clears
-            <em>all</em> sideloaded add-ins, not just Rostrum.
-          </p>
-        </details>
       </div>
 
       <div class="card">
