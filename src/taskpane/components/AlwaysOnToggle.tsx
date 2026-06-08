@@ -140,6 +140,10 @@ export function AlwaysOnToggle(props?: {
         />
         Load Rostrum on every document (recommended)
       </label>
+      {/* SC 4.1.3: announce the in-progress save to assistive tech without moving focus. */}
+      <div className="r-sr-only" role="status" aria-live="polite">
+        {ui.busy ? "Saving your Always-On preference…" : ""}
+      </div>
     </div>
   );
 }

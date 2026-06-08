@@ -68,6 +68,8 @@
       .r-banner--warn { background: #fff4ce; color: #6b5900; }
       .r-banner--error { background: #fde7e9; color: var(--r-err); }
       .r-note { font-size: 11px; color: var(--r-muted); margin: 6px 0 0; }
+      /* Visually hidden but exposed to assistive tech — for aria-live status regions. */
+      .r-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
       .r-section { border: 1px solid var(--r-border); border-radius: 4px; padding: 8px; margin-bottom: 8px; background: #fff; }
       .r-section > summary { cursor: pointer; font-weight: 600; }
@@ -78,7 +80,9 @@
       .r-colorgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
       .r-color { display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 24px; }
       .r-swatch { width: 12px; height: 12px; border: 1px solid #aaa; display: inline-block; }
-      .r-live { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 8px; }
+      .r-live { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 8px; min-height: 24px; }
+      /* Nudge the checkbox toward the WCAG 2.5.8 24px min target (without a fully custom control). */
+      .r-live input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 auto; }
       .r-omission { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
       .r-omission__delim { width: 3em; flex: 0 0 auto; font-size: 12px; padding: 2px 4px; }
       .r-omission__kw { flex: 1 1 auto; min-width: 0; font-size: 12px; padding: 2px 4px; }

@@ -82,8 +82,9 @@ describe("FeatureRegistry", () => {
 });
 
 describe("default suite registry", () => {
-  it("registers Invisibility Mode as feature #1, stable, with the three ribbon commands", () => {
-    expect(registry.all()[0]?.id).toBe("invisibility");
+  it("registers Invisibility Mode as the headline tool (second, after the Settings group), stable, with the three ribbon commands", () => {
+    expect(registry.all()[0]?.id).toBe("settings"); // Settings group is now leftmost
+    expect(registry.all()[1]?.id).toBe("invisibility");
     const invis = registry.get("invisibility");
     expect(invis?.status).toBe("stable");
     // Re-hide was folded into Hide (idempotent → pressing Hide again re-hides), so the ribbon
@@ -109,12 +110,12 @@ describe("default suite registry", () => {
     }
   });
 
-  it("registers Settings LAST as a stable, always-available, command-less pane feature", () => {
+  it("registers Settings FIRST (leftmost) as a stable, always-available, command-less pane feature", () => {
     const all = registry.all();
     const settings = registry.get("settings");
     expect(settings).toBeTruthy();
-    // Registered last → its group renders rightmost on the Rostrum tab.
-    expect(all[all.length - 1]?.id).toBe("settings");
+    // Registered first → its group renders leftmost on the Rostrum tab.
+    expect(all[0]?.id).toBe("settings");
     expect(settings?.status).toBe("stable");
     // Always openable on ANY host where the suite loads — the SharedRuntime cap-gate lives inside the
     // Always-On widget (it self-hides), never on the whole feature (that would repeat the visibility trap).

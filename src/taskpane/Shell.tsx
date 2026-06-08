@@ -42,6 +42,14 @@ export function Shell(): React.ReactElement {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Keep the document title in sync with the open feature (WCAG 2.4.2 Page Titled): each pane route gets
+  // its own title instead of the static "Invisibility Mode" baked into taskpane.html. Declared before the
+  // readiness early-returns below so it always runs (rules of hooks).
+  useEffect(() => {
+    const active = featureId ? registry.get(featureId) : null;
+    document.title = active ? `Rostrum — ${active.title}` : "Rostrum";
+  }, [featureId]);
+
   if (host.phase === "loading") {
     return <div className="r-loading">Loading Rostrum…</div>;
   }

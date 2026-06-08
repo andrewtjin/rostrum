@@ -17,7 +17,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.3</Version>
+  <Version>0.3.0.4</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
@@ -66,14 +66,14 @@
 
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <CustomTab id="Rostrum.Tab">
-              <Group id="Rostrum.Group.invisibility">
+              <Group id="Rostrum.Group.settings">
                 <Label resid="Grp0" />
                 <Icon>
                   <bt:Image size="16" resid="Rostrum.Icon.16" />
                   <bt:Image size="32" resid="Rostrum.Icon.32" />
                   <bt:Image size="80" resid="Rostrum.Icon.80" />
                 </Icon>
-                <Control xsi:type="Button" id="Rostrum.invisibility.hide">
+                <Control xsi:type="Button" id="Rostrum.settings.pane">
                   <Label resid="Lbl0" />
                   <Supertip>
                     <Title resid="Lbl0" />
@@ -84,11 +84,20 @@
                     <bt:Image size="32" resid="Rostrum.Icon.32" />
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
-                  <Action xsi:type="ExecuteFunction">
-                    <FunctionName>hide</FunctionName>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Rostrum.Tp.settings</TaskpaneId>
+                    <SourceLocation resid="Url0" />
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.invisibility.showAll">
+              </Group>
+              <Group id="Rostrum.Group.invisibility">
+                <Label resid="Grp1" />
+                <Icon>
+                  <bt:Image size="16" resid="Rostrum.Icon.16" />
+                  <bt:Image size="32" resid="Rostrum.Icon.32" />
+                  <bt:Image size="80" resid="Rostrum.Icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="Rostrum.invisibility.hide">
                   <Label resid="Lbl1" />
                   <Supertip>
                     <Title resid="Lbl1" />
@@ -100,10 +109,10 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ExecuteFunction">
-                    <FunctionName>showAll</FunctionName>
+                    <FunctionName>hide</FunctionName>
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.invisibility.applyStyles">
+                <Control xsi:type="Button" id="Rostrum.invisibility.showAll">
                   <Label resid="Lbl2" />
                   <Supertip>
                     <Title resid="Lbl2" />
@@ -115,10 +124,10 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ExecuteFunction">
-                    <FunctionName>applyStyles</FunctionName>
+                    <FunctionName>showAll</FunctionName>
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.invisibility.pane">
+                <Control xsi:type="Button" id="Rostrum.invisibility.applyStyles">
                   <Label resid="Lbl3" />
                   <Supertip>
                     <Title resid="Lbl3" />
@@ -129,20 +138,11 @@
                     <bt:Image size="32" resid="Rostrum.Icon.32" />
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.invisibility</TaskpaneId>
-                    <SourceLocation resid="Url0" />
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>applyStyles</FunctionName>
                   </Action>
                 </Control>
-              </Group>
-              <Group id="Rostrum.Group.condense">
-                <Label resid="Grp1" />
-                <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
-                </Icon>
-                <Control xsi:type="Button" id="Rostrum.condense.condenseShrink">
+                <Control xsi:type="Button" id="Rostrum.invisibility.pane">
                   <Label resid="Lbl4" />
                   <Supertip>
                     <Title resid="Lbl4" />
@@ -153,11 +153,20 @@
                     <bt:Image size="32" resid="Rostrum.Icon.32" />
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
-                  <Action xsi:type="ExecuteFunction">
-                    <FunctionName>condenseShrink</FunctionName>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Rostrum.Tp.invisibility</TaskpaneId>
+                    <SourceLocation resid="Url1" />
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.condense.condenseRun">
+              </Group>
+              <Group id="Rostrum.Group.condense">
+                <Label resid="Grp2" />
+                <Icon>
+                  <bt:Image size="16" resid="Rostrum.Icon.16" />
+                  <bt:Image size="32" resid="Rostrum.Icon.32" />
+                  <bt:Image size="80" resid="Rostrum.Icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="Rostrum.condense.condenseShrink">
                   <Label resid="Lbl5" />
                   <Supertip>
                     <Title resid="Lbl5" />
@@ -169,10 +178,10 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ExecuteFunction">
-                    <FunctionName>condenseRun</FunctionName>
+                    <FunctionName>condenseShrink</FunctionName>
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.condense.condenseUncondense">
+                <Control xsi:type="Button" id="Rostrum.condense.condenseRun">
                   <Label resid="Lbl6" />
                   <Supertip>
                     <Title resid="Lbl6" />
@@ -184,10 +193,10 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ExecuteFunction">
-                    <FunctionName>condenseUncondense</FunctionName>
+                    <FunctionName>condenseRun</FunctionName>
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.condense.condenseUnshrink">
+                <Control xsi:type="Button" id="Rostrum.condense.condenseUncondense">
                   <Label resid="Lbl7" />
                   <Supertip>
                     <Title resid="Lbl7" />
@@ -199,10 +208,10 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ExecuteFunction">
-                    <FunctionName>condenseUnshrink</FunctionName>
+                    <FunctionName>condenseUncondense</FunctionName>
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="Rostrum.condense.pane">
+                <Control xsi:type="Button" id="Rostrum.condense.condenseUnshrink">
                   <Label resid="Lbl8" />
                   <Supertip>
                     <Title resid="Lbl8" />
@@ -213,20 +222,11 @@
                     <bt:Image size="32" resid="Rostrum.Icon.32" />
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.condense</TaskpaneId>
-                    <SourceLocation resid="Url1" />
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>condenseUnshrink</FunctionName>
                   </Action>
                 </Control>
-              </Group>
-              <Group id="Rostrum.Group.format">
-                <Label resid="Grp2" />
-                <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
-                </Icon>
-                <Control xsi:type="Button" id="Rostrum.format.pane">
+                <Control xsi:type="Button" id="Rostrum.condense.pane">
                   <Label resid="Lbl9" />
                   <Supertip>
                     <Title resid="Lbl9" />
@@ -238,23 +238,47 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.format</TaskpaneId>
+                    <TaskpaneId>Rostrum.Tp.condense</TaskpaneId>
                     <SourceLocation resid="Url2" />
                   </Action>
                 </Control>
               </Group>
-              <Group id="Rostrum.Group.flow">
+              <Group id="Rostrum.Group.format">
                 <Label resid="Grp3" />
                 <Icon>
                   <bt:Image size="16" resid="Rostrum.Icon.16" />
                   <bt:Image size="32" resid="Rostrum.Icon.32" />
                   <bt:Image size="80" resid="Rostrum.Icon.80" />
                 </Icon>
-                <Control xsi:type="Button" id="Rostrum.flow.open_flow">
+                <Control xsi:type="Button" id="Rostrum.format.pane">
                   <Label resid="Lbl10" />
                   <Supertip>
                     <Title resid="Lbl10" />
                     <Description resid="Tip10" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Rostrum.Tp.format</TaskpaneId>
+                    <SourceLocation resid="Url3" />
+                  </Action>
+                </Control>
+              </Group>
+              <Group id="Rostrum.Group.flow">
+                <Label resid="Grp4" />
+                <Icon>
+                  <bt:Image size="16" resid="Rostrum.Icon.16" />
+                  <bt:Image size="32" resid="Rostrum.Icon.32" />
+                  <bt:Image size="80" resid="Rostrum.Icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="Rostrum.flow.open_flow">
+                  <Label resid="Lbl11" />
+                  <Supertip>
+                    <Title resid="Lbl11" />
+                    <Description resid="Tip11" />
                   </Supertip>
                   <Icon>
                     <bt:Image size="16" resid="Rostrum.Icon.16" />
@@ -267,37 +291,13 @@
                 </Control>
               </Group>
               <Group id="Rostrum.Group.cite">
-                <Label resid="Grp4" />
-                <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
-                </Icon>
-                <Control xsi:type="Button" id="Rostrum.cite.pane">
-                  <Label resid="Lbl11" />
-                  <Supertip>
-                    <Title resid="Lbl11" />
-                    <Description resid="Tip11" />
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Rostrum.Icon.16" />
-                    <bt:Image size="32" resid="Rostrum.Icon.32" />
-                    <bt:Image size="80" resid="Rostrum.Icon.80" />
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.cite</TaskpaneId>
-                    <SourceLocation resid="Url3" />
-                  </Action>
-                </Control>
-              </Group>
-              <Group id="Rostrum.Group.settings">
                 <Label resid="Grp5" />
                 <Icon>
                   <bt:Image size="16" resid="Rostrum.Icon.16" />
                   <bt:Image size="32" resid="Rostrum.Icon.32" />
                   <bt:Image size="80" resid="Rostrum.Icon.80" />
                 </Icon>
-                <Control xsi:type="Button" id="Rostrum.settings.pane">
+                <Control xsi:type="Button" id="Rostrum.cite.pane">
                   <Label resid="Lbl12" />
                   <Supertip>
                     <Title resid="Lbl12" />
@@ -309,7 +309,7 @@
                     <bt:Image size="80" resid="Rostrum.Icon.80" />
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.settings</TaskpaneId>
+                    <TaskpaneId>Rostrum.Tp.cite</TaskpaneId>
                     <SourceLocation resid="Url4" />
                   </Action>
                 </Control>
@@ -330,50 +330,50 @@
       <bt:Urls>
         <bt:Url id="Rostrum.Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />
         <bt:Url id="Rostrum.GetStarted.LearnMoreUrl" DefaultValue="https://example.com/rostrum" />
-        <bt:Url id="Url0" DefaultValue="https://localhost:3000/taskpane.html#invisibility" />
-        <bt:Url id="Url1" DefaultValue="https://localhost:3000/taskpane.html#condense" />
-        <bt:Url id="Url2" DefaultValue="https://localhost:3000/taskpane.html#format" />
-        <bt:Url id="Url3" DefaultValue="https://localhost:3000/taskpane.html#cite" />
-        <bt:Url id="Url4" DefaultValue="https://localhost:3000/taskpane.html#settings" />
+        <bt:Url id="Url0" DefaultValue="https://localhost:3000/taskpane.html#settings" />
+        <bt:Url id="Url1" DefaultValue="https://localhost:3000/taskpane.html#invisibility" />
+        <bt:Url id="Url2" DefaultValue="https://localhost:3000/taskpane.html#condense" />
+        <bt:Url id="Url3" DefaultValue="https://localhost:3000/taskpane.html#format" />
+        <bt:Url id="Url4" DefaultValue="https://localhost:3000/taskpane.html#cite" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Rostrum.GetStarted.Title" DefaultValue="Rostrum is ready." />
         <bt:String id="Rostrum.Tab.Label" DefaultValue="Rostrum" />
-        <bt:String id="Grp0" DefaultValue="Invisibility" />
-        <bt:String id="Lbl0" DefaultValue="Hide" />
-        <bt:String id="Lbl1" DefaultValue="Show All" />
-        <bt:String id="Lbl2" DefaultValue="Apply Styles" />
-        <bt:String id="Lbl3" DefaultValue="Options" />
-        <bt:String id="Grp1" DefaultValue="Condense" />
-        <bt:String id="Lbl4" DefaultValue="Shrink" />
-        <bt:String id="Lbl5" DefaultValue="Condense" />
-        <bt:String id="Lbl6" DefaultValue="Uncondense" />
-        <bt:String id="Lbl7" DefaultValue="Unshrink" />
-        <bt:String id="Lbl8" DefaultValue="Options" />
-        <bt:String id="Grp2" DefaultValue="Format &amp; Condense" />
-        <bt:String id="Lbl9" DefaultValue="Open" />
-        <bt:String id="Grp3" DefaultValue="Flow" />
+        <bt:String id="Grp0" DefaultValue="Settings" />
+        <bt:String id="Lbl0" DefaultValue="Open" />
+        <bt:String id="Grp1" DefaultValue="Invisibility" />
+        <bt:String id="Lbl1" DefaultValue="Hide" />
+        <bt:String id="Lbl2" DefaultValue="Show All" />
+        <bt:String id="Lbl3" DefaultValue="Apply Styles" />
+        <bt:String id="Lbl4" DefaultValue="Options" />
+        <bt:String id="Grp2" DefaultValue="Condense" />
+        <bt:String id="Lbl5" DefaultValue="Shrink" />
+        <bt:String id="Lbl6" DefaultValue="Condense" />
+        <bt:String id="Lbl7" DefaultValue="Uncondense" />
+        <bt:String id="Lbl8" DefaultValue="Unshrink" />
+        <bt:String id="Lbl9" DefaultValue="Options" />
+        <bt:String id="Grp3" DefaultValue="Format &amp; Condense" />
         <bt:String id="Lbl10" DefaultValue="Open" />
-        <bt:String id="Grp4" DefaultValue="Cite &amp; Paste" />
+        <bt:String id="Grp4" DefaultValue="Flow" />
         <bt:String id="Lbl11" DefaultValue="Open" />
-        <bt:String id="Grp5" DefaultValue="Settings" />
+        <bt:String id="Grp5" DefaultValue="Cite &amp; Paste" />
         <bt:String id="Lbl12" DefaultValue="Open" />
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Rostrum.GetStarted.Description" DefaultValue="Open a tool from the Rostrum tab. Invisibility Mode: Hide collapses card bodies; Show All reverses." />
-        <bt:String id="Tip0" DefaultValue="Hide all non-keeper body text (cards), keeping headings, cites, analytics, and highlighted runs. Run it again after editing to hide newly typed or pasted text." />
-        <bt:String id="Tip1" DefaultValue="Reveal everything Rostrum hid. Convergent — safe to run from any state." />
-        <bt:String id="Tip2" DefaultValue="Apply Rostrum heading/cite sizes and the pocket box, and repair mis-styled cites. Reflows the document; needs desktop Word 1.5+." />
-        <bt:String id="Tip3" DefaultValue="Open Invisibility options — keep-color settings, whole-body mode, and diagnostics. (App-wide settings live in the Settings group.)" />
-        <bt:String id="Tip4" DefaultValue="Cycle the selected card&apos;s non-underlined text down a font size (8→7→6→5→4→Normal), keeping the underlined cut, highlights, cites, and headings full-size. Press again to shrink further." />
-        <bt:String id="Tip5" DefaultValue="Collapse the selection per your Condense settings (merge paragraphs / pilcrows / retain paragraphs). Losslessly reversible with Uncondense." />
-        <bt:String id="Tip6" DefaultValue="Reverse Condense — restore every paragraph break Rostrum marked." />
-        <bt:String id="Tip7" DefaultValue="Reverse Shrink — reset the selected card&apos;s text back to its Normal size." />
-        <bt:String id="Tip8" DefaultValue="Open Condense &amp; Shrink options — modes, the omission-marker editor, and one-click mode buttons. (App-wide settings live in the Settings group.)" />
-        <bt:String id="Tip9" DefaultValue="Planned — extends today&apos;s Apply-Styles + condense work." />
-        <bt:String id="Tip10" DefaultValue="Planned — the flowing / speech-doc surface." />
-        <bt:String id="Tip11" DefaultValue="Planned — citation + paste-with-formatting helpers." />
-        <bt:String id="Tip12" DefaultValue="Open Rostrum&apos;s general settings — including Always-On (load Rostrum on every document)." />
+        <bt:String id="Tip0" DefaultValue="Open Rostrum&apos;s general settings — including Always-On (load Rostrum on every document)." />
+        <bt:String id="Tip1" DefaultValue="Hide all non-keeper body text (cards), keeping headings, cites, analytics, and highlighted runs. Run it again after editing to hide newly typed or pasted text." />
+        <bt:String id="Tip2" DefaultValue="Reveal everything Rostrum hid. Convergent — safe to run from any state." />
+        <bt:String id="Tip3" DefaultValue="Apply Rostrum heading/cite sizes and the pocket box, and repair mis-styled cites. Reflows the document; needs desktop Word 1.5+." />
+        <bt:String id="Tip4" DefaultValue="Open Invisibility options — keep-color settings, whole-body mode, and diagnostics. (App-wide settings live in the Settings group.)" />
+        <bt:String id="Tip5" DefaultValue="Cycle the selected card&apos;s non-underlined text down a font size (8→7→6→5→4→Normal), keeping the underlined cut, highlights, cites, and headings full-size. Press again to shrink further." />
+        <bt:String id="Tip6" DefaultValue="Collapse the selection per your Condense settings (merge paragraphs / pilcrows / retain paragraphs). Losslessly reversible with Uncondense." />
+        <bt:String id="Tip7" DefaultValue="Reverse Condense — restore every paragraph break Rostrum marked." />
+        <bt:String id="Tip8" DefaultValue="Reverse Shrink — reset the selected card&apos;s text back to its Normal size." />
+        <bt:String id="Tip9" DefaultValue="Open Condense &amp; Shrink options — modes, the omission-marker editor, and one-click mode buttons. (App-wide settings live in the Settings group.)" />
+        <bt:String id="Tip10" DefaultValue="Planned — extends today&apos;s Apply-Styles + condense work." />
+        <bt:String id="Tip11" DefaultValue="Planned — the flowing / speech-doc surface." />
+        <bt:String id="Tip12" DefaultValue="Planned — citation + paste-with-formatting helpers." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

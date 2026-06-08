@@ -68,7 +68,9 @@ export const manifestConfig: ManifestConfig = {
   //        "Options" to disambiguate. Ribbon STRUCTURE changed (a new <Group> + relabeled controls) but
   //        no requirement-set changed, so only the revision bumps — Office re-registers the new group on
   //        re-sideload (it caches the ribbon by Id+Version).
-  version: "0.3.0.3",
+  //   .4 — Settings group moved to FIRST/leftmost on the Rostrum tab (was rightmost). Ribbon group ORDER
+  //        changed (+ pane a11y tweaks), so the revision bumps for Office to re-read the order on re-sideload.
+  version: "0.3.0.4",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",

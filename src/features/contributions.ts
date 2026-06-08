@@ -10,9 +10,9 @@ import { plannedContributions } from "./planned";
 import { settingsContribution } from "./settings/contribution";
 
 export const contributions: FeatureContribution[] = [
+  // Suite-level settings group, FIRST (leftmost) on the Rostrum tab — global config sits ahead of the tools.
+  settingsContribution,
   invisibilityContribution,
   condenseContribution,
   ...plannedContributions,
-  // Suite-level settings group, last (rightmost) on the Rostrum tab — a config destination, not a tool.
-  settingsContribution,
 ];

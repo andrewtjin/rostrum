@@ -14,20 +14,20 @@ import { settingsFeature } from "./settings/feature";
 /** The app-wide feature registry singleton (React-augmented features). */
 export const registry = new FeatureRegistry();
 
-// Feature #1: the headline time-differential tool. Real, stable, ships today.
+// Suite-level settings, registered FIRST so its group sits LEFTMOST on the Rostrum tab. Must mirror the
+// position of `settingsContribution` in contributions.ts (a parity test guards the two lists agree).
+registry.register(settingsFeature);
+
+// The headline time-differential tool. Real, stable, ships today. (Leftmost TOOL, after Settings.)
 registry.register(invisibilityFeature);
 
-// Feature #2: Condense & Shrink — the lossless answer to Verbatim's Shrink + Condense.
+// Condense & Shrink — the lossless answer to Verbatim's Shrink + Condense.
 registry.register(condenseFeature);
 
 // The roadmap: planned contributions render a ComingSoon from metadata alone (no React surface).
 for (const feature of plannedContributions) {
   registry.register(feature);
 }
-
-// Suite-level settings, registered LAST so its group sits rightmost on the Rostrum tab. Must mirror the
-// position of `settingsContribution` in contributions.ts (a parity test guards that the two lists agree).
-registry.register(settingsFeature);
 
 // Re-export the contribution surface so consumers import from one place.
 export { FeatureRegistry } from "./registry";
