@@ -22,7 +22,7 @@ import {
   paragraphHasCiteRun,
   planCrossGapSeparators
 } from "./keepers";
-import { applyRunVisibility, makeAllVisible, readRuns } from "./ooxml";
+import { ParsedParagraph, makeAllVisible } from "./ooxml";
 import { withTrackChangesGate } from "./guards";
 import { MANIFEST_SCHEMA_VERSION, clearManifestPart, saveManifest } from "./manifest";
 
@@ -77,11 +77,19 @@ export function classifyParagraph(
     return { index: p.index, action: "keepWhole", changed: res.changed, ooxml: res.xml };
   }
 
-  const runs = readRuns(p.ooxml);
+  // Parse the paragraph ONCE and read + mutate through the same tree. Previously this
+  // path did `readRuns(p.ooxml)` (parse #1) then `applyRunVisibility`/`makeAllVisible`
+  // (parse #2) — re-parsing the same package string twice per paragraph. xmldom's
+  // DOMParser dominates the engine's per-paragraph cost, so the second parse was ~half
+  // the work on every brief (and the same CPU the task-pane spends live). Output is
+  // byte-identical: the keeper policy still consumes only the flat `runs` views and
+  // hands back index-aligned flags, exactly as before.
+  const parsed = new ParsedParagraph(p.ooxml);
+  const runs = parsed.runs;
 
   // Heading rule (#7) or cite rule (#6b): keep the whole paragraph visible.
   if (isHeadingKept(p.headingLevel) || paragraphHasCiteRun(runs)) {
-    const res = makeAllVisible(p.ooxml);
+    const res = parsed.makeAllVisible();
     return { index: p.index, action: "keepWhole", changed: res.changed, ooxml: res.xml };
   }
 
@@ -102,7 +110,7 @@ export function classifyParagraph(
 
   // Collapse the paragraph mark only when an entire *content* paragraph was
   // hidden (decision #5). Empty separator paragraphs (no runs) are left alone.
-  const res = applyRunVisibility(p.ooxml, hideFlags, allHidden, splits);
+  const res = parsed.applyVisibility(hideFlags, allHidden, splits);
   const action: ParagraphAction = allHidden
     ? "hideWhole"
     : hideFlags.some((h) => h)

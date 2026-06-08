@@ -363,33 +363,153 @@ function exposeInteriorSpace(doc: any, runEl: any, offset: number): boolean {
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * A paragraph's OOXML parsed ONCE into a reusable tree.
+ *
+ * WHY THIS EXISTS (performance — the engine's hot path). The hide pass needs BOTH
+ * the run VIEWS (`runs`, to decide what to keep) AND the live run NODES (to toggle
+ * `<w:vanish/>`). The original API exposed only string→string functions, so
+ * `classifyParagraph` parsed every paragraph TWICE — once in `readRuns` and again in
+ * `applyRunVisibility`/`makeAllVisible`. xmldom's `DOMParser` dominates the
+ * per-paragraph cost (it builds a full DOM tree from the package string), so that
+ * second parse roughly DOUBLED the engine's work on every brief — the same CPU the
+ * task-pane browser spends live. Parsing once and reading + mutating through one tree
+ * halves it, with byte-identical output (only `<w:vanish/>` is ever toggled).
+ *
+ * The three string→string functions below (`readRuns`, `applyRunVisibility`,
+ * `makeAllVisible`) are now thin wrappers over this class so every existing caller and
+ * test keeps its exact contract; the orchestrator (`classifyParagraph`) holds ONE
+ * instance and calls `runs` then `applyVisibility`/`makeAllVisible` on it. Policy stays
+ * out of here entirely — a caller only ever reads the `RunView[]` and hands back flat
+ * index-aligned flags, exactly as it did with the standalone functions.
+ */
+export class ParsedParagraph {
+  /** The parsed package tree (mutated in place by the apply methods). */
+  private readonly doc: any;
+  /** The single body `<w:p>` we operate on, or null for an unparseable/empty fragment. */
+  private readonly pEl: any | null;
+  /**
+   * Snapshot of the paragraph's run elements in document order (the SAME order as
+   * `runs`). Captured at construction — before any mutation — so the apply methods can
+   * index into it even after bridge splits insert new `<w:r>` siblings (which would
+   * otherwise shift a live NodeList mid-pass). This is exactly the snapshot the old
+   * standalone `applyRunVisibility` took at call time; nothing mutates between
+   * construction and apply, so it is identical.
+   */
+  private readonly runEls: any[];
+  /** The original OOXML, returned unchanged when a mutation is a no-op (no reserialize). */
+  private readonly original: string;
+  /** Flat run views in document order — the pure read the keeper policy consumes. */
+  readonly runs: RunView[];
+
+  constructor(paragraphOoxml: string) {
+    this.original = paragraphOoxml;
+    this.doc = parse(paragraphOoxml);
+    this.pEl = firstParagraph(this.doc);
+    this.runEls = [];
+    this.runs = [];
+    if (this.pEl) {
+      const runList = this.pEl.getElementsByTagName("w:r");
+      for (let i = 0; i < runList.length; i++) {
+        const r = runList.item(i);
+        this.runEls.push(r);
+        this.runs.push({
+          index: i,
+          text: runText(r),
+          highlight: runHighlight(r),
+          citeStyled: runIsCite(r),
+          underline: runUnderline(r),
+          hidden: vanishIsOn(runRPr(r)),
+          eligible: runIsEligible(r)
+        });
+      }
+    }
+  }
+
+  /**
+   * Apply per-run hide flags (aligned to `runs` order) and optionally hide the
+   * paragraph mark. `splits` (wet-test bug 1) name hidden runs whose boundary space
+   * must be exposed as a visible separator so isolated kept chunks don't fuse — see
+   * `BridgeSplit`. Returns the new OOXML plus whether anything actually changed.
+   */
+  applyVisibility(
+    hideFlags: boolean[],
+    hideParaMark: boolean,
+    splits: readonly BridgeSplit[] = []
+  ): { xml: string; changed: boolean } {
+    if (!this.pEl) return { xml: this.original, changed: false };
+    const { doc, pEl, runEls } = this;
+
+    let changed = false;
+    const n = Math.min(runEls.length, hideFlags.length);
+    for (let i = 0; i < n; i++) {
+      if (hideFlags[i]) {
+        // Hiding: ensure an rPr exists to carry <w:vanish/>.
+        if (setVanish(doc, ensureRPr(doc, runEls[i]), true)) changed = true;
+      } else {
+        // Showing: don't synthesize an rPr just to mark "visible". A freshly-inserted
+        // bridge-space run has no rPr; creating an empty one here would be pointless
+        // churn on every Re-hide. Only clear an existing vanish (mirrors the
+        // paragraph-mark handling below). Keeps Re-hide idempotent by construction.
+        const rPr = runRPr(runEls[i]);
+        if (rPr && setVanish(doc, rPr, false)) changed = true;
+      }
+    }
+
+    // Expose bridge spaces AFTER setting vanish, so the moved space inherits the
+    // (now-hidden) run's formatting minus vanish and renders visibly. "interior" does a
+    // 3-way split at sp.offset; "lead"/"trail" move a boundary space.
+    for (const sp of splits) {
+      if (sp.index < 0 || sp.index >= runEls.length) continue;
+      const did =
+        sp.side === "interior"
+          ? exposeInteriorSpace(doc, runEls[sp.index], sp.offset == null ? -1 : sp.offset)
+          : exposeBoundarySpace(doc, runEls[sp.index], sp.side);
+      if (did) changed = true;
+    }
+
+    if (hideParaMark) {
+      if (setVanish(doc, ensureMarkRPr(doc, pEl), true)) changed = true;
+    } else {
+      // Don't create nodes just to set "visible"; only clear an existing mark vanish.
+      const markRPr = existingMarkRPr(pEl);
+      if (markRPr && setVanish(doc, markRPr, false)) changed = true;
+    }
+
+    return changed ? { xml: serialize(doc), changed: true } : { xml: this.original, changed: false };
+  }
+
+  /**
+   * Reveal everything in the paragraph: clear `<w:vanish>` from every run and from
+   * the paragraph mark. Convergent/idempotent — Show All's per-paragraph operation
+   * (decision #14). May reveal a user's own manually-hidden run; that over-reveal edge
+   * is documented and warned once (decision #10).
+   */
+  makeAllVisible(): { xml: string; changed: boolean } {
+    if (!this.pEl) return { xml: this.original, changed: false };
+    const { doc, pEl, runEls } = this;
+
+    let changed = false;
+    for (let i = 0; i < runEls.length; i++) {
+      const rPr = runRPr(runEls[i]);
+      if (rPr && setVanish(doc, rPr, false)) changed = true;
+    }
+    const markRPr = existingMarkRPr(pEl);
+    if (markRPr && setVanish(doc, markRPr, false)) changed = true;
+
+    return changed ? { xml: serialize(doc), changed: true } : { xml: this.original, changed: false };
+  }
+}
+
 /** Read a paragraph's runs as flat, document-order views. Pure read. */
 export function readRuns(paragraphOoxml: string): RunView[] {
-  const doc = parse(paragraphOoxml);
-  const pEl = firstParagraph(doc);
-  if (!pEl) return [];
-  const runEls = pEl.getElementsByTagName("w:r");
-  const runs: RunView[] = [];
-  for (let i = 0; i < runEls.length; i++) {
-    const r = runEls.item(i);
-    runs.push({
-      index: i,
-      text: runText(r),
-      highlight: runHighlight(r),
-      citeStyled: runIsCite(r),
-      underline: runUnderline(r),
-      hidden: vanishIsOn(runRPr(r)),
-      eligible: runIsEligible(r)
-    });
-  }
-  return runs;
+  return new ParsedParagraph(paragraphOoxml).runs;
 }
 
 /**
  * Apply per-run hide flags (aligned to `readRuns` order) and optionally hide the
- * paragraph mark. `splits` (wet-test bug 1) name hidden runs whose boundary space
- * must be exposed as a visible separator so isolated kept chunks don't fuse — see
- * `BridgeSplit`. Returns the new OOXML plus whether anything actually changed.
+ * paragraph mark. Thin wrapper over `ParsedParagraph.applyVisibility` for external
+ * callers/tests; the hide path reuses one `ParsedParagraph` instead (one parse).
  */
 export function applyRunVisibility(
   paragraphOoxml: string,
@@ -397,75 +517,13 @@ export function applyRunVisibility(
   hideParaMark: boolean,
   splits: readonly BridgeSplit[] = []
 ): { xml: string; changed: boolean } {
-  const doc = parse(paragraphOoxml);
-  const pEl = firstParagraph(doc);
-  if (!pEl) return { xml: paragraphOoxml, changed: false };
-
-  let changed = false;
-  // Snapshot the original run elements first: bridge splits insert NEW <w:r>
-  // siblings, which would shift a live NodeList mid-pass. Indices in hideFlags and
-  // splits both refer to this original (readRuns) order.
-  const runList = pEl.getElementsByTagName("w:r");
-  const runEls: any[] = [];
-  for (let i = 0; i < runList.length; i++) runEls.push(runList.item(i));
-
-  const n = Math.min(runEls.length, hideFlags.length);
-  for (let i = 0; i < n; i++) {
-    if (hideFlags[i]) {
-      // Hiding: ensure an rPr exists to carry <w:vanish/>.
-      if (setVanish(doc, ensureRPr(doc, runEls[i]), true)) changed = true;
-    } else {
-      // Showing: don't synthesize an rPr just to mark "visible". A freshly-inserted
-      // bridge-space run has no rPr; creating an empty one here would be pointless
-      // churn on every Re-hide. Only clear an existing vanish (mirrors the
-      // paragraph-mark handling below). Keeps Re-hide idempotent by construction.
-      const rPr = runRPr(runEls[i]);
-      if (rPr && setVanish(doc, rPr, false)) changed = true;
-    }
-  }
-
-  // Expose bridge spaces AFTER setting vanish, so the moved space inherits the
-  // (now-hidden) run's formatting minus vanish and renders visibly. "interior" does a
-  // 3-way split at sp.offset; "lead"/"trail" move a boundary space.
-  for (const sp of splits) {
-    if (sp.index < 0 || sp.index >= runEls.length) continue;
-    const did =
-      sp.side === "interior"
-        ? exposeInteriorSpace(doc, runEls[sp.index], sp.offset == null ? -1 : sp.offset)
-        : exposeBoundarySpace(doc, runEls[sp.index], sp.side);
-    if (did) changed = true;
-  }
-
-  if (hideParaMark) {
-    if (setVanish(doc, ensureMarkRPr(doc, pEl), true)) changed = true;
-  } else {
-    // Don't create nodes just to set "visible"; only clear an existing mark vanish.
-    const markRPr = existingMarkRPr(pEl);
-    if (markRPr && setVanish(doc, markRPr, false)) changed = true;
-  }
-
-  return changed ? { xml: serialize(doc), changed: true } : { xml: paragraphOoxml, changed: false };
+  return new ParsedParagraph(paragraphOoxml).applyVisibility(hideFlags, hideParaMark, splits);
 }
 
 /**
- * Reveal everything in the paragraph: clear `<w:vanish>` from every run and from
- * the paragraph mark. Convergent/idempotent — this is Show All's per-paragraph
- * operation (decision #14). May reveal a user's own manually-hidden run; that
- * over-reveal edge is documented and warned once (decision #10).
+ * Reveal everything in the paragraph. Thin wrapper over
+ * `ParsedParagraph.makeAllVisible` for external callers/tests.
  */
 export function makeAllVisible(paragraphOoxml: string): { xml: string; changed: boolean } {
-  const doc = parse(paragraphOoxml);
-  const pEl = firstParagraph(doc);
-  if (!pEl) return { xml: paragraphOoxml, changed: false };
-
-  let changed = false;
-  const runEls = pEl.getElementsByTagName("w:r");
-  for (let i = 0; i < runEls.length; i++) {
-    const rPr = runRPr(runEls.item(i));
-    if (rPr && setVanish(doc, rPr, false)) changed = true;
-  }
-  const markRPr = existingMarkRPr(pEl);
-  if (markRPr && setVanish(doc, markRPr, false)) changed = true;
-
-  return changed ? { xml: serialize(doc), changed: true } : { xml: paragraphOoxml, changed: false };
+  return new ParsedParagraph(paragraphOoxml).makeAllVisible();
 }
