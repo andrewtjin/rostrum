@@ -10,6 +10,9 @@ import { FeatureContribution, RibbonGroup } from "../types";
 
 const ribbon: RibbonGroup = {
   label: "Settings",
+  // The standard settings GEAR (assets/gear-16|32|80.png) instead of the shared Rostrum "R" logo — a
+  // feature carrying its own ribbon glyph via the generator's per-feature icon support.
+  icon: "gear",
   controls: [
     {
       kind: "pane",

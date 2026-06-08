@@ -34,6 +34,20 @@ describe("buildManifestXml", () => {
     expect((xml.match(/<Group /g) ?? []).length).toBe(contributions.length);
   });
 
+  it("emits a per-feature ribbon icon when a feature declares ribbon.icon (Settings → gear)", () => {
+    const settings = contributions.find((f) => f.id === "settings");
+    expect(settings?.ribbon.icon).toBe("gear"); // guards the wiring that drives the per-feature icon
+    for (const s of [16, 32, 80]) {
+      // The settings group references its OWN gear resids, defined to point at gear-*.png under the origin.
+      expect(xml).toContain(`resid="Rostrum.Icon.settings.${s}"`);
+      expect(xml).toContain(
+        `<bt:Image id="Rostrum.Icon.settings.${s}" DefaultValue="${manifestConfig.origin}/assets/gear-${s}.png" />`
+      );
+    }
+    // A feature WITHOUT a custom icon still uses the shared Rostrum logo resids.
+    expect(xml).toContain(`resid="Rostrum.Icon.16"`);
+  });
+
   it("emits a <FunctionName> for every action control and never a dangling one", () => {
     for (const f of contributions) {
       const commandIds = new Set(f.commands.map((c) => c.id));
@@ -132,8 +146,8 @@ describe("shared runtime (Always-On enablement, 0.3.0)", () => {
     expect(xml).not.toContain("Rostrum.Commands.Url");
   });
 
-  it("bumped to 0.3.0.4 (.4 = Settings group moved to leftmost → ribbon re-register within 0.3.0)", () => {
-    expect(manifestConfig.version).toBe("0.3.0.4");
+  it("bumped to 0.3.0.5 (.5 = Settings gear icon → per-feature image resources → ribbon re-register)", () => {
+    expect(manifestConfig.version).toBe("0.3.0.5");
   });
 });
 

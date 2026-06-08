@@ -77,6 +77,13 @@ export interface RibbonGroup {
   label: string;
   /** Buttons in the group, left-to-right. */
   controls: RibbonControl[];
+  /**
+   * Optional per-feature ribbon icon: an assets BASE NAME resolving to `assets/<icon>-16|32|80.png`
+   * (e.g. `"gear"` → `assets/gear-16.png`). When omitted, the group and its controls use the shared
+   * Rostrum logo icons. This lets a feature carry its OWN ribbon glyph (Settings uses a gear) without
+   * the manifest generator hard-coding it — the generator emits per-feature image resources when set.
+   */
+  icon?: string;
 }
 
 /** Props the shell injects into every feature surface (pane panel or dialog workspace). */

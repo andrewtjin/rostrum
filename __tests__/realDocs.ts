@@ -65,6 +65,15 @@ export function discoverSamples(): SampleRef[] {
       const bytes = fs.statSync(fullPath).size;
       return { file, fullPath, tier: tierOf(file, bytes), bytes };
     })
+    // A .docx is a zip; a 0-byte file (e.g. an empty doc accidentally dropped into samples/ during a
+    // wet-test) can never be a valid package — JSZip throws "Corrupted zip". Skip it with a warning
+    // rather than reding the whole real-doc suite on local junk. (CI has no samples/ dir at all.)
+    .filter((ref) => {
+      if (ref.bytes > 0) return true;
+      // eslint-disable-next-line no-console
+      console.warn(`[realdoc] skipping empty/corrupt sample (0 bytes): ${ref.file}`);
+      return false;
+    })
     .sort((a, b) => a.bytes - b.bytes);
 }
 

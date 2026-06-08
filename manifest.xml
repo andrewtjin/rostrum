@@ -17,7 +17,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.4</Version>
+  <Version>0.3.0.5</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
@@ -69,9 +69,9 @@
               <Group id="Rostrum.Group.settings">
                 <Label resid="Grp0" />
                 <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  <bt:Image size="16" resid="Rostrum.Icon.settings.16" />
+                  <bt:Image size="32" resid="Rostrum.Icon.settings.32" />
+                  <bt:Image size="80" resid="Rostrum.Icon.settings.80" />
                 </Icon>
                 <Control xsi:type="Button" id="Rostrum.settings.pane">
                   <Label resid="Lbl0" />
@@ -80,9 +80,9 @@
                     <Description resid="Tip0" />
                   </Supertip>
                   <Icon>
-                    <bt:Image size="16" resid="Rostrum.Icon.16" />
-                    <bt:Image size="32" resid="Rostrum.Icon.32" />
-                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                    <bt:Image size="16" resid="Rostrum.Icon.settings.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.settings.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.settings.80" />
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
                     <TaskpaneId>Rostrum.Tp.settings</TaskpaneId>
@@ -326,6 +326,9 @@
         <bt:Image id="Rostrum.Icon.16" DefaultValue="https://localhost:3000/assets/icon-16.png" />
         <bt:Image id="Rostrum.Icon.32" DefaultValue="https://localhost:3000/assets/icon-32.png" />
         <bt:Image id="Rostrum.Icon.80" DefaultValue="https://localhost:3000/assets/icon-80.png" />
+        <bt:Image id="Rostrum.Icon.settings.16" DefaultValue="https://localhost:3000/assets/gear-16.png" />
+        <bt:Image id="Rostrum.Icon.settings.32" DefaultValue="https://localhost:3000/assets/gear-32.png" />
+        <bt:Image id="Rostrum.Icon.settings.80" DefaultValue="https://localhost:3000/assets/gear-80.png" />
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Rostrum.Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />

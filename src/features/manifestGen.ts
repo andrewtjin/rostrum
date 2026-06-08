@@ -70,7 +70,9 @@ export const manifestConfig: ManifestConfig = {
   //        re-sideload (it caches the ribbon by Id+Version).
   //   .4 — Settings group moved to FIRST/leftmost on the Rostrum tab (was rightmost). Ribbon group ORDER
   //        changed (+ pane a11y tweaks), so the revision bumps for Office to re-read the order on re-sideload.
-  version: "0.3.0.4",
+  //   .5 — Settings group given its own GEAR ribbon icon (per-feature icon support added to the generator)
+  //        instead of the shared Rostrum "R" logo. New per-feature image resources → ribbon re-register.
+  version: "0.3.0.5",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",
@@ -151,17 +153,6 @@ function xml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/** The 3 ribbon icon references (shared across every group + control), indented to `pad`. */
-function iconXml(pad: string): string {
-  return [
-    `${pad}<Icon>`,
-    `${pad}  <bt:Image size="16" resid="Rostrum.Icon.16" />`,
-    `${pad}  <bt:Image size="32" resid="Rostrum.Icon.32" />`,
-    `${pad}  <bt:Image size="80" resid="Rostrum.Icon.80" />`,
-    `${pad}</Icon>`,
-  ].join("\n");
-}
-
 /**
  * Build the complete manifest XML from the contributions + config. Deterministic (stable order +
  * counters) so the output is byte-stable for the drift test.
@@ -174,6 +165,9 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
   const shortStrings: Array<{ id: string; value: string }> = [];
   const longStrings: Array<{ id: string; value: string }> = [];
   const urls: Array<{ id: string; value: string }> = [];
+  // Per-feature ribbon-icon images (populated when a feature declares `ribbon.icon`); appended to the
+  // shared Rostrum logo images in the Resources section. Empty when every feature uses the shared icon.
+  const featureImages: Array<{ id: string; value: string }> = [];
   let grpN = 0;
   let lblN = 0;
   let tipN = 0;
@@ -183,6 +177,26 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
     .map((feature) => {
       const groupLabelId = `Grp${grpN++}`;
       shortStrings.push({ id: groupLabelId, value: feature.ribbon.label });
+
+      // Per-feature ribbon icon: a feature may declare `ribbon.icon` (an assets base name) to carry its
+      // OWN glyph (Settings → a gear); otherwise the group + its controls reference the shared Rostrum
+      // logo resids. Any custom-icon image resources are registered ONCE here and reused by this group
+      // and all of its controls (resid `Rostrum.Icon.<id>.<size>` is ≤32 chars for the current ids).
+      const iconSizes = [16, 32, 80];
+      const iconResids = iconSizes.map((s) =>
+        feature.ribbon.icon ? `Rostrum.Icon.${feature.id}.${s}` : `Rostrum.Icon.${s}`
+      );
+      if (feature.ribbon.icon) {
+        iconSizes.forEach((s, i) => {
+          featureImages.push({ id: iconResids[i], value: `${config.origin}/assets/${feature.ribbon.icon}-${s}.png` });
+        });
+      }
+      const renderIcon = (pad: string): string =>
+        [
+          `${pad}<Icon>`,
+          ...iconSizes.map((s, i) => `${pad}  <bt:Image size="${s}" resid="${iconResids[i]}" />`),
+          `${pad}</Icon>`,
+        ].join("\n");
 
       const controlsXml = feature.ribbon.controls
         .map((control) => {
@@ -221,7 +235,7 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
             `                    <Title resid="${labelId}" />`,
             `                    <Description resid="${tipId}" />`,
             `                  </Supertip>`,
-            iconXml("                  "),
+            renderIcon("                  "),
             actionXml,
             `                </Control>`,
           ].join("\n");
@@ -231,16 +245,17 @@ export function buildManifestXml(features: FeatureContribution[], config: Manife
       return [
         `              <Group id="Rostrum.Group.${xml(feature.id)}">`,
         `                <Label resid="${groupLabelId}" />`,
-        iconXml("                "),
+        renderIcon("                "),
         controlsXml,
         `              </Group>`,
       ].join("\n");
     })
     .join("\n");
 
-  const imagesXml = [16, 32, 80]
-    .map((s) => `        <bt:Image id="Rostrum.Icon.${s}" DefaultValue="${xml(icon(s))}" />`)
-    .join("\n");
+  const imagesXml = [
+    ...[16, 32, 80].map((s) => `        <bt:Image id="Rostrum.Icon.${s}" DefaultValue="${xml(icon(s))}" />`),
+    ...featureImages.map((im) => `        <bt:Image id="${im.id}" DefaultValue="${xml(im.value)}" />`),
+  ].join("\n");
 
   const urlsXml = [
     // The shared-runtime page: it is BOTH the long-lived runtime (loads on document open, wires the
