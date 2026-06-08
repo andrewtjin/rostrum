@@ -40,7 +40,7 @@ const ribbon: RibbonGroup = {
     { kind: "action", commandId: "hide", label: "Hide", tip: "Hide all non-keeper body text (cards), keeping headings, cites, analytics, and highlighted runs. Run it again after editing to hide newly typed or pasted text." },
     { kind: "action", commandId: "showAll", label: "Show All", tip: "Reveal everything Rostrum hid. Convergent — safe to run from any state." },
     { kind: "action", commandId: "applyStyles", label: "Apply Styles", tip: "Apply Rostrum heading/cite sizes and the pocket box, and repair mis-styled cites. Reflows the document; needs desktop Word 1.5+." },
-    { kind: "pane", label: "Settings", tip: "Open the Rostrum pane for keep-color settings, whole-body mode, and diagnostics." },
+    { kind: "pane", label: "Options", tip: "Open Invisibility options — keep-color settings, whole-body mode, and diagnostics. (App-wide settings live in the Settings group.)" },
   ],
 };
 

@@ -17,7 +17,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.2</Version>
+  <Version>0.3.0.3</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
@@ -290,6 +290,30 @@
                   </Action>
                 </Control>
               </Group>
+              <Group id="Rostrum.Group.settings">
+                <Label resid="Grp5" />
+                <Icon>
+                  <bt:Image size="16" resid="Rostrum.Icon.16" />
+                  <bt:Image size="32" resid="Rostrum.Icon.32" />
+                  <bt:Image size="80" resid="Rostrum.Icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="Rostrum.settings.pane">
+                  <Label resid="Lbl12" />
+                  <Supertip>
+                    <Title resid="Lbl12" />
+                    <Description resid="Tip12" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Rostrum.Icon.16" />
+                    <bt:Image size="32" resid="Rostrum.Icon.32" />
+                    <bt:Image size="80" resid="Rostrum.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Rostrum.Tp.settings</TaskpaneId>
+                    <SourceLocation resid="Url4" />
+                  </Action>
+                </Control>
+              </Group>
               <Label resid="Rostrum.Tab.Label" />
             </CustomTab>
           </ExtensionPoint>
@@ -310,6 +334,7 @@
         <bt:Url id="Url1" DefaultValue="https://localhost:3000/taskpane.html#condense" />
         <bt:Url id="Url2" DefaultValue="https://localhost:3000/taskpane.html#format" />
         <bt:Url id="Url3" DefaultValue="https://localhost:3000/taskpane.html#cite" />
+        <bt:Url id="Url4" DefaultValue="https://localhost:3000/taskpane.html#settings" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Rostrum.GetStarted.Title" DefaultValue="Rostrum is ready." />
@@ -318,34 +343,37 @@
         <bt:String id="Lbl0" DefaultValue="Hide" />
         <bt:String id="Lbl1" DefaultValue="Show All" />
         <bt:String id="Lbl2" DefaultValue="Apply Styles" />
-        <bt:String id="Lbl3" DefaultValue="Settings" />
+        <bt:String id="Lbl3" DefaultValue="Options" />
         <bt:String id="Grp1" DefaultValue="Condense" />
         <bt:String id="Lbl4" DefaultValue="Shrink" />
         <bt:String id="Lbl5" DefaultValue="Condense" />
         <bt:String id="Lbl6" DefaultValue="Uncondense" />
         <bt:String id="Lbl7" DefaultValue="Unshrink" />
-        <bt:String id="Lbl8" DefaultValue="Settings" />
+        <bt:String id="Lbl8" DefaultValue="Options" />
         <bt:String id="Grp2" DefaultValue="Format &amp; Condense" />
         <bt:String id="Lbl9" DefaultValue="Open" />
         <bt:String id="Grp3" DefaultValue="Flow" />
         <bt:String id="Lbl10" DefaultValue="Open" />
         <bt:String id="Grp4" DefaultValue="Cite &amp; Paste" />
         <bt:String id="Lbl11" DefaultValue="Open" />
+        <bt:String id="Grp5" DefaultValue="Settings" />
+        <bt:String id="Lbl12" DefaultValue="Open" />
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Rostrum.GetStarted.Description" DefaultValue="Open a tool from the Rostrum tab. Invisibility Mode: Hide collapses card bodies; Show All reverses." />
         <bt:String id="Tip0" DefaultValue="Hide all non-keeper body text (cards), keeping headings, cites, analytics, and highlighted runs. Run it again after editing to hide newly typed or pasted text." />
         <bt:String id="Tip1" DefaultValue="Reveal everything Rostrum hid. Convergent — safe to run from any state." />
         <bt:String id="Tip2" DefaultValue="Apply Rostrum heading/cite sizes and the pocket box, and repair mis-styled cites. Reflows the document; needs desktop Word 1.5+." />
-        <bt:String id="Tip3" DefaultValue="Open the Rostrum pane for keep-color settings, whole-body mode, and diagnostics." />
+        <bt:String id="Tip3" DefaultValue="Open Invisibility options — keep-color settings, whole-body mode, and diagnostics. (App-wide settings live in the Settings group.)" />
         <bt:String id="Tip4" DefaultValue="Cycle the selected card&apos;s non-underlined text down a font size (8→7→6→5→4→Normal), keeping the underlined cut, highlights, cites, and headings full-size. Press again to shrink further." />
         <bt:String id="Tip5" DefaultValue="Collapse the selection per your Condense settings (merge paragraphs / pilcrows / retain paragraphs). Losslessly reversible with Uncondense." />
         <bt:String id="Tip6" DefaultValue="Reverse Condense — restore every paragraph break Rostrum marked." />
         <bt:String id="Tip7" DefaultValue="Reverse Shrink — reset the selected card&apos;s text back to its Normal size." />
-        <bt:String id="Tip8" DefaultValue="Open the Condense &amp; Shrink pane for modes, the omission-marker editor, and one-click mode buttons." />
+        <bt:String id="Tip8" DefaultValue="Open Condense &amp; Shrink options — modes, the omission-marker editor, and one-click mode buttons. (App-wide settings live in the Settings group.)" />
         <bt:String id="Tip9" DefaultValue="Planned — extends today&apos;s Apply-Styles + condense work." />
         <bt:String id="Tip10" DefaultValue="Planned — the flowing / speech-doc surface." />
         <bt:String id="Tip11" DefaultValue="Planned — citation + paste-with-formatting helpers." />
+        <bt:String id="Tip12" DefaultValue="Open Rostrum&apos;s general settings — including Always-On (load Rostrum on every document)." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

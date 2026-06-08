@@ -46,7 +46,7 @@ const ribbon: RibbonGroup = {
       label: "Unshrink",
       tip: "Reverse Shrink — reset the selected card's text back to its Normal size.",
     },
-    { kind: "pane", label: "Settings", tip: "Open the Condense & Shrink pane for modes, the omission-marker editor, and one-click mode buttons." },
+    { kind: "pane", label: "Options", tip: "Open Condense & Shrink options — modes, the omission-marker editor, and one-click mode buttons. (App-wide settings live in the Settings group.)" },
   ],
 };
 

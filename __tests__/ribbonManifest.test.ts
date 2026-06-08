@@ -132,8 +132,8 @@ describe("shared runtime (Always-On enablement, 0.3.0)", () => {
     expect(xml).not.toContain("Rostrum.Commands.Url");
   });
 
-  it("bumped to the 0.3.0.2 shared-runtime product version (.2 = SharedRuntime requirement restored at 1.1)", () => {
-    expect(manifestConfig.version).toBe("0.3.0.2");
+  it("bumped to 0.3.0.3 (.3 = Settings group added → ribbon re-register within the 0.3.0 product version)", () => {
+    expect(manifestConfig.version).toBe("0.3.0.3");
   });
 });
 

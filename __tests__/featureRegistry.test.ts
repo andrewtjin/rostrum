@@ -109,6 +109,24 @@ describe("default suite registry", () => {
     }
   });
 
+  it("registers Settings LAST as a stable, always-available, command-less pane feature", () => {
+    const all = registry.all();
+    const settings = registry.get("settings");
+    expect(settings).toBeTruthy();
+    // Registered last → its group renders rightmost on the Rostrum tab.
+    expect(all[all.length - 1]?.id).toBe("settings");
+    expect(settings?.status).toBe("stable");
+    // Always openable on ANY host where the suite loads — the SharedRuntime cap-gate lives inside the
+    // Always-On widget (it self-hides), never on the whole feature (that would repeat the visibility trap).
+    expect(settings?.isAvailable(desktopCaps)).toBe(true);
+    expect(settings?.isAvailable(webCaps)).toBe(true);
+    // A real rendered pane, exactly one pane control, and NO ribbon ExecuteFunction commands.
+    expect(Boolean(settings?.panel)).toBe(true);
+    expect(settings?.commands).toEqual([]);
+    expect(settings?.ribbon.controls).toHaveLength(1);
+    expect(settings?.ribbon.controls[0]?.kind).toBe("pane");
+  });
+
   it("keeps every command id globally unique (ribbon association is unambiguous)", () => {
     const ids = registry.commands().map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);

@@ -1,17 +1,18 @@
 // Always-On toggle — the Settings switch for "load Rostrum on every document."
 //
 // This is a SUITE-level concern (not invisibility's), so it's a self-contained component with its own
-// state over `core/alwaysOn` + the Office startup seam — deliberately NOT routed through the
-// invisibility controller. It's rendered inside the Invisibility "Settings" pane only because that is
-// the settings surface the ribbon "Settings" button opens; it shares none of that feature's engine.
+// state over `core/alwaysOn` + the Office startup seam — deliberately NOT routed through any feature
+// controller. It lives in the dedicated Settings pane (src/features/settings/panel.tsx), the suite's
+// home for general app-wide settings; it shares no feature's engine.
 //
 // Cap-gate: when the host lacks the shared runtime (`SharedRuntime 1.1`) — e.g. a manifest that doesn't
-// activate it, or desktop Word older than ~mid-2022 — `readAlwaysOn` reports `supported: false` and this
-// renders NOTHING. So the toggle simply doesn't appear where the lever can't work, and such a build
-// looks identical. On a shared-runtime host it shows a checkbox wired to `setAlwaysOn`.
+// activate it, or desktop Word older than ~mid-2022 — `readAlwaysOn` reports `supported: false`. Rather
+// than vanish (which would leave the dedicated Settings pane looking empty) the control then renders a
+// short "not available here" note; the live checkbox shows only on a shared-runtime host. The three
+// render-states are decided by the pure `alwaysOnView` in core/alwaysOn.ts.
 import * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readAlwaysOn, setAlwaysOn, StartupBehaviorHost } from "../../core/alwaysOn";
+import { alwaysOnView, readAlwaysOn, setAlwaysOn, StartupBehaviorHost } from "../../core/alwaysOn";
 import { createOfficeStartupHost, startupStorage } from "../../core/officeStartup";
 import { StorageLike } from "../../core/settings";
 import { logger } from "../../core/debug";
@@ -69,7 +70,13 @@ function useAlwaysOn(host: StartupBehaviorHost, storage: StorageLike): AlwaysOnU
           setSupported(state.supported);
           setOn(state.on);
         })
-        .catch((e) => log.caught("setting always-on failed", e))
+        .catch((e) => {
+          // The persist+drive failed: revert the optimistic flip so the checkbox never shows a state
+          // that wasn't saved. (setAlwaysOn persists the intent BEFORE driving Office, so a throw here
+          // is rare — but the UI must never claim a setting stuck when it didn't.)
+          log.caught("setting always-on failed", e);
+          if (mounted.current) setOn(!next);
+        })
         .finally(() => {
           if (mounted.current) setBusy(false);
         });
@@ -94,12 +101,30 @@ export function AlwaysOnToggle(props?: {
   const storageRef = useRef<StorageLike>(props?.storage ?? startupStorage());
   const ui = useAlwaysOn(hostRef.current, storageRef.current);
 
-  // Loading or unsupported → render nothing (the cap-gate: no lever, no UI).
-  if (ui.supported !== true) return null;
+  const view = alwaysOnView(ui.supported);
 
+  // Still resolving support → render nothing transient. This is the ONLY null case; the Settings pane's
+  // own intro fills the frame, so there's no blank flash.
+  if (view === "loading") return null;
+
+  // No shared runtime here → don't vanish (that would leave the dedicated Settings pane empty); explain it.
+  if (view === "unavailable") {
+    return (
+      <div className="r-section">
+        <h2 className="r-section__title">Always-On</h2>
+        <p className="r-note">
+          Always-On isn&apos;t available on this version of Word. To open Rostrum in a document, use
+          Home ▸ Add-ins.
+        </p>
+      </div>
+    );
+  }
+
+  // Supported → the live switch. Rendered expanded inline (not a collapsed <details>) because on the
+  // dedicated Settings pane this is the headline control, not an advanced/optional disclosure.
   return (
-    <details className="r-section">
-      <summary>Always on {ui.on ? "(on)" : "(OFF)"}</summary>
+    <div className="r-section">
+      <h2 className="r-section__title">Always-On {ui.on ? "(on)" : "(off)"}</h2>
       <p className="r-hint">
         When on, Rostrum loads on the ribbon automatically every time you open Word — no need to
         relaunch it from Home ▸ Add-ins per document. Turning it <strong>off</strong> keeps Rostrum
@@ -115,6 +140,6 @@ export function AlwaysOnToggle(props?: {
         />
         Load Rostrum on every document (recommended)
       </label>
-    </details>
+    </div>
   );
 }

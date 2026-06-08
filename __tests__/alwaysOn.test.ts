@@ -9,6 +9,7 @@ import {
   reconcileStartupBehavior,
   readAlwaysOn,
   setAlwaysOn,
+  alwaysOnView,
 } from "../src/core/alwaysOn";
 import { ALWAYS_ON_KEY, StorageLike } from "../src/core/settings";
 
@@ -103,6 +104,18 @@ describe("reconcileStartupBehavior (first-launch self-register)", () => {
   it("degrades gracefully (never throws) when a supported host's api throws", async () => {
     const state = await reconcileStartupBehavior(throwingHost, new FakeStorage());
     expect(state).toEqual({ supported: true, on: true });
+  });
+});
+
+describe("alwaysOnView (Settings-pane render-state — never a blank pane)", () => {
+  it("renders nothing only while support is still resolving (null)", () => {
+    expect(alwaysOnView(null)).toBe("loading");
+  });
+  it("renders the live toggle when the shared runtime is supported", () => {
+    expect(alwaysOnView(true)).toBe("toggle");
+  });
+  it("renders an explanatory note (NOT nothing) when unsupported, so the pane is never empty", () => {
+    expect(alwaysOnView(false)).toBe("unavailable");
   });
 });
 

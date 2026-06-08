@@ -63,7 +63,12 @@ export const manifestConfig: ManifestConfig = {
   //        activates, so Always-On works. Tradeoff: SharedRuntime 1.1 (Win M365 ≥2205 / Mac ≥16.61)
   //        gates out desktop Word older than ~mid-2022; the engine's WordApiDesktop 1.2 floor already
   //        excludes the web. See __tests__/ribbonManifest.test.ts for the regression guard on 1.0.
-  version: "0.3.0.2",
+  //   .3 — Settings group added: Always-On relocated out of the Invisibility pane into its own
+  //        suite-level Settings group/pane, and the per-feature pane buttons renamed "Settings"→
+  //        "Options" to disambiguate. Ribbon STRUCTURE changed (a new <Group> + relabeled controls) but
+  //        no requirement-set changed, so only the revision bumps — Office re-registers the new group on
+  //        re-sideload (it caches the ribbon by Id+Version).
+  version: "0.3.0.3",
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",

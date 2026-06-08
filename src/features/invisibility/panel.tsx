@@ -14,7 +14,6 @@ import { formatProgress, progressPercent } from "../../core/progress";
 import { LiveMode } from "../../liveMode";
 import { logger } from "../../core/debug";
 import { ControllerStatus, OpOutcome, RostrumController } from "../../taskpane/controller";
-import { AlwaysOnToggle } from "../../taskpane/components/AlwaysOnToggle";
 import { FeaturePanelProps } from "../types";
 
 const log = logger("invis");
@@ -510,9 +509,8 @@ export function InvisibilityPanel({ features }: FeaturePanelProps): React.ReactE
 
       <KeepColorPicker keepColors={ui.status.keepColors} busy={ui.busy} onChange={ui.setKeepColors} />
       <WholeBodyModeToggle status={ui.status} busy={ui.busy} onChange={ui.setPureWholeBody} />
-      {/* Suite-level "load on every document" switch. Self-contained (not via the invisibility
-          controller) and self-hiding where the shared runtime is unavailable. */}
-      <AlwaysOnToggle />
+      {/* Always-On ("load Rostrum on every document") moved OUT to the dedicated Settings pane — it's a
+          suite-level setting, not invisibility's. See src/features/settings/panel.tsx. */}
       <ManifestState status={ui.status} />
 
       {ui.trackChangesMode && (

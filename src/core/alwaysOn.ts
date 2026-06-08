@@ -44,6 +44,21 @@ function intentToBehavior(on: boolean): StartupBehavior {
   return on ? "load" : "none";
 }
 
+/** The three render-states of the Always-On control, given the resolved support flag. */
+export type AlwaysOnView = "loading" | "unavailable" | "toggle";
+
+/**
+ * Decide what the Always-On control should render from its support flag — pure so the "never render a
+ * blank Settings pane" rule is unit-tested without a DOM. `null` (support not yet resolved) ⇒ "loading"
+ * (render nothing transient; the pane's own intro covers the frame). `false` (no shared runtime) ⇒
+ * "unavailable" (show a short note, NOT nothing — a dedicated Settings pane must never look empty).
+ * `true` ⇒ "toggle" (the live checkbox).
+ */
+export function alwaysOnView(supported: boolean | null): AlwaysOnView {
+  if (supported === null) return "loading";
+  return supported ? "toggle" : "unavailable";
+}
+
 /**
  * The persisted per-device intent as an Office behavior — the seed the first-launch reconciliation
  * drives Office toward. Default ON (decision #3): absent storage ⇒ `"load"`.

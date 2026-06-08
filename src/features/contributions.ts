@@ -7,9 +7,12 @@ import { FeatureContribution } from "./types";
 import { invisibilityContribution } from "./invisibility/contribution";
 import { condenseContribution } from "./condense/contribution";
 import { plannedContributions } from "./planned";
+import { settingsContribution } from "./settings/contribution";
 
 export const contributions: FeatureContribution[] = [
   invisibilityContribution,
   condenseContribution,
   ...plannedContributions,
+  // Suite-level settings group, last (rightmost) on the Rostrum tab — a config destination, not a tool.
+  settingsContribution,
 ];

@@ -9,6 +9,7 @@ import { FeatureRegistry } from "./registry";
 import { invisibilityFeature } from "./invisibility/feature";
 import { condenseFeature } from "./condense/feature";
 import { plannedContributions } from "./planned";
+import { settingsFeature } from "./settings/feature";
 
 /** The app-wide feature registry singleton (React-augmented features). */
 export const registry = new FeatureRegistry();
@@ -23,6 +24,10 @@ registry.register(condenseFeature);
 for (const feature of plannedContributions) {
   registry.register(feature);
 }
+
+// Suite-level settings, registered LAST so its group sits rightmost on the Rostrum tab. Must mirror the
+// position of `settingsContribution` in contributions.ts (a parity test guards that the two lists agree).
+registry.register(settingsFeature);
 
 // Re-export the contribution surface so consumers import from one place.
 export { FeatureRegistry } from "./registry";
