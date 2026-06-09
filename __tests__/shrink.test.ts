@@ -29,11 +29,11 @@ function run(text: string, o: RunOpts = {}): string {
 }
 const bareP = (inner: string): string => `<w:p xmlns:w="${W_NS}">${inner}</w:p>`;
 
-/** A run carrying a character STYLE (rStyle) instead of direct formatting — how real briefs encode the cut. */
+/** A run carrying a character STYLE (rStyle) instead of direct formatting — how real docs encode the cut. */
 const runStyled = (text: string, styleId: string): string =>
   `<w:r><w:rPr><w:rStyle w:val="${styleId}"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
 
-/** Character-style defs mirroring a real brief: StyleUnderline (u), Emphasis (u + box), Plain (bold only). */
+/** Character-style defs mirroring a real doc: StyleUnderline (u), Emphasis (u + box), Plain (bold only). */
 const STYLE_DEFS =
   `<w:style w:type="character" w:styleId="StyleUnderline"><w:basedOn w:val="DefaultParagraphFont"/><w:rPr><w:u w:val="single"/></w:rPr></w:style>` +
   `<w:style w:type="character" w:styleId="Emphasis"><w:basedOn w:val="DefaultParagraphFont"/><w:rPr><w:u w:val="single"/><w:bdr w:val="single"/></w:rPr></w:style>` +
@@ -87,7 +87,7 @@ describe("keepFullSize predicate", () => {
   });
 });
 
-describe("keepFullSize — style-resolved underline/box (real-brief encoding, bug-1)", () => {
+describe("keepFullSize — style-resolved underline/box (real-doc encoding, bug-1)", () => {
   const first = (frag: string): ReturnType<typeof readFragmentParagraphs>[0][0] => readFragmentParagraphs(frag)[0][0];
   it("keeps a run underlined via a character STYLE (StyleUnderline), not a direct <w:u>", () => {
     const r = first(styledP(runStyled("the cut", "StyleUnderline")));

@@ -1,6 +1,6 @@
 // Engine-through-adapter integration on Debate.dotm-derived fixtures, plus a
 // 200-page perf pass. These exercise the FULL stack — Office.js adapter (fake host)
-// + the unchanged Stage-1 engine — on documents shaped like a real debate brief:
+// + the unchanged Stage-1 engine — on documents shaped like a real debate doc:
 // pocket/hat/block/tag headings (outline levels 0–3), cite paragraphs, body cards,
 // highlighted keepers, numbered lists, tables, and empty separators.
 
@@ -14,8 +14,8 @@ import { para, run, mkDoc, harness, hiddenFlags, settings, FakeDoc, FakePara } f
 // must survive Hide untouched (the engine only ever adds/removes <w:vanish/>).
 const NUM_PPR = `<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr></w:pPr>`;
 
-/** A realistic single-card brief slice. Indices are referenced by the assertions. */
-function briefDoc(): FakeDoc {
+/** A realistic single-card doc slice. Indices are referenced by the assertions. */
+function sampleDoc(): FakeDoc {
   return mkDoc([
     para(run("Pocket: Climate Adv"), { outlineNumber: 1 }), // 0 H1 pocket — kept
     para(run("Hat: Warming bad"), { outlineNumber: 2 }), // 1 H2 hat — kept
@@ -30,11 +30,11 @@ function briefDoc(): FakeDoc {
   ]);
 }
 
-describe("brief-shaped document (per-paragraph and whole-body)", () => {
+describe("document shaped like a real debate doc (per-paragraph and whole-body)", () => {
   it.each<CommitStrategy>(["per-paragraph", "whole-body"])(
     "hides only non-keeper body text — %s",
     async (commitStrategy) => {
-      const doc = briefDoc();
+      const doc = sampleDoc();
       const h = harness(doc);
       const port = createOfficeWordPort({
         runner: h.runner,
@@ -55,7 +55,7 @@ describe("brief-shaped document (per-paragraph and whole-body)", () => {
   );
 
   it("preserves numbering markup through hide → showAll (byte-stable except w:vanish)", async () => {
-    const doc = briefDoc();
+    const doc = sampleDoc();
     const h = harness(doc);
     const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
 
@@ -72,7 +72,7 @@ describe("brief-shaped document (per-paragraph and whole-body)", () => {
   });
 
   it("Show All reveals everything and disarms; Re-hide catches newly typed cards", async () => {
-    const doc = briefDoc();
+    const doc = sampleDoc();
     const h = harness(doc);
     const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
 
@@ -88,7 +88,7 @@ describe("brief-shaped document (per-paragraph and whole-body)", () => {
   });
 
   it("is idempotent — a second hide changes nothing", async () => {
-    const doc = briefDoc();
+    const doc = sampleDoc();
     const h = harness(doc);
     const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
     await hide(port, settings(["yellow"]));
@@ -97,7 +97,7 @@ describe("brief-shaped document (per-paragraph and whole-body)", () => {
   });
 
   it("honors the document manifest's keep-colors on the next session (round-trip)", async () => {
-    const doc = briefDoc();
+    const doc = sampleDoc();
     const h = harness(doc);
     const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
     // Arm with green-only keepers.
@@ -113,9 +113,9 @@ describe("brief-shaped document (per-paragraph and whole-body)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Perf: ~200 pages. A debate brief runs long; the adapter must stay responsive.
+// Perf: ~200 pages. A debate doc runs long; the adapter must stay responsive.
 // ---------------------------------------------------------------------------
-describe("perf — 200-page brief", () => {
+describe("perf — 200-page doc", () => {
   /** ~25 paragraphs/page × 200 pages. Mostly body cards, with periodic headings/cites. */
   function bigDoc(pages = 200, perPage = 25): FakePara[] {
     const out: FakePara[] = [];
@@ -130,7 +130,7 @@ describe("perf — 200-page brief", () => {
   }
 
   it.each<CommitStrategy>(["per-paragraph", "whole-body"])(
-    "hides a 5,000-paragraph brief within budget — %s",
+    "hides a 5,000-paragraph doc within budget — %s",
     async (commitStrategy) => {
       const doc = mkDoc(bigDoc());
       const h = harness(doc);

@@ -1,14 +1,14 @@
 // REAL-DOCUMENT validation of the two Shrink fixes — the headless proof they hold on the ACTUAL
-// wet-test brief, not just the synthetic fixtures in shrink.test.ts.
+// wet-test doc, not just the synthetic fixtures in shrink.test.ts.
 //
-// BUG 1 — style-resolved keep. In real debate briefs the cut/emphasis is applied through CHARACTER
+// BUG 1 — style-resolved keep. In real debate docs the cut/emphasis is applied through CHARACTER
 // STYLES (StyleUnderline → <w:u>; Emphasis → <w:u>+<w:bdr>), NOT direct run formatting. The fix
 // (resolveStyleEmphasis + the `boxed` signal + keepFullSize resolving direct-THEN-style in readRun) must
 // keep those runs at full size and shrink only the genuinely un-emphasized prose, on the real styles.xml
 // Word emitted. Layers A/B/C below run the real engine over the real OOXML; a NEGATIVE CONTROL (strip the
 // styles part → the style-only cut shrinks) proves the style resolution is load-bearing — the in-CI,
 // permanent equivalent of reverting the fix, with teeth.
-//   TEETH (asserts that FAIL on the pre-fix code): this brief carries NO direct <w:bdr> anywhere and the
+//   TEETH (asserts that FAIL on the pre-fix code): this doc carries NO direct <w:bdr> anywhere and the
 //   target card paragraph (P6) has NO direct <w:u>/<w:bdr> at all — every box/underline signal there is
 //   style-derived. So `boxed.length>0` (Layer B) and `some(underline)`/`some(boxed)` + the exact shrink
 //   rung (Layer C) can ONLY hold once readRun resolves a run's character style.
@@ -43,13 +43,13 @@ import { ShrinkOptions } from "../src/core/types";
 
 /** A valid-but-empty styles part: the negative control where NO character style can resolve emphasis. */
 const EMPTY_STYLES = `<w:styles xmlns:w="${W_NS}"></w:styles>`;
-/** The cut is encoded through this character style in real briefs; also the Layer-C paragraph selector. */
+/** The cut is encoded through this character style in real docs; also the Layer-C paragraph selector. */
 const STYLE_UNDERLINE_RE = /w:val="StyleUnderline"/;
 
-// Locate the wet-test brief by filename substring; the whole suite skips cleanly when it is absent.
+// Locate the wet-test doc by filename substring; the whole suite skips cleanly when it is absent.
 const sample: SampleRef | undefined = discoverSamples().find((s) => /shrink test/i.test(s.file));
 
-describe("Shrink on the real wet-test brief (samples/)", () => {
+describe("Shrink on the real wet-test doc (samples/)", () => {
   if (!sample) {
     // eslint-disable-next-line no-console
     console.info("[shrinkRealDoc] '[…shrink test…]' sample absent (samples/ is gitignored) — skipping.");
@@ -58,7 +58,7 @@ describe("Shrink on the real wet-test brief (samples/)", () => {
   }
   const present: SampleRef = sample;
 
-  // Read the brief ONCE for the whole suite (a .docx is a zip; no need to re-open per test).
+  // Read the doc ONCE for the whole suite (a .docx is a zip; no need to re-open per test).
   let documentXml = "";
   let stylesXml: string | null = null;
   beforeAll(async () => {
@@ -68,7 +68,7 @@ describe("Shrink on the real wet-test brief (samples/)", () => {
   });
 
   /**
-   * True when the brief has no styles part — a degenerate shape a real .docx never has. Per the plan's
+   * True when the doc has no styles part — a degenerate shape a real .docx never has. Per the plan's
    * "never fail for a missing corpus" mandate we log + bail out of the test body rather than assert; the
    * name says so at the call site (`if (skipIfNoStyles()) return;`). The whole-suite-absent case is a true
    * `it.skip` above; this finer guard only fires for a corrupt sample and is defense-in-depth.
@@ -99,13 +99,13 @@ describe("Shrink on the real wet-test brief (samples/)", () => {
   it.todo("bug-2: reselect after write-back is host-only (rangePort.test.ts + live wet-test cover it)");
 
   // --- Layer A: the resolver over the REAL styles.xml (no body, no outline). ---
-  it("Layer A — resolveStyleEmphasis reads the brief's real character styles", () => {
+  it("Layer A — resolveStyleEmphasis reads the doc's real character styles", () => {
     if (skipIfNoStyles()) return;
     const map = resolveStyleEmphasis(stylesXml as string);
     // The cut is StyleUnderline (underline, no box); the boxed emphasis is Emphasis (underline + box).
     expect(map.get("StyleUnderline")).toEqual({ underline: true, boxed: false });
     expect(map.get("Emphasis")).toEqual({ underline: true, boxed: true });
-    // The cite style EXISTS but carries an explicit <w:u w:val="none"/> in this brief, so it resolves to
+    // The cite style EXISTS but carries an explicit <w:u w:val="none"/> in this doc, so it resolves to
     // NO emphasis — cite runs are kept via citeStyled, not via the emphasis map. This also exercises the
     // tri-state explicit-"none" path of the resolver on real OOXML.
     expect(map.has("Style13ptBold")).toBe(true);
@@ -124,7 +124,7 @@ describe("Shrink on the real wet-test brief (samples/)", () => {
     const highlighted = runs.filter((r) => r.highlight !== null);
     const cited = runs.filter((r) => r.citeStyled);
 
-    // TEETH: the brief carries NO direct <w:bdr> anywhere — every boxed run is boxed THROUGH the Emphasis
+    // TEETH: the doc carries NO direct <w:bdr> anywhere — every boxed run is boxed THROUGH the Emphasis
     // character style, so a non-empty boxed set can ONLY hold once style resolution works (bug-1). On the
     // pre-fix reader (direct rPr only) this set is empty and the assertion fails.
     expect(boxed.length).toBeGreaterThan(0);
@@ -142,7 +142,7 @@ describe("Shrink on the real wet-test brief (samples/)", () => {
     }
 
     // Non-vacuous: at least one PLAIN, eligible, lettered run exists that WOULD shrink — otherwise the
-    // brief has nothing to shrink and the whole exercise would be meaningless.
+    // doc has nothing to shrink and the whole exercise would be meaningless.
     const plainShrinkable = runs.filter((r) => !keepFullSize(r) && /\p{L}/u.test(r.text));
     expect(plainShrinkable.length).toBeGreaterThan(0);
   });
@@ -164,10 +164,10 @@ describe("Shrink on the real wet-test brief (samples/)", () => {
     const out = shrinkFragment(pkg, opts);
     const after = readFragmentParagraphs(out.xml)[0];
     expect(out.changed).toBe(true);
-    // The brief's plain card prose is explicit 8pt (sz=16); one press steps it to 7pt (sz=14). This exact
+    // The doc's plain card prose is explicit 8pt (sz=16); one press steps it to 7pt (sz=14). This exact
     // rung ALSO distinguishes the fix: pre-fix the style-cut runs are NOT kept, so the first non-kept run is
     // the underlined opener with no explicit size → its effective size is the inherited Normal (12pt, sz=24
-    // per this brief's docDefaults) → nextShrinkSize(24)=16, not 14. (Verified by the teeth probe.)
+    // per this doc's docDefaults) → nextShrinkSize(24)=16, not 14. (Verified by the teeth probe.)
     expect(out.appliedSizeHalfPts).toBe(14);
 
     // This card carries no "[…Omitted…]" spans, so the omission branch below never fires here — omission

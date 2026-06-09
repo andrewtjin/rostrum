@@ -26,7 +26,7 @@ const SIX_PT_HALF = 12;
 
 /**
  * A run is kept at FULL size (never shrunk) when it carries Shrink's keep-signal: it is underlined (the
- * cut) or character-boxed — BOTH resolved through the run's character style too, since real briefs apply
+ * cut) or character-boxed — BOTH resolved through the run's character style too, since real docs apply
  * the cut via StyleUnderline / Emphasis rather than a direct rPr — or highlighted, cite-styled, a
  * structural/ineligible run (fields, footnote refs, drawings), or a condense break marker. Mirrors
  * decision #2 ("keep underlined OR highlighted runs full-size, plus boxed/cites/headings/structural

@@ -1,7 +1,7 @@
 // One-off audit (Stage 4.2g validation): for every .docx in samples/, list the OOXML
 // parts present and the relationship TYPES that word/document.xml declares, then flag any
 // rendering-relevant part/relationship that commitXml does NOT bundle. This answers
-// "could a different brief inherit formatting from a part we drop?" entirely headless.
+// "could a different doc inherit formatting from a part we drop?" entirely headless.
 //
 // Run from rostrum-addin/:  node scripts/auditDocxParts.mjs
 import fs from "fs";

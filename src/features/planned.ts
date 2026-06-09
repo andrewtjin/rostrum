@@ -69,7 +69,7 @@ export const plannedContributions: FeatureContribution[] = [
     tagline: "One-click styles cleanup, condensing, and legacy-file migration.",
     glyph: "🧹",
     highlights: [
-      "Collapse a brief's tangle of one-off styles down to a clean, canonical set",
+      "Collapse a doc's tangle of one-off styles down to a clean, canonical set",
       "Merge duplicate and typo'd styles (e.g. Analytic → Analytics)",
       "Condense spacing and bring legacy files up to today's format",
     ],
@@ -82,7 +82,7 @@ export const plannedContributions: FeatureContribution[] = [
     glyph: "🗒️",
     highlights: [
       "Lay out a round's arguments side by side in a speech-ready view",
-      "Pull cards and tags straight from your open brief",
+      "Pull cards and tags straight from your open doc",
       "Track what's been answered and what's still standing",
     ],
     unavailableReason: "Planned — the flowing / speech-doc surface.",

@@ -7,7 +7,7 @@
 
 import { parseStyleDefs, styleOutlineLevel, outlineNumberOf } from "../src/core/outline";
 
-// A styles.xml mirroring a real debate brief: Heading1..4 carry their own outlineLvl, and
+// A styles.xml mirroring a real debate doc: Heading1..4 carry their own outlineLvl, and
 // Analytics (+ its typo Analytic) inherit level 3 from Heading4 via basedOn. Default has none.
 const STYLES_XML = `
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">

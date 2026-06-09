@@ -107,7 +107,7 @@ export const PURE_WHOLE_BODY_KEY = "rostrum.pureWholeBody.v1";
 /**
  * Read the per-device pure-whole-body flag. Returns the stored value when the user has explicitly
  * set it (so an opt-OUT sticks); otherwise `defaultValue`. Wet-test 2026-06-05 confirmed ⑦ is fast
- * (2–4s on real briefs, 45s on a 960k-word doc) AND losslessly reversible, so production now passes
+ * (2–4s on real docs, 45s on a 960k-word doc) AND losslessly reversible, so production now passes
  * `defaultValue = true` (⑦ is the default Hide path); a user can still uncheck it for the slower,
  * maximally-compatible per-paragraph path. Garbled/throwing storage falls back to `defaultValue`.
  */

@@ -3,7 +3,7 @@
 // Runs the full engine + (faked) adapter stack over the ACTUAL `.docx` files in
 // `rostrum/samples/` (see realDocs.ts). It catches engine-vs-real-OOXML bugs and
 // enforces the single-`<w:p>` writeback invariant (the live-host bug class) against
-// genuine briefs, and reports real timing per size tier.
+// genuine docs, and reports real timing per size tier.
 //
 //   * small / medium — always run (correctness + thoroughness).
 //   * large / xlarge — run ONLY with ROSTRUM_PERF=1 (timing/optimization), since
@@ -157,13 +157,13 @@ describe("real Word documents (samples/)", () => {
 // Stage 4.2g coverage guard. A per-paragraph `insertOoxml` commit renders the inserted
 // fragment against ONLY the parts `commitXml` bundles, so a body paragraph that inherits
 // formatting from an UNBUNDLED part silently collapses to document defaults (the wet-test
-// "underline/box/18pt → plain 11pt" bug). This asserts EVERY sample brief's
-// document-relationship types are CLASSIFIED — so a future brief carrying a NEW part type
+// "underline/box/18pt → plain 11pt" bug). This asserts EVERY sample doc's
+// document-relationship types are CLASSIFIED — so a future doc carrying a NEW part type
 // fails loudly HERE (headless) instead of silently losing formatting on the live host.
 // Reads only the tiny .rels, so it runs on ALL tiers (incl. the deferred heavy ones, which
 // carry the most exotic parts — footnotes/endnotes/image).
 // ---------------------------------------------------------------------------
-describe("commitXml part coverage across real briefs (Stage 4.2g formatting guard)", () => {
+describe("commitXml part coverage across real docs (Stage 4.2g formatting guard)", () => {
   // Bundled by commitXml — MUST mirror AUX_REL_TYPES in ooxmlPackage.ts. These are the parts a
   // body paragraph inherits run/paragraph FORMATTING from (underline, border/box, size, list).
   const BUNDLED = new Set(["styles", "numbering", "theme"]);

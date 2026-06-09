@@ -372,7 +372,7 @@ function exposeInteriorSpace(doc: any, runEl: any, offset: number): boolean {
  * `classifyParagraph` parsed every paragraph TWICE — once in `readRuns` and again in
  * `applyRunVisibility`/`makeAllVisible`. xmldom's `DOMParser` dominates the
  * per-paragraph cost (it builds a full DOM tree from the package string), so that
- * second parse roughly DOUBLED the engine's work on every brief — the same CPU the
+ * second parse roughly DOUBLED the engine's work on every doc — the same CPU the
  * task-pane browser spends live. Parsing once and reading + mutating through one tree
  * halves it, with byte-identical output (only `<w:vanish/>` is ever toggled).
  *

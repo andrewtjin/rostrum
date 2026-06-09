@@ -81,7 +81,7 @@ export function classifyParagraph(
   // path did `readRuns(p.ooxml)` (parse #1) then `applyRunVisibility`/`makeAllVisible`
   // (parse #2) — re-parsing the same package string twice per paragraph. xmldom's
   // DOMParser dominates the engine's per-paragraph cost, so the second parse was ~half
-  // the work on every brief (and the same CPU the task-pane spends live). Output is
+  // the work on every doc (and the same CPU the task-pane spends live). Output is
   // byte-identical: the keeper policy still consumes only the flat `runs` views and
   // hands back index-aligned flags, exactly as before.
   const parsed = new ParsedParagraph(p.ooxml);
@@ -180,7 +180,7 @@ export async function reHide(
 export async function showAll(port: WordPort): Promise<ShowAllResult> {
   // Fast path (Stage 4): clear font.hidden NATIVELY over the whole body story in one/two
   // host round-trips, instead of reading + rewriting every paragraph's OOXML (the old
-  // path did `insertOoxml` per changed paragraph — thousands of reflows on a long brief,
+  // path did `insertOoxml` per changed paragraph — thousands of reflows on a long doc,
   // ~3 min on the extremely-large doc). Behaviorally identical to the per-paragraph
   // makeAllVisible pass: it reveals the SAME set, including any run the user hid manually
   // (decision #10), and is convergent — a second Show All clears nothing new. Malformed

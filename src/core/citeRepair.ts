@@ -2,7 +2,7 @@
 // style and re-apply it, so the keeper rule (`paragraphHasCiteRun`) keeps the card.
 //
 // WHY THIS EXISTS. Rostrum keeps a paragraph as a cite iff some run carries the cite
-// character style (`<w:rStyle w:val="Style13ptBold"/>`). Real briefs contain cites
+// character style (`<w:rStyle w:val="Style13ptBold"/>`). Real docs contain cites
 // that were typed/pasted with the author bolded but WITHOUT that character style — e.g.
 // the ndca sample's "Valcke et al. 20" cite, whose author run is `<w:b/>` bold but has
 // no rStyle. Such a cite is mis-classified as body and HIDDEN with the card body, which

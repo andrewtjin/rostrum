@@ -3,7 +3,7 @@
 // These read the actual `.docx` files dropped into `rostrum/samples/`, pull out
 // `word/document.xml` (the real OOXML Word produces) plus `word/styles.xml`, and turn
 // the body paragraphs into engine-ready `FakePara` fixtures. This lets the FULL
-// engine+adapter stack run against genuine debate-brief OOXML — every messy real-world
+// engine+adapter stack run against genuine debate-doc OOXML — every messy real-world
 // run, hyperlink, field, footnote, content control, and numbering — with NO Word host.
 // It complements the synthetic fixtures: those prove specific keep rules; these prove
 // the engine never corrupts or chokes on reality, and produce real timing at scale.
@@ -148,7 +148,7 @@ export function paragraphsFromDocumentXml(documentXml: string, stylesXml: string
 //
 // The Stage-4.2g per-paragraph package (`WholeBodyPackage.paragraphXml`) is deliberately style-LESS, so
 // it CANNOT drive Shrink: `resolveStyleEmphasis`/`resolveNormalSizeHalfPts` regex-scan the fragment for
-// `<w:style>`/`<w:docDefaults>`, and real briefs apply the cut through a CHARACTER STYLE — with no styles
+// `<w:style>`/`<w:docDefaults>`, and real docs apply the cut through a CHARACTER STYLE — with no styles
 // part, every run resolves to "no emphasis" and the genuine cut would shrink. The helpers below instead
 // rebuild the TWO-part shape Word's live `Range.getOoxml()` returns — a `/word/document.xml` part AND a
 // `/word/styles.xml` part — which is exactly what Shrink consumes on the host. (`rangePort.test.ts::pkg()`
@@ -170,7 +170,7 @@ export function stripProlog(xml: string): string {
 /**
  * Reconstruct a faithful flat-OPC RANGE package — a `document.xml` part PLUS a `styles.xml` part — the
  * exact two-part shape Word's live `Range.getOoxml()` returns and the ONLY shape that can drive Shrink
- * against a real brief (the engine needs both the body paragraphs and the style definitions in one
+ * against a real doc (the engine needs both the body paragraphs and the style definitions in one
  * string). Each part keeps its own root namespace declarations (Word emits self-contained parts), so the
  * `w:` prefix resolves inside `<pkg:xmlData>`.
  */

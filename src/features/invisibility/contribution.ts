@@ -47,7 +47,7 @@ const ribbon: RibbonGroup = {
 export const invisibilityContribution: FeatureContribution = {
   id: "invisibility",
   title: "Invisibility Mode",
-  tagline: "Collapse a brief to headings, cites, and highlights — instantly, reversibly.",
+  tagline: "Collapse a doc to headings, cites, and highlights — instantly, reversibly.",
   glyph: "🙈",
   status: "stable",
   primarySurface: "pane",

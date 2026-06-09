@@ -1,7 +1,7 @@
 // PERFORMANCE-INVARIANT GUARD — classifyParagraph parses each paragraph exactly ONCE.
 //
 // The hide pass is parse-bound: xmldom's `DOMParser` (string → full DOM tree) dominates
-// the engine's per-paragraph cost on a long brief, and the same CPU is spent live in the
+// the engine's per-paragraph cost on a long doc, and the same CPU is spent live in the
 // task-pane browser. The engine USED to parse every paragraph TWICE — once in
 // `readRuns` to classify, then again in `applyRunVisibility`/`makeAllVisible` to mutate —
 // roughly doubling the work. `ParsedParagraph` collapsed that to one parse (read + mutate

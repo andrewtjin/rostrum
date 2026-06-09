@@ -412,7 +412,7 @@ function ownBoxTri(rPrXml: string): boolean | undefined {
 
 /**
  * Map each style id to its RESOLVED emphasis (underline / character-box), following the `basedOn`
- * cascade, parsed from the fragment's bundled styles.xml. The real keep-signal in briefs is applied
+ * cascade, parsed from the fragment's bundled styles.xml. The real keep-signal in docs is applied
  * through a character STYLE (StyleUnderline, Emphasis, …), so Shrink must resolve the STRUCTURAL signal
  * through the style — never by hardcoding style NAMES (lesson #3). Regex scan (like
  * `resolveNormalSizeHalfPts` / outline.ts) — styles.xml is flat and well-formed as Word emits it. A bare
@@ -461,7 +461,7 @@ export function resolveStyleEmphasis(fragmentXml: string): Map<string, StyleEmph
 /**
  * One run's read-only view for the pure engines. `underline`/`boxed` are resolved DIRECT-then-STYLE: a
  * direct `<w:u>`/`<w:bdr>` on the run wins (tri-state, so an explicit none overrides), otherwise the
- * run's character style's resolved emphasis (from `styleMap`) decides — because in real briefs the cut is
+ * run's character style's resolved emphasis (from `styleMap`) decides — because in real docs the cut is
  * underlined/boxed through a character STYLE (StyleUnderline / Emphasis), not a direct rPr.
  */
 function readRun(runEl: any, index: number, styleMap: Map<string, StyleEmphasis>): FragmentRunView {
@@ -800,7 +800,7 @@ function dropBlankParagraphs(doc: any, paras: any[], reversal: CondenseOptions["
       // Lossless removal stamps the paragraph mark with the break style + `<w:vanish/>`, so it collapses
       // now and Uncondense (which keys on the break style) restores it. rPr allows only ONE `<w:rStyle>`,
       // so when the mark already carries a FOREIGN character style — e.g. an underlined-but-empty newline
-      // styled `StyleUnderline` (real briefs underline via a char style) — we can't simply add ours. We
+      // styled `StyleUnderline` (real docs underline via a char style) — we can't simply add ours. We
       // park the pristine original mark rPr in a hidden, self-describing payload run, THEN swap the live
       // rStyle to our break style: the blank condenses like any other, and Uncondense restores the user's
       // mark verbatim from the payload — lossless, where we previously had to skip such paragraphs.

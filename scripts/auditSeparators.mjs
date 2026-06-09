@@ -5,7 +5,7 @@
 // if X lands in a hidden gap, the visible words would fuse. Rank by frequency, show contexts, and
 // flag which candidates the keepers.ts WHITESPACE (word-separator) predicate already covers.
 //
-// This does NOT change behavior — it tells us which separators are REAL in debate briefs so we can
+// This does NOT change behavior — it tells us which separators are REAL in debate docs so we can
 // add the genuine ones to the predicate (or confirm the predicate is already complete) in one pass.
 //
 // Run from rostrum-addin/:  node scripts/auditSeparators.mjs

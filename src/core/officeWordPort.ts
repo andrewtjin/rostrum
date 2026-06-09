@@ -410,7 +410,7 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   /**
    * The read batch (Stage 4.1). ALWAYS reads the whole body story in ONE
    * `body.getOoxml()` — eliminating the per-paragraph `getOoxml()` storm that dominated
-   * Hide (≈135s on a 376-paragraph brief). Proxy outline level + table membership + text
+   * Hide (≈135s on a 376-paragraph doc). Proxy outline level + table membership + text
    * are loaded as cheap properties (chunked, so progress + cancel still work); decision
    * #7's outline level still comes from the PROXY, not the OOXML. The package is then
    * aligned to the proxies tolerantly (⑧): the body OOXML can hold ±1 `<w:p>` vs
@@ -905,7 +905,7 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
             // update pick the CHEAPEST faithful write (Stage 4 perf):
             //   * keepWhole / hideWhole → a NATIVE `font.hidden` toggle on the whole
             //     paragraph (incl. its mark) — no OOXML parse, no per-call reflow. This
-            //     is the bulk of a debate brief (whole card bodies) and is what closes
+            //     is the bulk of a debate doc (whole card bodies) and is what closes
             //     the 3:40-vs-0:51 gap with Verbatim. hideWhole has, by construction, no
             //     kept/structural runs (a body field/footnote-ref ⇒ hidePartial), so a
             //     blunt whole-paragraph hide is exactly the OOXML <w:vanish/> result.
@@ -1032,7 +1032,7 @@ function clarify(e: unknown, action: string): Error {
  * Whitespace-normalize for tolerant matching, AND drop characters that Word's
  * `Paragraph.text` includes but our OOXML text walk can't reliably reproduce — astral
  * (surrogate-pair) codepoints and emoji modifiers (variation selectors, ZWJ). The ndca
- * brief carries an emoji (`w16se:symEx` inside `mc:AlternateContent`) that `.text` renders
+ * doc carries an emoji (`w16se:symEx` inside `mc:AlternateContent`) that `.text` renders
  * but `collectParagraphText` omits; stripping it on BOTH sides makes that paragraph align
  * cleanly instead of needing a re-read. Anything still divergent (fields, `<w:noBreakHyphen>`)
  * falls to the targeted re-read, so this is an optimization, never a correctness dependency.
@@ -1047,10 +1047,10 @@ function normForAlign(s: string): string {
 /**
  * Tolerant, NON-CASCADING alignment (Stage 4.1 ⑧ → 4.2): map each Office paragraph proxy
  * (index i, text `proxyTexts[i]`) to a package STORY-paragraph index, in document order.
- * Two real-brief discrepancies are handled DIFFERENTLY:
+ * Two real-doc discrepancies are handled DIFFERENTLY:
  *
  *   • ARTIFACT — `body.getOoxml()` can serialize ±1 more `<w:p>` than `body.paragraphs`
- *     enumerates (377 vs 376 on the ndca brief, 0 textboxes). These extra package paragraphs
+ *     enumerates (377 vs 376 on the ndca doc, 0 textboxes). These extra package paragraphs
  *     are SKIPPED via a small forward window, capped by a global skip budget (`pk − N`) so we
  *     never skip past where the remaining proxies must live (no cascade into duplicate text).
  *

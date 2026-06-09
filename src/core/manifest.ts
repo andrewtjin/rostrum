@@ -2,7 +2,7 @@
 // and with which keep-colors" (decisions #10, #13, #15).
 //
 // Stored as ONE custom XML part (NOT per-span content controls — those bloat
-// 200-page briefs and are silently stripped by .doc/RTF/Google-Docs conversion).
+// 200-page docs and are silently stripped by .doc/RTF/Google-Docs conversion).
 // Because it travels with the file and is scanned on open, ANY user/machine
 // re-derives the same ON-state and keep-set deterministically (decision #13).
 //
