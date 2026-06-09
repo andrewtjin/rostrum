@@ -135,3 +135,32 @@ footer {
 .path {
     word-break: break-all;
 }
+/* Comparison tables (the compare page). Tokens shared with the cards/banners so the
+   side-by-side reads as the same surface, not a bolted-on element. */
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+    font-size: 0.95rem;
+}
+th,
+td {
+    border: 1px solid var(--line);
+    padding: 9px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: var(--card);
+    font-weight: 600;
+}
+/* The first column labels the row (the "aspect"); muted so the two answer columns lead. */
+td:first-child {
+    color: var(--muted);
+    font-weight: 600;
+}
+.back {
+    display: inline-block;
+    margin: 0 0 8px;
+    font-size: 0.9rem;
+}

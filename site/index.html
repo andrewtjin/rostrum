@@ -29,10 +29,8 @@
                 <h1>Rostrum</h1>
             </header>
             <p class="tagline">
-                A Word add-in that hides debate-card <em>body</em> text while
-                keeping headings, cites, analytics, and highlighted runs — and
-                is <strong>natively reversible</strong>, even without the
-                add-in.
+                A modern debate tool suite, built <em>for</em> debaters
+                <em>by</em> debaters.
             </p>
 
             <a class="cta" href="./manifest.xml" download="manifest.xml"
@@ -52,9 +50,42 @@
                 (<code>WordApiDesktop&nbsp;1.2</code>), which exists on
                 <strong>Word for Windows and Mac</strong> but
                 <strong>not</strong> Word for the web. On an unsupported host
-                the add-in explains the manual fallback instead of failing
-                silently.
+                the add-in falls back to manual formatting.
             </div>
+
+            <h2>Why Rostrum</h2>
+            <p>
+                Built as a modern Word <strong>add-in</strong>, not a
+                <strong>macro</strong> — so it does things the old debate tools
+                can't.
+            </p>
+            <ul>
+                <li>
+                    <strong>Keep working during invis mode.</strong> Rostrum
+                    runs in its own process and never freezes Word — start a
+                    hide on a long file and switch to your other open documents
+                    while it runs.
+                    <a href="./comparison.html#non-blocking">How&nbsp;›</a>
+                </li>
+                <li>
+                    <strong>Reversible without the add-in.</strong> Hidden text
+                    is Word's own Hidden-font attribute — any reader recovers it
+                    from the Font dialog.
+                    <a href="./comparison.html#reversible">How&nbsp;›</a>
+                </li>
+                <li>
+                    <strong>Lossless shrink &amp; condense.</strong> Unshrink
+                    and Uncondense rebuild the original from the document itself
+                    — no add-in needed to reverse.
+                    <a href="./comparison.html#lossless">How&nbsp;›</a>
+                </li>
+                <li>
+                    <strong>The same view on every machine.</strong> The
+                    hidden-state rides inside the file, so anyone who opens it
+                    re-derives the same view.
+                    <a href="./comparison.html#portable">How&nbsp;›</a>
+                </li>
+            </ul>
 
             <h2>Install (sideload)</h2>
             <p>

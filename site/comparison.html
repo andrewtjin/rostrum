@@ -1,0 +1,184 @@
+<!doctype html>
+<!--
+  Rostrum comparison / "proof" page. Served at the Pages site root as …/rostrum/comparison.html,
+  copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .), same as index.html.
+
+  Purpose: the landing page (index.html) makes short value claims; each claim links HERE, to the
+  matching section that explains and backs it. So the section ids below are a CONTRACT with
+  index.html's "How ›" links — keep them in sync:
+    #non-blocking · #reversible · #lossless · #portable
+  PURE static HTML, no bundle — shares ./styles.css with the landing page (one cached request).
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Rostrum — how it compares</title>
+        <meta
+            name="description"
+            content="How Rostrum, a modern Word add-in, compares to Verbatim and other VBA debate macros — claim by claim."
+        />
+        <link rel="icon" href="./assets/icon-32.png" />
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body>
+        <main class="wrap">
+            <a class="back" href="./">‹ Back to install</a>
+            <header>
+                <img src="./assets/icon-80.png" alt="" width="56" height="56" />
+                <h1>How Rostrum compares</h1>
+            </header>
+            <p class="tagline">
+                Verbatim and most in-round tools are VBA <code>.dotm</code>
+                <strong>macros</strong>. Rostrum is a modern Word
+                <strong>add-in</strong>. That difference is not cosmetic — here
+                is what it buys you, claim by claim.
+            </p>
+
+            <h2>At a glance</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>&nbsp;</th>
+                        <th>Rostrum (Office.js add-in)</th>
+                        <th>Verbatim &amp; VBA macros</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>While it works through a long document</td>
+                        <td>
+                            Word stays responsive — switch to your other open
+                            documents and keep working
+                        </td>
+                        <td>
+                            Runs on Word's UI thread, so the whole app is frozen
+                            until it finishes
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Recovering hidden text without the tool</td>
+                        <td>
+                            Native — Word's own Font dialog
+                            (<kbd>Ctrl</kbd>+<kbd>D</kbd>); no add-in required
+                        </td>
+                        <td>
+                            Macro-applied effects generally need the macro (and
+                            its template) to reverse
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Reversing shrink / condense</td>
+                        <td>
+                            Lossless — rebuilt from markers inside the document
+                            itself
+                        </td>
+                        <td>
+                            Not guaranteed to reconstruct from the document
+                            alone
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Opening a processed file on another machine</td>
+                        <td>The same view re-derives from data inside the file</td>
+                        <td>
+                            Depends on the recipient having the template
+                            installed
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 id="non-blocking">Keep working during invis mode</h2>
+            <p>
+                A VBA macro runs <em>synchronously on Word's own UI thread</em>:
+                while it churns through a long file, the entire application is
+                frozen — you can't scroll, type, or switch documents until it
+                finishes. Rostrum's Invisibility Mode is an
+                <strong>add-in running in a separate process</strong>, so a hide
+                never locks the host.
+            </p>
+            <p>
+                Kick off a hide on a huge case file and you can immediately
+                switch to your <em>other</em> open documents and keep reading,
+                editing, and prepping while it runs — you can even start Rostrum
+                on a second document. That is a genuine
+                <strong>multi-document, in-round workflow</strong> a macro
+                cannot offer. Even the heaviest docs stay non-blocking: a
+                900k-word file hides in well under a minute, and Word stays
+                responsive the entire time.
+            </p>
+
+            <h2 id="reversible">Reversible without the add-in</h2>
+            <p>
+                Invisibility Mode hides text with Word's
+                <strong>Hidden font attribute</strong> — the exact attribute
+                Word's own Font dialog writes. So a recipient who
+                <em>doesn't have Rostrum</em> can still recover everything:
+            </p>
+            <ol>
+                <li>
+                    Select the text (<kbd>Ctrl</kbd>+<kbd>A</kbd> for the whole
+                    document).
+                </li>
+                <li>
+                    <strong>Home ▸ Font dialog</strong>
+                    (<kbd>Ctrl</kbd>+<kbd>D</kbd>) ▸ clear the
+                    <strong>Hidden</strong> checkbox — or toggle
+                    <strong>Home ▸ ¶</strong> to view hidden text.
+                </li>
+            </ol>
+            <p class="download-note">
+                The guarantee lives in the file format, not the tool: nothing
+                Rostrum hides is locked behind Rostrum.
+            </p>
+
+            <h2 id="lossless">Lossless shrink &amp; condense</h2>
+            <p>
+                Rostrum's <strong>Condense &amp; Shrink</strong> is the lossless
+                answer to the usual shrink/condense pass. Shrink steps the
+                card's non-underlined text down a font size while keeping the
+                underlined cut, highlights, cites, and headings full-size;
+                Condense collapses paragraph spacing.
+            </p>
+            <p>
+                Both are <strong>fully reversible from the document alone</strong>.
+                Condense records what it merged in self-describing markers
+                embedded in the file (no sidecar), so <em>Uncondense</em> and
+                <em>Unshrink</em> reconstruct the original — even on a machine
+                that never had the add-in.
+            </p>
+
+            <h2 id="portable">The same view on every machine</h2>
+            <p>
+                When you hide a doc, Rostrum's on-state and your keep-colors
+                are written into the file as a single
+                <strong>custom XML part</strong>. There is no per-span tracking
+                and no bloat, and it survives format round-trips.
+            </p>
+            <p>
+                The upshot: <em>any</em> machine that opens the file re-derives
+                the same view deterministically. Share a hidden doc and your
+                partner sees exactly what you see — they need nothing installed
+                to read it, and Rostrum to re-hide it the same way.
+            </p>
+
+            <footer>
+                <p>
+                    <a href="./">‹ Back to install</a> ·
+                    <a href="https://github.com/andrewtjin/rostrum"
+                        >Source on GitHub</a
+                    >
+                    ·
+                    <a href="https://github.com/andrewtjin/rostrum/issues"
+                        >Report an issue</a
+                    >
+                </p>
+                <p>
+                    Rostrum is open source · MIT-style use · built
+                    <em>for</em> debaters <em>by</em> debaters.
+                </p>
+            </footer>
+        </main>
+    </body>
+</html>

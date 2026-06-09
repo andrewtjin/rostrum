@@ -1,13 +1,9 @@
 # Rostrum — a Word add-in suite for debaters
 
 A desktop **Word add-in suite** for collapsing, condensing, and formatting debate
-briefs in round. Its flagship tool, **Invisibility Mode**, hides debate-card *body*
-text while keeping headings, cites, analytics, and highlighted runs visible — and is
-**natively reversible** even without the add-in. Built for turning long policy/LD/PF
-briefs into a scannable "blocks-only" view in round, then expanding them back
-losslessly.
+docs in prep or in-round.
 
-> **Status — v0.3.0.1, live.** Two tools ship today (**Invisibility Mode** and
+> **Status — v0.3.0.1, live.** Two tools (**Invisibility Mode** and
 > **Condense & Shrink**) alongside a **Settings** pane and a ribbon-advertised roadmap
 > (Format & Condense, Flow, Cite & Paste). The production build is hosted on GitHub
 > Pages — install instructions below.
@@ -37,6 +33,22 @@ tool is "register it + regenerate the manifest."
 Planned tools already appear on the ribbon — each opens a "coming soon" surface — so the
 extension path is proven end-to-end. When a tool is built, its status flips and its real
 commands fill in; nothing else moves.
+
+---
+
+## Why Rostrum, not a macro
+
+Verbatim and the other in-round tools are VBA `.dotm` **macros**; Rostrum is a modern
+**Office.js add-in**. The architecture gap shows up where it matters — each advantage
+links to where Rostrum proves it.
+
+| Advantage | Proof |
+|---|---|
+| **Keep working in your other docs while a document hides.** Rostrum runs async in its own process, so a Hide never freezes Word the way a UI-thread macro does — start one on a huge file and keep reading, editing, or prepping elsewhere. | [Non-blocking ›](#non-blocking-keep-working-while-a-doc-hides) |
+| **Reversible without the add-in.** Hidden text is Word's own *Hidden font* attribute, so any reader clears it from the Font dialog — no Rostrum, no template required. | [Reversibility ›](#reversibility-the-core-guarantee) |
+| **Lossless Shrink & Condense.** Unshrink/Uncondense rebuild the original from self-describing markers in the document — no sidecar file. | [Condense & Shrink ›](#condense--shrink) |
+| **The same view re-derives on every machine.** The on-state and keep-colors ride inside the file as one custom XML part — no per-span tracking, survives format round-trips. | [Invisibility Mode ›](#invisibility-mode) |
+| **Always shows highlighted text.** Partial-keep is preserved down to the run; Rostrum never blunt-hides a whole card. | [Invisibility Mode ›](#invisibility-mode) |
 
 ---
 
@@ -136,6 +148,26 @@ loudly** if `--origin` is missing or not `https://`. CI (`.github/workflows/depl
 runs exactly these steps on every push to `master` and publishes `dist/` to GitHub Pages — gated
 on green tests + a clean typecheck. (One-time: repo **Settings ▸ Pages ▸ Source = GitHub
 Actions**.)
+
+---
+
+## How Rostrum compares to the macros
+
+The headline advantages are up top; this is the evidence behind them. Two of those
+advantages have their own sections — [Reversibility](#reversibility-the-core-guarantee)
+and [Condense & Shrink](#condense--shrink) — and the one that's pure architecture, the
+one a macro can't match, is spelled out here.
+
+### Non-blocking: keep working while a doc hides
+
+Verbatim and the other debate tools are VBA `.dotm` **macros**: they run *synchronously
+on Word's own UI thread*, so while one churns through a long file the entire application
+is frozen — you can't scroll, type, or switch documents until it finishes. Rostrum's
+Invisibility is an **Office.js add-in running in a separate process**, so a Hide never
+locks the host. Kick off a Hide on a 900k-word case file and you can immediately switch
+to your *other* open documents and keep reading, editing, and prepping while it runs —
+you can even start Rostrum on a second document. That's a genuine **multi-doc, in-round
+workflow** a macro architecturally cannot offer.
 
 ---
 
