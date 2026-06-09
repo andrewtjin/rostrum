@@ -36,7 +36,7 @@ export function SettingsPanel(): React.ReactElement {
         <p className="r-hint">
           Removing Rostrum from every document is done in Word&apos;s Trust Center, not from this pane:
         </p>
-        <ol className="r-soon__list">
+        <ol className="r-list">
           <li>File ▸ Options ▸ Trust Center ▸ Trust Center Settings ▸ Trusted Add-in Catalogs.</li>
           <li>Untick <strong>Show in Menu</strong> for the Rostrum catalog.</li>
           <li>

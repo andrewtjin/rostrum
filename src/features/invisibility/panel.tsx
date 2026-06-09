@@ -247,8 +247,10 @@ function Buttons(props: {
       <button className="r-btn" disabled={busy} onClick={props.onShowAll}>
         Show All
       </button>
+      {/* Full-width ghost row: a subordinate action below the Hide / Show All primary row,
+          rather than a dominant button when it wraps. */}
       {canApplyStyles && (
-        <button className="r-btn" disabled={busy} onClick={props.onApplyStyles} title={REFLOW_WARNING}>
+        <button className="r-btn r-btn--ghost r-btn--block" disabled={busy} onClick={props.onApplyStyles} title={REFLOW_WARNING}>
           Apply Rostrum styles
         </button>
       )}
@@ -343,7 +345,12 @@ function KeepColorPicker(props: {
   return (
     <details className="r-section">
       <summary>
-        Keep colors ({set.size} of {HIGHLIGHT_COLORS.length})
+        Keep colors{" "}
+        {/* The live count is its own polite live region so toggling a color is announced, while the
+            static "Keep colors" label is not re-read each time. */}
+        <span aria-live="polite">
+          ({set.size} of {HIGHLIGHT_COLORS.length})
+        </span>
       </summary>
       <p className="r-hint">Highlighted runs in these colors stay visible. Applies on the next Hide / Re-hide.</p>
       <div className="r-colorgrid">

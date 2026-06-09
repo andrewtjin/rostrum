@@ -37,6 +37,8 @@ body {
 .r-btn--ghost { background: transparent; }
 .r-btn:focus-visible { outline: 2px solid var(--r-accent); outline-offset: 2px; }
 .r-hint { font-size: 13px; color: var(--r-muted); }
+/* A normal left-aligned list inside a section (distinct from the centered r-soon__list splash). */
+.r-list { margin: 8px 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
 
 /* Feature-scoped workspace + ComingSoon (shared badge/soon classes with the pane). The
    workspace renders ONE tool, opened directly from its ribbon button — no launcher grid. */

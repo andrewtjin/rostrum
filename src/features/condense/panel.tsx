@@ -186,14 +186,16 @@ function CondenseRow(props: {
         </button>
       </div>
       <p className="r-hint">Condense uses your settings below. Or pick a mode directly:</p>
+      {/* Tertiary "pick a mode directly" row — ghost + smaller text so it reads as subordinate to the
+          Condense / Uncondense primary row above. */}
       <div className="r-buttons">
-        <button className="r-btn r-btn--ghost" disabled={props.busy} onClick={props.onPilcrows}>
+        <button className="r-btn r-btn--ghost r-btn--mode" disabled={props.busy} onClick={props.onPilcrows}>
           Condense w/ pilcrows
         </button>
-        <button className="r-btn r-btn--ghost" disabled={props.busy} onClick={props.onFull}>
+        <button className="r-btn r-btn--ghost r-btn--mode" disabled={props.busy} onClick={props.onFull}>
           Full condense
         </button>
-        <button className="r-btn r-btn--ghost" disabled={props.busy} onClick={props.onRetain}>
+        <button className="r-btn r-btn--ghost r-btn--mode" disabled={props.busy} onClick={props.onRetain}>
           Retain paragraphs
         </button>
       </div>
