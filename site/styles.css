@@ -47,6 +47,31 @@ header img {
     width: 56px;
     height: 56px;
 }
+/* Before/after screenshot pair on the comparison page: two framed shots side by
+   side that stack on narrow viewports. width/height attrs on the imgs reserve
+   the aspect ratio (no layout shift); CSS scales each to its column. */
+.shots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 16px 0;
+}
+.shots figure {
+    flex: 1 1 320px;
+    margin: 0;
+}
+.shots img {
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+}
+.shots figcaption {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
 h1 {
     font-size: 2rem;
     margin: 0;
