@@ -72,6 +72,51 @@ header img {
     font-size: 0.9rem;
     color: var(--muted);
 }
+.shots .shot-zoom {
+    display: block;
+    cursor: zoom-in;
+}
+/* CSS-only lightbox: hidden until its id is the URL :target (a thumbnail link
+   sets it), then it covers the viewport. No JS — keeps the site a static doc.
+   Esc-to-close isn't available without JS; the backdrop and ✕ both dismiss. */
+.lightbox {
+    display: none;
+}
+.lightbox:target {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(12, 16, 20, 0.88);
+}
+.lightbox-bg {
+    position: absolute;
+    inset: 0;
+    cursor: zoom-out;
+}
+.lightbox img {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: var(--radius);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+    /* Let clicks on the image fall through to the full-bleed close link behind
+       it, so clicking anywhere on the overlay (image included) dismisses. */
+    pointer-events: none;
+}
+.lightbox-close {
+    position: fixed;
+    top: 14px;
+    right: 22px;
+    z-index: 101;
+    color: #fff;
+    font-size: 1.6rem;
+    line-height: 1;
+    text-decoration: none;
+}
 h1 {
     font-size: 2rem;
     margin: 0;
