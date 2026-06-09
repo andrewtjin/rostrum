@@ -110,7 +110,7 @@ links to where Rostrum proves it.
 
 | Action | Effect |
 |--------|--------|
-| **Hide** | Hides every non-keeper body run (and collapses fully-hidden paragraphs), then *arms* the document. Keeps: paragraphs at outline level 0–3 (Heading 1–4 + the navy Analytics style), any paragraph containing a cite-styled run, and runs highlighted in a keep-color (extended to the whole word). Safe to re-run: press it again after editing to re-derive over the whole document and catch newly typed or pasted text (there is no separate "Re-hide" button). |
+| **Hide** | Hides every non-keeper body run (and collapses fully-hidden paragraphs), then *arms* the document. Keeps: paragraphs at outline level 0–3 (Heading 1–4 + the navy Analytics style), any paragraph containing a cite-styled run, and runs highlighted in a keep-color (only the highlighted runs — a partial highlight does not drag the rest of the word visible). Safe to re-run: press it again after editing to re-derive over the whole document and catch newly typed or pasted text (there is no separate "Re-hide" button). |
 | **Show All** | Reveals everything Rostrum hid and disarms. Safe to run from any partial state. |
 | **Apply Styles** | *(gated)* Sets the template's heading/cite sizes, boxes the Pocket, and repairs mis-styled cites. Reflows the document; needs desktop Word 1.5+ and is reversible only with Ctrl+Z. |
 | **Options** | The deep-linked pane: keep-color settings, whole-body commit mode, and the Diagnostics console (below). |
