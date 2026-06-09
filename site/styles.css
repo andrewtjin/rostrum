@@ -108,6 +108,52 @@ kbd {
     font-size: 0.9rem;
     margin-top: 6px;
 }
+/* Hero: a plain-language benefit line under the muted slogan, then a row of platform
+   install buttons. .tagline keeps its shared style; we only tighten its bottom gap when a
+   .lede follows it (scoped via :has so comparison.html's lone .tagline is unaffected). */
+.tagline:has(+ .lede) {
+    margin-bottom: 6px;
+}
+.lede {
+    font-size: 1.05rem;
+    margin: 0 0 24px;
+}
+.cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 8px 0 4px;
+}
+.cta-row .cta {
+    margin: 0;
+}
+/* Post-install success checkpoint — a calm green confirmation so a user can tell the
+   sideload actually worked. */
+.ok {
+    color: #1f7a3d;
+    font-weight: 600;
+    margin: 12px 0 2px;
+}
+/* Secondary sections (Updates / Uninstall / reader-recovery) collapse by default so the
+   install flow stays the page's focus — progressive disclosure over a wall of text. The
+   summary is sized to read like the <h2>s it replaces. */
+details {
+    border-top: 1px solid var(--line);
+    margin: 14px 0 0;
+    padding: 14px 0 2px;
+}
+details[open] {
+    padding-bottom: 12px;
+}
+summary {
+    font-size: 1.25rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+summary:focus-visible {
+    outline: 3px solid #88aadd;
+    outline-offset: 3px;
+}
 .banner {
     background: var(--warn-bg);
     border: 1px solid var(--warn-line);

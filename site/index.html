@@ -17,7 +17,7 @@
         <title>Rostrum — install for Word (desktop)</title>
         <meta
             name="description"
-            content="Rostrum is a desktop Word add-in built for debaters by debaters."
+            content="Rostrum is a desktop Word add-in for debaters — collapse, shrink, and condense your cards in one click, fully reversible even without the add-in."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -32,16 +32,18 @@
                 A modern debate tool suite, built <em>for</em> debaters
                 <em>by</em> debaters.
             </p>
+            <p class="lede">
+                Collapse, shrink, and condense your cards in Word — one click,
+                and fully reversible even without the add-in.
+            </p>
 
-            <a class="cta" href="./manifest.xml" download="manifest.xml"
-                >Download manifest.xml</a
-            >
+            <div class="cta-row">
+                <a class="cta" href="#windows">Install on Windows ↓</a>
+                <a class="cta" href="#mac">Install on Mac ↓</a>
+            </div>
             <p class="download-note">
-                You install the add-in by registering this one file in Word —
-                once. Rostrum runs from this site; you host nothing and run no
-                server. <strong>Windows</strong> registers it as a trusted
-                add-in catalog (steps below); <strong>Mac</strong> drops it into
-                Word's <code>wef</code> folder.
+                You install by registering one file in Word — once. Rostrum runs
+                from this site; you host nothing and run no server.
             </p>
 
             <div class="banner" role="note">
@@ -95,7 +97,7 @@
                 <strong>Rostrum</strong> tab to the ribbon.
             </p>
 
-            <div class="card">
+            <div class="card" id="windows">
                 <h3>Windows — register the add-in (one-time)</h3>
                 <p>
                     Rostrum installs as a
@@ -117,11 +119,25 @@
                     </li>
                     <li>
                         Right-click that folder ▸
-                        <strong>Properties ▸ Sharing ▸ Share…</strong> and share
-                        it with yourself. Copy the network path (it looks like
-                        <code class="path">\\YOUR-PC\rostrum-addin</code>). This
-                        one-time share is what lets Word load Rostrum on every
-                        document.
+                        <strong>Properties ▸ Sharing ▸ Share…</strong>, pick
+                        your own Windows account from the dropdown, click
+                        <strong>Share</strong>, then <strong>Done</strong>.
+                        Windows shows the folder's network path — copy it (it
+                        looks like
+                        <code class="path">\\YOUR-PC\rostrum-addin</code>, where
+                        <code>YOUR-PC</code> is your computer's name). Word
+                        needs this share to load Rostrum on every document.
+                        <br />
+                        <span class="download-note"
+                            >If <strong>Share…</strong> is greyed out — common
+                            on school- or work-managed laptops — file sharing
+                            may be blocked by your administrator;
+                            <a
+                                href="https://github.com/andrewtjin/rostrum/issues"
+                                >open an issue</a
+                            >
+                            and we'll help with an alternative.</span
+                        >
                     </li>
                     <li>
                         In Word:
@@ -144,6 +160,11 @@
                         The Rostrum tab is now on the ribbon of every document.
                     </li>
                 </ol>
+                <p class="ok">
+                    ✓ You should now see a <strong>Rostrum</strong> tab on the
+                    Word ribbon. Don't see it? Re-check steps 2–4 — the share
+                    path is the usual culprit.
+                </p>
                 <p class="download-note">
                     <strong>Updating:</strong> when a release changes the
                     ribbon, replace the <code>manifest.xml</code> in your shared
@@ -152,16 +173,21 @@
                 </p>
             </div>
 
-            <div class="card">
+            <div class="card" id="mac">
                 <h3>Mac</h3>
                 <ol>
                     <li>
-                        Copy
+                        Save
                         <a href="./manifest.xml" download="manifest.xml"
                             >manifest.xml</a
+                        >. In Finder, press <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd
+                            >G</kbd
                         >
-                        into this folder (create the <code>wef</code> folder if
-                        it doesn't exist): <br /><code class="path"
+                        (<strong>Go ▸ Go to Folder</strong>) — the folder below
+                        is hidden, so you can't browse to it — paste the path,
+                        and drop <code>manifest.xml</code> in (create the
+                        <code>wef</code> folder if it doesn't exist):
+                        <br /><code class="path"
                             >~/Library/Containers/com.microsoft.Word/Data/Documents/wef/</code
                         >
                     </li>
@@ -172,133 +198,143 @@
                         <em>Developer Add-ins</em> group of that menu.)
                     </li>
                 </ol>
-            </div>
-
-            <h2>Updates</h2>
-            <p>
-                Rostrum runs from this site, so you
-                <strong>don't reinstall to get fixes</strong>. There are two
-                kinds of update, and only one of them needs you to do anything:
-            </p>
-            <ul>
-                <li>
-                    <strong>Fixes &amp; improvements — automatic.</strong>
-                    Changes to how Rostrum behaves (speed, bug fixes, tweaks to
-                    existing buttons) are served live from this site. Just
-                    <strong>restart Word</strong> to pick them up — or, with the
-                    Rostrum pane open, click inside it and press
-                    <kbd>Ctrl</kbd>+<kbd>F5</kbd> to refresh immediately. You
-                    re-download nothing.
-                </li>
-                <li>
-                    <strong
-                        >New version — re-download
-                        <code>manifest.xml</code>.</strong
-                    >
-                    When a release adds a <em>new ribbon button or tab</em> (or
-                    we announce a new version number), the change lives in the
-                    manifest file itself — the one file you registered. Your
-                    copy is a local snapshot, so grab the latest
-                    <a href="./manifest.xml" download="manifest.xml"
-                        >manifest.xml</a
-                    >, replace your saved copy, clear the Office cache (see
-                    <a href="#uninstall">Uninstall</a> for how), and restart
-                    Word.
-                </li>
-            </ul>
-            <p class="download-note">
-                Version announcements live on the
-                <a href="https://github.com/andrewtjin/rostrum/releases"
-                    >GitHub releases page</a
-                >. Rule of thumb: if a button you expect is missing after an
-                update, re-download the manifest.
-            </p>
-
-            <h2 id="uninstall">Uninstall</h2>
-            <p>
-                Rostrum installs no program — removing it means dropping the
-                manifest registration and clearing Word's add-in cache. Pick
-                your platform.
-            </p>
-
-            <div class="card">
-                <h3>Windows</h3>
-                <ol>
-                    <li>
-                        <strong>Quick remove (current document):</strong>
-                        <strong>Insert ▸ My Add-ins</strong>, right-click
-                        <strong>Rostrum</strong> ▸ <strong>Remove</strong>. To
-                        remove it everywhere, continue below.
-                    </li>
-                    <li>Close Word.</li>
-                    <li>
-                        <strong
-                            >File ▸ Options ▸ Trust Center ▸ Trust Center
-                            Settings ▸ Trusted Add-in Catalogs.</strong
-                        >
-                        Select the Rostrum folder row and untick
-                        <strong>Show in Menu</strong>, then tick
-                        <strong
-                            >Next time Office starts, clear all
-                            previously-started web add-ins cache</strong
-                        >
-                        (Word 2108+) ▸ <strong>OK</strong>.
-                    </li>
-                    <li>
-                        <strong>Restart Word.</strong> The Rostrum tab and its
-                        <em>My Add-ins</em> entry are gone from every document.
-                    </li>
-                </ol>
-                <p class="download-note">
-                    Still lingering, or an older Word without that checkbox?
-                    With Word closed, delete everything inside
-                    <code class="path"
-                        >%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\</code
-                    >
-                    — note this clears <em>all</em> sideloaded add-ins, not just
-                    Rostrum.
-                    <strong>Ran an older Rostrum installer?</strong> Also delete
-                    the value <code>ea3fb238-…</code> under
-                    <code class="path"
-                        >HKCU\Software\Microsoft\Office\16.0\WEF\Developer</code
-                    >.
+                <p class="ok">
+                    ✓ You should now see a <strong>Rostrum</strong> tab on the
+                    Word ribbon.
                 </p>
             </div>
 
-            <div class="card">
-                <h3>Mac</h3>
-                <ol>
-                    <li>Quit Word.</li>
+            <details>
+                <summary>Updates</summary>
+                <p>
+                    Rostrum runs from this site, so you
+                    <strong>don't reinstall to get fixes</strong>. There are two
+                    kinds of update, and only one of them needs you to do
+                    anything:
+                </p>
+                <ul>
                     <li>
-                        Delete <code>manifest.xml</code> from the
-                        <code>wef</code> folder you installed it into:
-                        <br /><code class="path"
-                            >~/Library/Containers/com.microsoft.Word/Data/Documents/wef/</code
-                        >
-                        <br />(or clear that folder's contents to remove every
-                        sideloaded add-in).
+                        <strong>Fixes &amp; improvements — automatic.</strong>
+                        Changes to how Rostrum behaves (speed, bug fixes, tweaks
+                        to existing buttons) are served live from this site.
+                        Just
+                        <strong>restart Word</strong> to pick them up — or, with
+                        the Rostrum pane open, click inside it and press
+                        <kbd>Ctrl</kbd>+<kbd>F5</kbd> to refresh immediately.
+                        You re-download nothing.
                     </li>
-                    <li><strong>Restart Word.</strong></li>
-                </ol>
-            </div>
+                    <li>
+                        <strong
+                            >New version — re-download
+                            <code>manifest.xml</code>.</strong
+                        >
+                        When a release adds a
+                        <em>new ribbon button or tab</em> (or we announce a new
+                        version number), the change lives in the manifest file
+                        itself — the one file you registered. Your copy is a
+                        local snapshot, so grab the latest
+                        <a href="./manifest.xml" download="manifest.xml"
+                            >manifest.xml</a
+                        >, replace your saved copy, clear the Office cache (see
+                        <a href="#uninstall">Uninstall</a> for how), and restart
+                        Word.
+                    </li>
+                </ul>
+                <p class="download-note">
+                    Version announcements live on the
+                    <a href="https://github.com/andrewtjin/rostrum/releases"
+                        >GitHub releases page</a
+                    >. Rule of thumb: if a button you expect is missing after an
+                    update, re-download the manifest.
+                </p>
+            </details>
 
-            <h2>Reading a Rostrum document without the add-in</h2>
-            <p>
-                Hidden text uses Word's standard <em>Hidden font</em> attribute,
-                so anyone can recover it with no add-in installed:
-            </p>
-            <ol>
-                <li>
-                    Select the text (<kbd>Ctrl</kbd>+<kbd>A</kbd> for the whole
-                    document).
-                </li>
-                <li>
-                    <strong>Home ▸ Font dialog</strong>
-                    (<kbd>Ctrl</kbd>+<kbd>D</kbd>) ▸ clear the
-                    <strong>Hidden</strong> checkbox — or toggle
-                    <strong>Home ▸ ¶</strong> to view hidden text.
-                </li>
-            </ol>
+            <details id="uninstall">
+                <summary>Uninstall</summary>
+                <p>
+                    Rostrum installs no program — removing it means dropping the
+                    manifest registration and clearing Word's add-in cache. Pick
+                    your platform.
+                </p>
+
+                <div class="card">
+                    <h3>Windows</h3>
+                    <ol>
+                        <li>
+                            <strong>Quick remove (current document):</strong>
+                            <strong>Insert ▸ My Add-ins</strong>, right-click
+                            <strong>Rostrum</strong> ▸ <strong>Remove</strong>.
+                            To remove it everywhere, continue below.
+                        </li>
+                        <li>Close Word.</li>
+                        <li>
+                            <strong
+                                >File ▸ Options ▸ Trust Center ▸ Trust Center
+                                Settings ▸ Trusted Add-in Catalogs.</strong
+                            >
+                            Select the Rostrum folder row and untick
+                            <strong>Show in Menu</strong>, then tick
+                            <strong
+                                >Next time Office starts, clear all
+                                previously-started web add-ins cache</strong
+                            >
+                            (Word 2108+) ▸ <strong>OK</strong>.
+                        </li>
+                        <li>
+                            <strong>Restart Word.</strong> The Rostrum tab and
+                            its <em>My Add-ins</em> entry are gone from every
+                            document.
+                        </li>
+                    </ol>
+                    <p class="download-note">
+                        Still lingering, or an older Word without that checkbox?
+                        With Word closed, delete everything inside
+                        <code class="path"
+                            >%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\</code
+                        >
+                        — note this clears <em>all</em> sideloaded add-ins, not
+                        just Rostrum.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3>Mac</h3>
+                    <ol>
+                        <li>Quit Word.</li>
+                        <li>
+                            Delete <code>manifest.xml</code> from the
+                            <code>wef</code> folder you installed it into:
+                            <br /><code class="path"
+                                >~/Library/Containers/com.microsoft.Word/Data/Documents/wef/</code
+                            >
+                            <br />(or clear that folder's contents to remove
+                            every sideloaded add-in).
+                        </li>
+                        <li><strong>Restart Word.</strong></li>
+                    </ol>
+                </div>
+            </details>
+
+            <details>
+                <summary>Reading a Rostrum document without the add-in</summary>
+                <p>
+                    Hidden text uses Word's standard
+                    <em>Hidden font</em> attribute, so anyone can recover it
+                    with no add-in installed:
+                </p>
+                <ol>
+                    <li>
+                        Select the text (<kbd>Ctrl</kbd>+<kbd>A</kbd> for the
+                        whole document).
+                    </li>
+                    <li>
+                        <strong>Home ▸ Font dialog</strong>
+                        (<kbd>Ctrl</kbd>+<kbd>D</kbd>) ▸ clear the
+                        <strong>Hidden</strong> checkbox — or toggle
+                        <strong>Home ▸ ¶</strong> to view hidden text.
+                    </li>
+                </ol>
+            </details>
 
             <footer>
                 <p>
