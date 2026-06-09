@@ -65,6 +65,14 @@ h3 {
     font-size: 1.02rem;
     margin: 22px 0 8px;
 }
+/* Deep links from index.html ("How ›") target section ids that now live on
+   sub-headings inside the comparison page's tool sections. Reserve space above
+   so a jumped-to heading lands clear of the viewport top with its context
+   visible, instead of pinned flush against it. */
+h2[id],
+h3[id] {
+    scroll-margin-top: 24px;
+}
 p {
     margin: 10px 0;
 }

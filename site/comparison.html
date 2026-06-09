@@ -4,9 +4,15 @@
   copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .), same as index.html.
 
   Purpose: the landing page (index.html) makes short value claims; each claim links HERE, to the
-  matching section that explains and backs it. So the section ids below are a CONTRACT with
-  index.html's "How ›" links — keep them in sync:
-    #non-blocking · #reversible · #lossless · #portable
+  matching section that backs it. The page is organised TOOL BY TOOL (one section per ribbon
+  group), and each section leads with that tool's comparative advantage over Verbatim — the
+  "how it works" mechanism detail belongs in the docs/README, not here.
+
+  The ids below are a CONTRACT with index.html's "How ›" links — keep them alive (they live on
+  the advantage sub-headings inside the tool sections):
+    #non-blocking · #portable   (Invisibility Mode)
+    #lossless                   (Condense & Shrink)
+  Deep-link landing context is preserved by `scroll-margin-top` on `[id]` headings in styles.css.
   PURE static HTML, no bundle — shares ./styles.css with the landing page (one cached request).
 -->
 <html lang="en">
@@ -16,7 +22,7 @@
         <title>Rostrum — how it compares</title>
         <meta
             name="description"
-            content="How Rostrum, a modern Word add-in, compares to Verbatim and other VBA debate macros — claim by claim."
+            content="How Rostrum, a modern Word add-in, compares to Verbatim and other VBA debate macros — tool by tool."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -32,16 +38,16 @@
                 Verbatim and most in-round tools are VBA <code>.dotm</code>
                 <strong>macros</strong>. Rostrum is a modern Word
                 <strong>add-in</strong>. That difference is not cosmetic — here
-                is what it buys you, claim by claim.
+                is what each tool buys you, tool by tool.
             </p>
 
             <h2>At a glance</h2>
             <table>
                 <thead>
                     <tr>
-                        <th>&nbsp;</th>
-                        <th>Rostrum (Office.js add-in)</th>
-                        <th>Verbatim &amp; VBA macros</th>
+                        <th scope="col">&nbsp;</th>
+                        <th scope="col">Rostrum (Office.js add-in)</th>
+                        <th scope="col">Verbatim &amp; VBA macros</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -62,17 +68,6 @@
                         <td>
                             Runs on Word's UI thread, so the whole app is frozen
                             until it finishes
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>Recovering hidden text without the tool</td>
-                        <td>
-                            Native — Word's own Font dialog
-                            (<kbd>Ctrl</kbd>+<kbd>D</kbd>); no add-in required
-                        </td>
-                        <td>
-                            Macro-applied effects generally need the macro (and
-                            its template) to reverse
                         </td>
                     </tr>
                     <tr>
@@ -97,78 +92,74 @@
                 </tbody>
             </table>
 
-            <h2 id="non-blocking">Keep working during invis mode</h2>
             <p>
-                A VBA macro runs <em>synchronously on Word's own UI thread</em>:
-                while it churns through a long file, the entire application is
-                frozen — you can't scroll, type, or switch documents until it
-                finishes. Rostrum's Invisibility Mode is an
-                <strong>add-in running in a separate process</strong>, so a hide
-                never locks the host.
+                Below, each Rostrum ribbon tool against the Verbatim tool it
+                replaces — what you actually gain by switching.
             </p>
+
+            <h2 id="tool-invisibility">Invisibility Mode</h2>
             <p>
-                Kick off a hide on a huge case file and you can immediately
-                switch to your <em>other</em> open documents and keep reading,
-                editing, and prepping while it runs — you can even start Rostrum
-                on a second document. That is a genuine
-                <strong>multi-document, in-round workflow</strong> a macro
-                cannot offer. Even the heaviest docs stay non-blocking: a
-                900k-word file hides in well under a minute, and Word stays
+                <strong>Hide</strong> and <strong>Show All.</strong> The job
+                matches Verbatim's invisibility — hide everything that isn't a
+                tag, cite, or highlight — but Rostrum wins on the things you
+                feel mid-round.
+            </p>
+
+            <h3>A cleaner hidden page</h3>
+            <p>
+                Rostrum's hidden text <strong>closes up to the left</strong>
+                into a dense, straight column you can actually skim. Verbatim
+                leaves the spacing of the hidden words behind, so your
+                highlights sit scattered at their old positions with ragged
+                gaps — and blank rows where whole lines were hidden. Same
+                cards, far less visual noise.
+            </p>
+
+            <h3 id="non-blocking">Word never freezes</h3>
+            <p>
+                Rostrum runs in its own process, so a hide never locks Word —
+                start one on a huge case file and immediately switch to your
+                other open documents and keep prepping while it runs. A
+                Verbatim macro runs on Word's own UI thread, so the whole app
+                is frozen until it finishes. Even a 900k-word file stays
                 responsive the entire time.
             </p>
 
-            <h2 id="reversible">Reversible without the add-in</h2>
+            <h3 id="portable">Re-hides the same way, on any machine</h3>
             <p>
-                Invisibility Mode hides text with Word's
-                <strong>Hidden font attribute</strong> — the exact attribute
-                Word's own Font dialog writes. So a recipient who
-                <em>doesn't have Rostrum</em> can still recover everything:
-            </p>
-            <ol>
-                <li>
-                    Select the text (<kbd>Ctrl</kbd>+<kbd>A</kbd> for the whole
-                    document).
-                </li>
-                <li>
-                    <strong>Home ▸ Font dialog</strong>
-                    (<kbd>Ctrl</kbd>+<kbd>D</kbd>) ▸ clear the
-                    <strong>Hidden</strong> checkbox — or toggle
-                    <strong>Home ▸ ¶</strong> to view hidden text.
-                </li>
-            </ol>
-            <p class="download-note">
-                The guarantee lives in the file format, not the tool: nothing
-                Rostrum hides is locked behind Rostrum.
+                Rostrum writes the armed state and your keep-colors into the
+                file itself, so after you edit and press <strong>Hide</strong>
+                again it re-derives the same view deterministically — on any
+                machine, with nothing to set up. Verbatim's invisibility is a
+                manual on/off toggle with no saved state to re-derive from.
             </p>
 
-            <h2 id="lossless">Lossless shrink &amp; condense</h2>
+            <h2 id="tool-condense-shrink">Condense &amp; Shrink</h2>
             <p>
-                Rostrum's <strong>Condense &amp; Shrink</strong> is the lossless
-                answer to the usual shrink/condense pass. Shrink steps the
-                card's non-underlined text down a font size while keeping the
-                underlined cut, highlights, cites, and headings full-size;
-                Condense collapses paragraph spacing.
-            </p>
-            <p>
-                Both are <strong>fully reversible from the document alone</strong>.
-                Condense records what it merged in self-describing markers
-                embedded in the file (no sidecar), so <em>Uncondense</em> and
-                <em>Unshrink</em> reconstruct the original — even on a machine
-                that never had the add-in.
+                <strong>Shrink</strong>, <strong>Condense</strong>, and their
+                reversals. Rostrum's edge here comes down to one word:
+                <strong>lossless</strong>.
             </p>
 
-            <h2 id="portable">The same view on every machine</h2>
+            <h3 id="lossless">Reverse it from the document alone</h3>
             <p>
-                When you hide a doc, Rostrum's on-state and your keep-colors
-                are written into the file as a single
-                <strong>custom XML part</strong>. There is no per-span tracking
-                and no bloat, and it survives format round-trips.
+                <strong>Uncondense</strong> and <strong>Unshrink</strong>
+                rebuild the original from self-describing markers inside the
+                file — no sidecar, no add-in needed to reverse, and nothing
+                extra shows up in your text. Verbatim's Condense is reversible
+                only in its pilcrow mode (which drops literal <code>¶</code>
+                marks into the running text); its default merge is
+                <strong>one-way</strong> — the original breaks are gone for
+                good.
             </p>
+
+            <h3>Keeps more of the card full-size</h3>
             <p>
-                The upshot: <em>any</em> machine that opens the file re-derives
-                the same view deterministically. Share a hidden doc and your
-                partner sees exactly what you see — they need nothing installed
-                to read it, and Rostrum to re-hide it the same way.
+                Rostrum's <strong>Shrink</strong> keeps the underlined cut
+                <em>plus</em> your highlights, cites, and headings at full
+                size; only the surrounding analysis steps down. Verbatim's
+                Shrink keys on underline alone, so anything you highlighted but
+                didn't underline shrinks with everything else.
             </p>
 
             <footer>

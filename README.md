@@ -178,6 +178,41 @@ your *other* open documents and keep reading, editing, and prepping while it run
 even start Rostrum on a second document. That's a genuine **multi-doc, in-round workflow** a
 macro architecturally cannot offer.
 
+### Function by function
+
+Each Rostrum tool against the Verbatim 6.0.0 macro it replaces — including the small
+behavioral differences that only show up on a real card. (All Verbatim behavior below is
+read from its `View.bas` / `Condense.bas` / `Shrink.bas` source.)
+
+**Invisibility Mode (Hide / Show All).** Both tools hide everything that isn't a tag, cite,
+or highlight using Word's native **Hidden font** attribute, and both reverse from the Font
+dialog without the tool — so reversibility is a wash. What differs is *how the hidden page
+reads*:
+
+| | Rostrum | Verbatim 6.0.0 |
+|---|---|---|
+| What it hides | The whole non-kept **run** (`<w:vanish/>`) | Each non-space **character** that isn't highlighted (a `[! ]` find/replace sets `Font.Hidden`) |
+| The space hidden text used to occupy | Collapses — only a single separator space is re-exposed where two kept chunks would fuse, so the survivors **close up to the left** into a dense, straight column | Stays — the find pattern excludes spaces, so every inter-word space remains visible and kept fragments float at their **original positions** with ragged gaps |
+| A fully-hidden line | Its paragraph mark is hidden too, so the line **collapses** — no blank row | Paragraph marks are never hidden, so fully-hidden lines remain as **blank rows** |
+| While it runs | Async in a separate process — Word stays responsive | A synchronous loop on Word's UI thread (no `ScreenUpdating` suppression), so Word **freezes** until a long file finishes |
+| Re-running after edits | Idempotent + convergent — press Hide again to re-derive over the whole doc and catch new text | A plain on/off toggle; turning it off reveals **all** hidden text, including anything you hid yourself |
+
+The left-aligned look isn't a hard-coded alignment — because Rostrum removes the runs
+themselves (and the empty paragraphs around them) rather than just the visible glyphs, the
+kept text simply *reflows* once everything to the left of each highlight is gone.
+
+**Shrink.** Rostrum keeps the underlined cut **plus** highlights, cites, and headings
+full-size and steps 8 → 7 → 6 → 5 → 4 → Normal; Verbatim keys on **underline only** and
+steps 11 → 8 → 7 → 6 → 5 → 4 before cycling. Both reverse to the Normal style size.
+
+**Condense.** Rostrum is **always** reversible from the document alone (Uncondense rebuilds
+from self-describing OOXML markers — nothing shows in the text). Verbatim is reversible only
+in pilcrow mode, which inserts literal `¶` characters; its default merges paragraphs
+**one-way** (the original break types are lost).
+
+> The public [comparison page](https://andrewtjin.github.io/rostrum/comparison.html)
+> frames these tool by tool as plain-English advantages.
+
 ---
 
 ## Caveats
