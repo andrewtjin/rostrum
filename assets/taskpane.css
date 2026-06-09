@@ -61,14 +61,19 @@ body {
 /* Darker than --r-ok (#107c10) so this 11px chip text clears WCAG AA on the light-green chip. */
 .r-chip--on { background: #dff6dd; color: #0b5e0b; }
 /* State prefix dot for an at-a-glance scan. Decorative — the chip text already names the state. */
-.r-chip::before { content: "\25CB"; margin-right: 4px; } /* ○ hollow = off/default */
-.r-chip--on::before { content: "\25CF"; } /* ● filled = on */
+/* The "/ ''" is CSS alt-text: it gives the generated glyph an empty accessible name so screen
+   readers don't announce "white circle"/"black circle" — the dot is decorative; the chip text
+   already names the state. */
+.r-chip::before { content: "\25CB" / ""; margin-right: 4px; } /* ○ hollow = off/default */
+.r-chip--on::before { content: "\25CF" / ""; } /* ● filled = on */
 .r-progress { position: relative; height: 18px; background: #eee; border-radius: 3px; overflow: hidden; }
 .r-progress__bar { height: 100%; background: var(--r-accent); transition: width 0.15s; }
-/* The label is absolutely positioned over a bar that is part Word-blue, part light track. Dark text
-   fails on the blue (measured 2.41:1); white text fails on the light track (1.16:1). White + a dark
-   text-shadow halo stays legible on BOTH portions at any progress fraction. */
-.r-progress__label { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 18px; color: #fff; text-shadow: 0 0 3px rgba(0, 0, 0, 0.4); }
+/* The label overlays a bar that is part Word-blue, part light track, so neither plain dark nor plain
+   white text clears AA on both portions (dark-on-blue 2.41:1; white-on-#eee 1.16:1). White text with
+   a STACKED dark outline (layered shadows form a near-opaque halo around each glyph) stays legible on
+   both. The numeric value is ALSO exposed to assistive tech via the progressbar's aria-valuenow (the
+   visible span is aria-hidden), so this is a sighted-legibility hardening. Verify at ~50% in a wet-test. */
+.r-progress__label { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 18px; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.9), 0 0 3px rgba(0, 0, 0, 0.75), 0 1px 2px rgba(0, 0, 0, 0.6); }
 .r-banner { margin-top: 6px; padding: 7px 10px; border-radius: 4px; font-size: 13px; }
 .r-banner--ok { background: #dff6dd; color: var(--r-ok); }
 .r-banner--info { background: #eef4fc; color: var(--r-accent); }

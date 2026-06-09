@@ -4,8 +4,8 @@
   first (it defines the `Office` global the bundle awaits), and html-webpack-plugin injects the
   compiled progress.js after this template. Styles live in assets/progress.css (copied to
   dist/assets by CopyWebpackPlugin) and are linked below — no CSS loader. This window uses its own
-  p-* namespace (shares nothing with the r-* surfaces); it is intentionally tiny — it appears only
-  while a ribbon op runs and closes itself.
+  p-* CLASS namespace (it reuses the shared --r-* token names but none of the r-* classes); it is
+  intentionally tiny — it appears only while a ribbon op runs and closes itself.
 -->
 <html lang="en">
   <head>

@@ -1,8 +1,8 @@
 /*
   Rostrum ribbon progress pop-out stylesheet. Extracted verbatim from the former inline <style>
-  in progress.html. This window uses its OWN p-* namespace (it shares nothing with the r-* pane/
-  dialog system), so it is necessarily its own sheet. It's intentionally tiny — shown only while a
-  ribbon op runs, then closes itself.
+  in progress.html. This window uses its OWN p-* CLASS namespace (it reuses the shared --r-* token
+  names but none of the r-* classes), so it is necessarily its own sheet. It's intentionally tiny —
+  shown only while a ribbon op runs, then closes itself.
   Copied to dist/assets by CopyWebpackPlugin; progress.html links it as ./assets/progress.css.
 */
 :root {

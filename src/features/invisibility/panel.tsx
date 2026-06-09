@@ -254,8 +254,10 @@ function Buttons(props: {
           Apply Rostrum styles
         </button>
       )}
+      {/* Full-width too, so it doesn't strand as a lone narrow button on its own row below the
+          full-width Apply Styles ghost row during a busy operation. */}
       {busy && (
-        <button className="r-btn r-btn--ghost" onClick={props.onCancel}>
+        <button className="r-btn r-btn--ghost r-btn--block" onClick={props.onCancel}>
           Cancel
         </button>
       )}
@@ -288,7 +290,9 @@ function StatusBar(props: {
           {...(progress.total > 0 ? { "aria-valuenow": progressPercent(progress) } : {})}
         >
           <div className="r-progress__bar" style={{ width: `${progressPercent(progress)}%` }} />
-          <span className="r-progress__label">{formatProgress(progress)}</span>
+          {/* aria-hidden: the value is already conveyed to AT via the progressbar's aria-valuenow,
+              so this visible label is sighted-only (avoids a double-read in NVDA browse mode). */}
+          <span className="r-progress__label" aria-hidden="true">{formatProgress(progress)}</span>
         </div>
       )}
 
@@ -345,13 +349,14 @@ function KeepColorPicker(props: {
   return (
     <details className="r-section">
       <summary>
-        Keep colors{" "}
-        {/* The live count is its own polite live region so toggling a color is announced, while the
-            static "Keep colors" label is not re-read each time. */}
-        <span aria-live="polite">
-          ({set.size} of {HIGHLIGHT_COLORS.length})
-        </span>
+        Keep colors ({set.size} of {HIGHLIGHT_COLORS.length})
       </summary>
+      {/* Live count lives OUTSIDE the interactive <summary>: a live region inside a button-role
+          element announces inconsistently across NVDA/JAWS/VoiceOver. Visually hidden — the visible
+          count in the summary serves sighted users; this fires the change for assistive tech. */}
+      <span className="r-sr-only" role="status" aria-live="polite">
+        {set.size} of {HIGHLIGHT_COLORS.length} colors kept
+      </span>
       <p className="r-hint">Highlighted runs in these colors stay visible. Applies on the next Hide / Re-hide.</p>
       <div className="r-colorgrid">
         {HIGHLIGHT_COLORS.map((color) => {
