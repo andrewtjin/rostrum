@@ -20,6 +20,12 @@
 // mutate — over the identical unchanged string). `parseFragment` fused that to one parse,
 // threaded through both calls; a byte-identity test pins the fused path to the still-callable
 // legacy path so the equivalence stays assertable forever.
+//
+// A third block locks it onto `WholeBodyPackage.replace` — the write half of the DEFAULT
+// pure whole-body hide commit (one replace per changed paragraph) and of cite repair.
+// replace() used to call the string-in `assertSingleParagraph` (which parses) and then
+// parse the IDENTICAL fragment again to select the `<w:p>`; `singleBodyParagraph` fused
+// guard + selection onto one parsed tree, halving the splice loop's DOMParser work.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -49,6 +55,7 @@ import {
   parseFragment,
   readFragmentParagraphs
 } from "../src/core/ooxmlCondense";
+import { WholeBodyPackage } from "../src/core/ooxmlPackage";
 import { shrinkFragment, unshrinkFragment } from "../src/core/shrink";
 import { settings } from "./fakeWord";
 import { RawParagraph, ShrinkOptions } from "../src/core/types";
@@ -217,5 +224,48 @@ describe("Shrink parses the fragment exactly once per press (perf invariant)", (
     const fused = applyFragmentShrink(fixture, plans, parseFragment(fixture));
     expect(fused.xml).toBe(legacy.xml);
     expect(fused.changed).toBe(legacy.changed);
+  });
+});
+
+describe("WholeBodyPackage.replace parses the fragment exactly once (perf invariant)", () => {
+  // The DEFAULT whole-body hide commit calls replace() once per CHANGED paragraph (489 on
+  // the ExFlex realDocs sample, 9k+ on the xlarge one), so a stray second parse here scales
+  // with document size exactly like the classify/Shrink regressions the blocks above pin.
+  const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
+  const bodyP = (text: string): string => `<w:p><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+  /** A minimal flat-OPC package like body.getOoxml() returns (document part + body paras). */
+  const bodyPkg = (...paras: string[]): string =>
+    `<pkg:package xmlns:pkg="${PKG_NS}">` +
+    `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
+    `<w:document xmlns:w="${W}"><w:body>${paras.join("")}<w:sectPr/></w:body></w:document>` +
+    `</pkg:xmlData></pkg:part></pkg:package>`;
+
+  it("happy-path splice — ONE parse, and the edit still lands", () => {
+    const wb = new WholeBodyPackage(bodyPkg(bodyP("keep me"), bodyP("change me")));
+    const edited = `<w:p xmlns:w="${W}"><w:r><w:rPr><w:vanish/></w:rPr><w:t>change me</w:t></w:r></w:p>`;
+    parseCount = 0;
+    wb.replace(1, edited);
+    // Guard + node selection share ONE tree (was 2: assertSingleParagraph re-parsed the
+    // identical string the next line parsed again).
+    expect(parseCount).toBe(1);
+    const out = wb.serialize();
+    expect(out).toContain("<w:vanish/>"); // the hide landed…
+    expect(out).toContain("keep me"); // …and the sibling survived
+  });
+
+  it("multi-paragraph fragment — still rejected with the same guard error, after ONE parse", () => {
+    const wb = new WholeBodyPackage(bodyPkg(bodyP("x")));
+    const two = `<w:body xmlns:w="${W}">${bodyP("a")}${bodyP("b")}</w:body>`;
+    parseCount = 0;
+    // Context + count survive the fusion verbatim (officeWordPort matches on this shape).
+    expect(() => wb.replace(0, two)).toThrow(/whole-body splice @0.*found 2/s);
+    expect(parseCount).toBe(1); // the guard no longer pays its own separate parse
+  });
+
+  it("out-of-range index — RangeError BEFORE any parse (zero parses)", () => {
+    const wb = new WholeBodyPackage(bodyPkg(bodyP("only")));
+    parseCount = 0;
+    expect(() => wb.replace(5, bodyP("x"))).toThrow(RangeError);
+    expect(parseCount).toBe(0); // index check stays first — bad indices never cost a parse
   });
 });

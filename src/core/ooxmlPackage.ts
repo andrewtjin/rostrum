@@ -244,19 +244,35 @@ export function countBodyParagraphs(packageXml: string): number {
 }
 
 /**
+ * GUARD CORE — return the single body `<w:p>` of an ALREADY-PARSED writeback
+ * fragment, throwing the audit-#5 guard error when the count is not exactly one.
+ * Node-in (not string-in) so a caller that needs the paragraph node anyway
+ * (`WholeBodyPackage.replace`) can guard and select on ONE parsed tree: the
+ * string-in `assertSingleParagraph` + a second `parse()` used to cost a full
+ * extra DOMParser pass per spliced paragraph on the DEFAULT whole-body hide
+ * commit and on cite repair. `__tests__/parseCount.test.ts` locks the fusion.
+ */
+function singleBodyParagraph(fragDoc: any, context: string): any {
+  const paras = paragraphsIn(bodyScope(fragDoc));
+  if (paras.length !== 1) {
+    throw new Error(
+      `Rostrum ${context} guard: expected exactly one <w:p> in the fragment, found ${paras.length}. ` +
+        `Refusing to write back potentially corrupted OOXML.`
+    );
+  }
+  return paras[0];
+}
+
+/**
  * Assert a writeback fragment contains EXACTLY ONE body `<w:p>` (audit #5). The
  * engine only ever edits a single paragraph's runs; a fragment carrying zero or
  * many `<w:p>` means something upstream corrupted the OOXML, and writing it back
  * could splice a table or empty the paragraph. Throws a clear, contextual error.
+ * String-in convenience over `singleBodyParagraph` for callers that never parse
+ * the fragment themselves (the per-paragraph commit path) — same error text.
  */
 export function assertSingleParagraph(ooxml: string, context = "writeback"): void {
-  const count = paragraphsIn(bodyScope(parse(ooxml))).length;
-  if (count !== 1) {
-    throw new Error(
-      `Rostrum ${context} guard: expected exactly one <w:p> in the fragment, found ${count}. ` +
-        `Refusing to write back potentially corrupted OOXML.`
-    );
-  }
+  singleBodyParagraph(parse(ooxml), context);
 }
 
 /**
@@ -693,9 +709,14 @@ export class WholeBodyPackage {
   replace(i: number, paragraphOoxml: string): void {
     const old = this.paras[i];
     if (!old) throw new RangeError(`paragraph index ${i} out of range (count ${this.count})`);
-    assertSingleParagraph(paragraphOoxml, `whole-body splice @${i}`);
+    // ONE parse serves both the single-<w:p> guard and the node selection. The old
+    // assertSingleParagraph(string) call followed by parse() re-parsed the IDENTICAL
+    // fragment twice per changed paragraph — the dominant avoidable cost of the
+    // whole-body commit loop (one replace per changed paragraph on the default hide
+    // and on cite repair). parseCount.test.ts pins the single parse; the RangeError
+    // above stays FIRST so an out-of-range index never pays a parse at all.
     const fragDoc = parse(paragraphOoxml);
-    const newPara = paragraphsIn(bodyScope(fragDoc))[0];
+    const newPara = singleBodyParagraph(fragDoc, `whole-body splice @${i}`);
     const imported = this.doc.importNode(newPara, true);
     const parent = old.parentNode;
     if (!parent) throw new Error(`paragraph index ${i} has no parent to replace within`);
