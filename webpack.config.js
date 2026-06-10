@@ -9,6 +9,7 @@ const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
+const CssMinimizerPlugin = require("css-minimizer-webpack-plugin");
 // Serve the SAME localhost cert that office-addin-dev-certs installs + trusts in the
 // OS root store. Without this, webpack-dev-server self-signs a throwaway cert that
 // Word's WebView2 does NOT trust -> "add-in doesn't contain a valid security
@@ -52,7 +53,15 @@ module.exports = async (env, argv) => {
       // total JS shipped drops ~55%, and a chunk fetched for one page is already in the
       // WebView's cache when another page loads. HtmlWebpackPlugin injects each page's
       // chunk set into its HTML automatically; filenames stay content-hashed.
-      splitChunks: { chunks: "all" }
+      splitChunks: { chunks: "all" },
+      // Webpack's default minimizer (Terser) handles JS ONLY — without an explicit CSS
+      // minimizer the extracted sheets ship byte-for-byte verbatim, including the dev
+      // comment banners and inline rationale notes (~42% of shipped CSS bytes). The
+      // "..." token KEEPS the default Terser for JS (omitting it would silently ship
+      // unminified JS); CssMinimizerPlugin (cssnano, safe default preset) runs beside
+      // it. Minimizers only run with `optimization.minimize` on, i.e. production mode —
+      // dev builds/watch are untouched.
+      minimizer: ["...", new CssMinimizerPlugin()]
     },
     module: {
       rules: [
