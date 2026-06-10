@@ -1,5 +1,6 @@
 // Unit tests for the Condense & Shrink OOXML editor (src/core/ooxmlCondense.ts): the fragment reads,
 // the shrink-size apply, the whitespace collapse, the paragraph merge + marker model, and Uncondense.
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import {
   applyFragmentShrink,
   condenseFragmentOoxml,
@@ -177,6 +178,83 @@ describe("uncondenseFragmentOoxml", () => {
   it("is a no-op on a fragment with no markers", () => {
     const xml = body(p(run("AAA")), p(run("BBB")));
     expect(uncondenseFragmentOoxml(xml).changed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Word's insertOoxml import normalization (proven via a real-Word COM round-trip, 2026-06-10):
+// adjacent identically-formatted runs are COALESCED into one, and proofing marks can appear between
+// a boundary glyph and its payload run. Uncondense must survive both, or breaks/pPr silently vanish
+// on the live host while xmldom-only tests stay green.
+// ---------------------------------------------------------------------------
+describe("uncondense under Word's import normalization", () => {
+  /** Simulate Word's run coalescing: adjacent sibling `<w:r>`s with identical rPr merge into one. */
+  const mergeAdjacentIdenticalRuns = (xml: string): string => {
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const doc = new DOMParser().parseFromString(xml, "text/xml") as any;
+    const ser = new XMLSerializer();
+    const paras = doc.getElementsByTagName("w:p");
+    for (let i = 0; i < paras.length; i++) {
+      const para = paras.item(i);
+      const kids: any[] = [];
+      for (let k = 0; k < para.childNodes.length; k++) kids.push(para.childNodes.item(k));
+      let prev: { el: any; rPr: string } | null = null;
+      for (const k of kids) {
+        if (k.nodeType !== 1) continue;
+        if (k.nodeName !== "w:r") {
+          prev = null; // any non-run element breaks adjacency
+          continue;
+        }
+        const rPrEl = k.getElementsByTagName("w:rPr").item(0);
+        const rPr = rPrEl ? ser.serializeToString(rPrEl) : "";
+        const prevT = prev ? prev.el.getElementsByTagName("w:t").item(0) : null;
+        const curT = k.getElementsByTagName("w:t").item(0);
+        if (prev && prev.rPr === rPr && prevT && curT) {
+          prevT.appendChild(doc.createTextNode(curT.textContent || ""));
+          para.removeChild(k);
+        } else {
+          prev = { el: k, rPr };
+        }
+      }
+    }
+    return ser.serializeToString(doc);
+  };
+
+  it("restores one break per glyph CHARACTER when Word coalesced adjacent space markers", () => {
+    // A real blank paragraph between cards has no runs, so its two surrounding boundary glyphs end up
+    // adjacent and Word merges them into ONE run with text "  " — which must still mean TWO breaks.
+    const xml = body(p(run("AAA")), p(""), p(run("BBB")));
+    const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    expect(condensed.boundariesMarked).toBe(2);
+    const wordized = mergeAdjacentIdenticalRuns(condensed.xml);
+    expect(wordized).not.toBe(condensed.xml); // the simulation really coalesced the glyph pair
+    const out = uncondenseFragmentOoxml(wordized);
+    expect(out.breaksRestored).toBe(2);
+    expect(paraTexts(out.xml)).toEqual(["AAA", "", "BBB"]); // the blank comes back
+  });
+
+  it("restores one break per pilcrow CHARACTER when Word coalesced adjacent ¶ markers", () => {
+    const xml = body(p(run("AAA")), p(""), p(run("BBB")));
+    const condensed = condenseFragmentOoxml(xml, { usePilcrows: true, retainParagraphs: false, reversal: "marker" });
+    const wordized = mergeAdjacentIdenticalRuns(condensed.xml);
+    expect(wordized).not.toBe(condensed.xml);
+    const out = uncondenseFragmentOoxml(wordized);
+    expect(out.breaksRestored).toBe(2);
+    expect(paraTexts(out.xml)).toEqual(["AAA", "", "BBB"]);
+  });
+
+  it("consumes a pPr payload separated from its glyph by Word proofing noise", () => {
+    const xml = body(p(run("AAA")), p(run("BBB"), `<w:pPr><w:jc w:val="center"/></w:pPr>`));
+    const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    // Inject a proofing mark between the boundary glyph and its payload run (Word does this on import).
+    const payloadStart = `<w:r><w:rPr><w:rStyle w:val="${CONDENSE_MARK_STYLE}"/><w:vanish/></w:rPr>`;
+    expect(condensed.xml).toContain(payloadStart);
+    const noisy = condensed.xml.replace(payloadStart, `<w:proofErr w:type="spellStart"/>${payloadStart}`);
+    const out = uncondenseFragmentOoxml(noisy);
+    expect(out.breaksRestored).toBe(1);
+    expect(paraTexts(out.xml)).toEqual(["AAA", "BBB"]);
+    expect(out.xml).toContain(`<w:jc w:val="center"/>`); // the stored pPr was consumed, not dropped
+    expect(out.xml).not.toContain("&lt;w:pPr"); // no leaked payload text
   });
 });
 

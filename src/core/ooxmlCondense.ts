@@ -939,10 +939,22 @@ export function uncondenseFragmentOoxml(fragmentXml: string): UncondenseOoxmlRes
 }
 
 /**
+ * Non-run paragraph children Word may interleave between a boundary glyph run and its pPr payload run
+ * on an import/export round-trip (proofing marks, bookmark edges). The payload scan steps over these —
+ * requiring strict adjacency would silently drop the stored pPr (a real-Word formatting-loss bug).
+ */
+const IGNORABLE_BETWEEN_MARKER_AND_PAYLOAD = new Set<string>(["w:proofErr", "w:bookmarkStart", "w:bookmarkEnd"]);
+
+/**
  * Split a merged paragraph at its boundary glyph markers into the original paragraphs, in document
  * order. Segment 0 inherits the merged paragraph's own pPr; each later segment gets the pPr stored in
  * the boundary's payload run, or a clone of the merged pPr (the uniform-card-body common case). The
  * markers and payload runs are dropped. Returns the number of breaks restored (segments created − 1).
+ *
+ * Each glyph CHARACTER is one boundary, not each glyph run: Word merges adjacent identically-formatted
+ * runs on insertOoxml import, so two consecutive boundaries (an empty former paragraph between cards)
+ * come back as ONE run whose text is two glyphs ("  " / "¶¶"). Splitting per character restores the
+ * empty paragraph instead of silently losing a break (wet-test-class bug, proven via a COM round-trip).
  */
 function splitParagraphAtMarkers(doc: any, pEl: any): number {
   const content = paragraphContentNodes(pEl);
@@ -957,14 +969,33 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
   for (let i = 0; i < content.length; i++) {
     const node = content[i];
     if (node.nodeType === ELEMENT_NODE && node.nodeName === "w:r" && isGlyphMarkerRun(node)) {
-      let pPr: string | null = null;
-      const next = content[i + 1];
-      if (next && next.nodeType === ELEMENT_NODE && next.nodeName === "w:r" && isPPrDataRun(next)) {
-        pPr = runTextRaw(next).trim();
-        i++; // consume the payload run
+      // One boundary per glyph character (see the function comment for why not per run).
+      const glyphCount = Math.max(1, runTextRaw(node).length);
+      for (let g = 0; g < glyphCount; g++) {
+        segments.push([]);
+        segmentPPr.push(null);
       }
-      segments.push([]);
-      segmentPPr.push(pPr);
+      // The pPr payload follows its glyph run, possibly past Word-inserted noise. It belongs to the
+      // run's LAST boundary: merged glyphs never had a payload between them — a payload run's distinct
+      // formatting would have prevented the adjacency that makes Word merge in the first place.
+      let j = i + 1;
+      const skipped: any[] = [];
+      while (
+        j < content.length &&
+        content[j].nodeType === ELEMENT_NODE &&
+        IGNORABLE_BETWEEN_MARKER_AND_PAYLOAD.has(content[j].nodeName)
+      ) {
+        skipped.push(content[j]);
+        j++;
+      }
+      const next = content[j];
+      if (next && next.nodeType === ELEMENT_NODE && next.nodeName === "w:r" && isPPrDataRun(next)) {
+        segmentPPr[segmentPPr.length - 1] = runTextRaw(next).trim();
+        // Keep the stepped-over noise (bookmark edges matter); it lands in the boundary's new segment.
+        for (const s of skipped) segments[segments.length - 1].push(s);
+        i = j; // consume through the payload run
+      }
+      // No payload found: don't advance i — the scanned nodes re-enter the loop and are kept normally.
     } else if (node.nodeType === ELEMENT_NODE && node.nodeName === "w:r" && isPPrDataRun(node)) {
       continue; // stray payload run with no preceding glyph (shouldn't happen) — drop it
     } else {
