@@ -3,7 +3,8 @@
   taskpane.html. Kept as a PER-SURFACE sheet (not merged with dialog.css) on purpose: the pane
   and the workspace dialog share class NAMES but use deliberately different VALUES (this compact
   ~320px pane vs the spacious ~980px dialog), so a shared sheet would change one surface's look.
-  Copied to dist/assets by CopyWebpackPlugin; taskpane.html links it as ./assets/taskpane.css.
+  Imported by src/taskpane/index.tsx and emitted content-hashed by mini-css-extract-plugin
+  (the WebView cache must be forced to refetch changed styles, same as the hashed JS).
 */
 :root {
   --r-fg: #1b1b1b;

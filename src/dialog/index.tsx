@@ -10,6 +10,8 @@ import { FeatureSupport } from "../core/types";
 import { registry } from "../features";
 import { RostrumFeature } from "../features/types";
 import { ComingSoon, featureIdFromHash, UnsupportedHost, useHost } from "../taskpane/host";
+// Workspace stylesheet — bundled so it ships content-hashed (same staleness rationale as the pane).
+import "./dialog.css";
 
 /** Ask the parent (task pane / ribbon) to close this dialog. messageParent only works in a dialog. */
 function closeWorkspace(): void {

@@ -3,7 +3,8 @@
   in progress.html. This window uses its OWN p-* CLASS namespace (it reuses the shared --r-* token
   names but none of the r-* classes), so it is necessarily its own sheet. It's intentionally tiny —
   shown only while a ribbon op runs, then closes itself.
-  Copied to dist/assets by CopyWebpackPlugin; progress.html links it as ./assets/progress.css.
+  Imported by src/progress/index.tsx and emitted content-hashed by mini-css-extract-plugin
+  (same staleness rationale as the hashed JS).
 */
 :root {
   --r-fg: #1b1b1b;

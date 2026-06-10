@@ -2,10 +2,11 @@
 <!--
   Rostrum ribbon progress pop-out host page. Same pattern as the other shells: office.js loads
   first (it defines the `Office` global the bundle awaits), and html-webpack-plugin injects the
-  compiled progress.js after this template. Styles live in assets/progress.css (copied to
-  dist/assets by CopyWebpackPlugin) and are linked below — no CSS loader. This window uses its own
-  p-* CLASS namespace (it reuses the shared --r-* token names but none of the r-* classes); it is
-  intentionally tiny — it appears only while a ribbon op runs and closes itself.
+  compiled progress.js after this template. Styles live in src/progress/progress.css —
+  imported by the entry and emitted content-hashed (same staleness rationale as the JS);
+  html-webpack-plugin injects the <link>. This window uses its own p-* CLASS namespace (it
+  reuses the shared --r-* token names but none of the r-* classes); it is intentionally
+  tiny — it appears only while a ribbon op runs and closes itself.
 -->
 <html lang="en">
   <head>
@@ -13,7 +14,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Rostrum — Working…</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-    <link rel="stylesheet" href="./assets/progress.css" />
   </head>
   <body>
     <div id="root"></div>

@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ProgressInfo } from "../core/officeWordPort";
 import { formatProgress, progressPercent } from "../core/progress";
+// Pop-out stylesheet — bundled so it ships content-hashed (same staleness rationale as the pane).
+import "./progress.css";
 
 /** Parent→child messages, mirrored from progress/host.ts (parsed defensively). */
 type ParentMsg =

@@ -3,9 +3,10 @@
   Rostrum workspace dialog host page. Same pattern as taskpane.html: office.js loads
   first (it defines the `Office` global the bundle awaits via useHost), and
   html-webpack-plugin injects the compiled dialog.js after this template. Styles live in
-  assets/dialog.css (copied to dist/assets by CopyWebpackPlugin) and are linked below — no CSS
-  loader. This is a PER-SURFACE sheet: the badge/ComingSoon class names mirror the pane so the
-  shared components render identically, but the values are tuned for this wider workspace layout.
+  src/dialog/dialog.css — imported by the entry and emitted content-hashed (same staleness
+  rationale as the JS); html-webpack-plugin injects the <link>. This is a PER-SURFACE sheet:
+  the badge/ComingSoon class names mirror the pane so the shared components render
+  identically, but the values are tuned for this wider workspace layout.
 -->
 <html lang="en">
   <head>
@@ -13,7 +14,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Rostrum — Workspace</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-    <link rel="stylesheet" href="./assets/dialog.css" />
   </head>
   <body>
     <div id="root"></div>

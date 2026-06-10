@@ -14,6 +14,9 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { associateAll } from "../commands/commands";
+// Pane stylesheet — bundled so it ships content-hashed (the WebView caches add-in assets
+// aggressively; a stable CSS URL could go stale against new JS after an update).
+import "./taskpane.css";
 
 const container = document.getElementById("root");
 if (container) {

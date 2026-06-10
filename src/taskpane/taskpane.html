@@ -2,8 +2,9 @@
 <!--
   Rostrum task pane host page. office.js is loaded first (it defines the `Office`
   global the bundle's `Office.onReady()` awaits); html-webpack-plugin injects the
-  compiled taskpane.js after this template. Styles live in assets/taskpane.css (copied to
-  dist/assets by CopyWebpackPlugin) and are linked below — no CSS loader needed. It is a
+  compiled taskpane.js after this template. Styles live in src/taskpane/taskpane.css —
+  imported by the entry and emitted content-hashed (the WebView cache must be forced to
+  refetch changed styles, same as the JS); html-webpack-plugin injects the <link>. It is a
   PER-SURFACE sheet: the pane and the wider dialog share class names but not values.
 -->
 <html lang="en">
@@ -12,7 +13,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Rostrum — Invisibility Mode</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-    <link rel="stylesheet" href="./assets/taskpane.css" />
   </head>
   <body>
     <div id="root"></div>

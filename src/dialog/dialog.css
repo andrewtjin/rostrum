@@ -2,7 +2,8 @@
   Rostrum workspace-dialog stylesheet. Extracted verbatim from the former inline <style> in
   dialog.html. Kept PER-SURFACE (not merged with taskpane.css) on purpose: this is the spacious
   ~980px workspace, so its shared-named r-* classes carry larger values than the compact pane's.
-  Copied to dist/assets by CopyWebpackPlugin; dialog.html links it as ./assets/dialog.css.
+  Imported by src/dialog/index.tsx and emitted content-hashed by mini-css-extract-plugin
+  (same staleness rationale as the hashed JS).
 */
 :root {
   --r-fg: #1b1b1b;

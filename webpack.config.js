@@ -8,6 +8,7 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
+const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 // Serve the SAME localhost cert that office-addin-dev-certs installs + trusts in the
 // OS root store. Without this, webpack-dev-server self-signs a throwaway cert that
 // Word's WebView2 does NOT trust -> "add-in doesn't contain a valid security
@@ -58,10 +59,15 @@ module.exports = async (env, argv) => {
         // transpileOnly: the full semantic check already runs as its own gate (`npm run
         // typecheck` locally and as the CI step right before build), so re-checking inside
         // webpack only duplicates work (~28% slower prod build, worse watch-mode rebuilds).
-        { test: /\.tsx?$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ }
+        { test: /\.tsx?$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ },
+        // Per-surface stylesheets are imported by each entry and EXTRACTED to content-hashed
+        // files (same staleness rationale as the hashed JS — the WebView cache must be forced
+        // to refetch changed styles). HtmlWebpackPlugin injects each page's <link> itself.
+        { test: /\.css$/, use: [MiniCssExtractPlugin.loader, "css-loader"] }
       ]
     },
     plugins: [
+      new MiniCssExtractPlugin({ filename: "[name].[contenthash].css" }),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
