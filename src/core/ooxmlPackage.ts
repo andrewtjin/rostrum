@@ -564,7 +564,14 @@ export class WholeBodyPackage {
   paragraphXml(i: number): string {
     const node = this.paras[i];
     if (!node) throw new RangeError(`paragraph index ${i} out of range (count ${this.count})`);
-    const inner = serialize(node.cloneNode(true));
+    // Serialize the ATTACHED node — no deep clone. xmldom's serializer is subtree-self-contained
+    // for prefixed nodes: it only consults ancestors (lookupPrefix) when the start node's prefix
+    // is null, and every node here is a prefixed `w:p`, so it never walks above the subtree and
+    // never mutates it (same reason `headingLevel` serializes attached). The old
+    // `cloneNode(true)` was byte-identical defensive copying at ~10× the cost of serialization
+    // itself — the single largest per-paragraph cost on the pure whole-body read (avenue ⑦).
+    // __tests__/ooxmlPackage.test.ts guards both the zero-clone count and the non-mutation.
+    const inner = serialize(node);
     // Carry only the relationships THIS paragraph references (keeps the package minimal — no
     // styles/numbering parts — so classify stays fast, while hyperlinks resolve).
     const usedRels: string[] = [];

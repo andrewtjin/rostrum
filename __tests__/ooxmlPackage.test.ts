@@ -6,6 +6,9 @@ import {
   WholeBodyPackage
 } from "../src/core/ooxmlPackage";
 import { readRuns } from "../src/core/ooxml";
+// The real xmldom Node constructor — its prototype carries cloneNode for every node subclass,
+// so spying there counts EVERY deep clone the engine makes (the zero-clone perf guard below).
+import { Node as XmldomNode } from "@xmldom/xmldom";
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
@@ -264,6 +267,50 @@ describe("WholeBodyPackage", () => {
     const hyper = wb.paragraphXml(1);
     expect(hyper).toContain(`pkg:name="/word/_rels/document.xml.rels"`);
     expect(hyper).toContain(`Id="rId7"`);
+  });
+
+  it("serializes the READ fragment from the ATTACHED node — zero deep clones, no tree mutation (perf invariant)", () => {
+    // paragraphXml used to `cloneNode(true)` every paragraph before serializing — pure O(subtree)
+    // allocation at ~10× the cost of the serialization itself, repeated for EVERY paragraph of the
+    // pure whole-body read (avenue ⑦), the hybrid read, and citeRepair. Attached serialization is
+    // byte-identical because xmldom's serializer never walks above a PREFIXED start node (`w:p`)
+    // and never mutates. Lock in BOTH halves, parseCount.test.ts-style (a call COUNT, never a
+    // wall-clock threshold): (a) the read path performs ZERO deep clones — a reintroduced clone
+    // fails here; (b) the safety condition that makes zero clones correct — repeated reads are
+    // byte-identical and the whole-package commit payload is unchanged afterwards.
+    const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const docPkg =
+      `<pkg:package xmlns:pkg="${PKG_NS}">` +
+      `<pkg:part pkg:name="/word/_rels/document.xml.rels"><pkg:xmlData>` +
+      `<Relationships xmlns="${RELS_NS}">` +
+      `<Relationship Id="rId7" Type="${R_NS}/hyperlink" Target="https://example.com" TargetMode="External"/>` +
+      `</Relationships></pkg:xmlData></pkg:part>` +
+      `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
+      `<w:document xmlns:w="${W_NS}" xmlns:r="${R_NS}"><w:body>` +
+      `<w:p><w:r><w:t>plain body</w:t></w:r></w:p>` +
+      `<w:p><w:hyperlink r:id="rId7"><w:r><w:t>cite</w:t></w:r></w:hyperlink></w:p>` +
+      `<w:sectPr/></w:body></w:document></pkg:xmlData></pkg:part></pkg:package>`;
+    const wb = new WholeBodyPackage(docPkg);
+    const wholeBefore = wb.serialize();
+
+    // Spy on the REAL xmldom Node.prototype.cloneNode (subclasses inherit it through the
+    // prototype chain), scoped tightly to the paragraphXml calls so the count is precise.
+    const spy = jest.spyOn(XmldomNode.prototype as any, "cloneNode" as never);
+    let first: string[];
+    try {
+      first = [wb.paragraphXml(0), wb.paragraphXml(1)];
+      expect(spy).not.toHaveBeenCalled(); // (a) zero clones on the hot read path
+      // (b) attached serialization left the tree untouched: a second read is byte-identical.
+      expect([wb.paragraphXml(0), wb.paragraphXml(1)]).toEqual(first);
+    } finally {
+      spy.mockRestore();
+    }
+    // Cloneless fragments still re-declare the ancestor namespaces the live host requires…
+    expect(first[0]).toContain(`xmlns:w="${W_NS}"`);
+    expect(first[1]).toContain(`xmlns:r="${R_NS}"`);
+    // …and the whole-package serialization (the avenue-⑦ commit payload) is unchanged.
+    expect(wb.serialize()).toBe(wholeBefore);
   });
 
   // -------------------------------------------------------------------------
