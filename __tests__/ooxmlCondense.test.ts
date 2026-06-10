@@ -199,6 +199,76 @@ describe("retain-paragraphs mode", () => {
     expect(paraTexts(out.xml)).toEqual(["AAA", "BBB"]);
   });
 
+  // -------------------------------------------------------------------------
+  // Marker-style durability (the 2026-06-09 live bug: Word strips `<w:rStyle>` references whose
+  // style is not DEFINED in the package, so every condense was irreversible on the host — "no
+  // Rostrum condense markers found" — while xmldom-based tests stayed green. The fix defines the
+  // style in the fragment's own styles part whenever styled markers are written.)
+  // -------------------------------------------------------------------------
+  describe("marker style definition (survives Word's dangling-style strip)", () => {
+    const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
+    /** A flat-OPC fragment shaped like `range.getOoxml()` output: document part + styles part. */
+    const pkgFragment = (bodyXml: string, stylesInner = ""): string =>
+      `<pkg:package xmlns:pkg="${PKG_NS}">` +
+      `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
+      `<w:document xmlns:w="${W_NS}">${bodyXml}</w:document>` +
+      `</pkg:xmlData></pkg:part>` +
+      `<pkg:part pkg:name="/word/styles.xml"><pkg:xmlData>` +
+      `<w:styles xmlns:w="${W_NS}">${stylesInner}</w:styles>` +
+      `</pkg:xmlData></pkg:part>` +
+      `</pkg:package>`;
+    /** Count of style DEFINITIONS (w:styleId, not the markers' w:val references). */
+    const defCount = (xml: string): number =>
+      (xml.match(new RegExp(`w:styleId="${CONDENSE_MARK_STYLE}"`, "g")) || []).length;
+
+    it("merge mode defines the marker style as a hidden character style in the styles part", () => {
+      const xml = pkgFragment(body(p(run("AAA")), p(run("BBB"))));
+      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+      // Defined exactly once, INSIDE the styles part, with what Word needs to import + keep it.
+      expect(defCount(out.xml)).toBe(1);
+      const stylesPart = /<pkg:part pkg:name="\/word\/styles\.xml">[\s\S]*?<\/pkg:part>/.exec(out.xml);
+      expect(stylesPart).not.toBeNull();
+      expect(stylesPart![0]).toContain(`w:styleId="${CONDENSE_MARK_STYLE}"`);
+      expect(stylesPart![0]).toContain(`w:type="character"`);
+      expect(stylesPart![0]).toContain(`w:customStyle="1"`);
+      expect(stylesPart![0]).toContain("<w:semiHidden/>");
+      // The round-trip still restores.
+      expect(uncondenseFragmentOoxml(out.xml).breaksRestored).toBe(1);
+    });
+
+    it("retain mode (marker) defines it too — dropped blanks key on the same style", () => {
+      const xml = pkgFragment(body(p(run("AAA")), p(run("   ")), p(run("BBB"))));
+      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
+      expect(out.boundariesMarked).toBe(1);
+      expect(defCount(out.xml)).toBe(1);
+    });
+
+    it("is idempotent — a doc that already carries the definition gains no duplicate", () => {
+      const already =
+        `<w:style w:type="character" w:customStyle="1" w:styleId="${CONDENSE_MARK_STYLE}">` +
+        `<w:name w:val="Rostrum Condense Break"/><w:semiHidden/></w:style>`;
+      const xml = pkgFragment(body(p(run("AAA")), p(run("BBB"))), already);
+      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+      expect(defCount(out.xml)).toBe(1);
+    });
+
+    it("destructive mode writes no styled markers, so no definition is injected", () => {
+      const xml = pkgFragment(body(p(run("AAA")), p(run("   ")), p(run("BBB"))));
+      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "none" });
+      expect(defCount(out.xml)).toBe(0);
+    });
+
+    it("a bare fragment with no styles part is left structurally unchanged (live packages always bundle one)", () => {
+      const out = condenseFragmentOoxml(body(p(run("AAA")), p(run("BBB"))), {
+        usePilcrows: false,
+        retainParagraphs: false,
+        reversal: "marker"
+      });
+      expect(out.xml).not.toContain("<w:styles");
+      expect(uncondenseFragmentOoxml(out.xml).breaksRestored).toBe(1);
+    });
+  });
+
   it("losslessly condenses a blank paragraph whose mark has a foreign style, restoring it on uncondense", () => {
     // A blank paragraph carrying a non-Rostrum mark style used to be SKIPPED (the original style collides
     // with our break style in the single rStyle slot). Now we park the pristine mark rPr in a hidden

@@ -681,6 +681,42 @@ function makeDataRun(doc: any, payloadXml: string): any {
   return r;
 }
 
+/**
+ * Define `CONDENSE_MARK_STYLE` in the fragment package's own `styles.xml` part (idempotent).
+ *
+ * Word VALIDATES style references on OOXML import: an `<w:rStyle>` pointing at a style id that is
+ * not in the style table is STRIPPED by `insertOoxml` — which erased the ONLY signal Uncondense
+ * keys on, making every live condense irreversible ("no Rostrum condense markers found") while the
+ * whole headless suite stayed green (xmldom preserves dangling references; only the live host
+ * strips them — 2026-06-09 wet-test bug). Cite detection never hit this because `Style13ptBold`
+ * already exists in debate docs' style tables; our marker style existed nowhere.
+ *
+ * So whenever styled markers are written, the definition travels WITH the fragment: Word imports
+ * it as a real character style and then preserves every marker reference. The style carries NO
+ * formatting (markers self-format via direct rPr — e.g. the 6pt pilcrow) and is `semiHidden` so
+ * the styles gallery stays clean. A bare test fixture with no styles part is left unchanged (live
+ * range packages always bundle one).
+ */
+function ensureCondenseMarkStyleDefined(doc: any): void {
+  const stylesRoots = doc.getElementsByTagName("w:styles");
+  if (!stylesRoots || stylesRoots.length === 0) return; // no styles part (bare fixture) — nothing to do
+  const root = stylesRoots.item(0);
+  const defs = root.getElementsByTagName("w:style");
+  for (let i = 0; i < defs.length; i++) {
+    if ((defs.item(i).getAttribute("w:styleId") || "") === CONDENSE_MARK_STYLE) return; // already defined
+  }
+  const style = doc.createElement("w:style");
+  style.setAttribute("w:type", "character");
+  style.setAttribute("w:customStyle", "1");
+  style.setAttribute("w:styleId", CONDENSE_MARK_STYLE);
+  const name = doc.createElement("w:name");
+  name.setAttribute("w:val", "Rostrum Condense Break");
+  style.appendChild(name);
+  style.appendChild(doc.createElement("w:semiHidden"));
+  style.appendChild(doc.createElement("w:unhideWhenUsed"));
+  root.appendChild(style);
+}
+
 // ---------------------------------------------------------------------------
 // Condense
 // ---------------------------------------------------------------------------
@@ -716,6 +752,14 @@ export function condenseFragmentOoxml(fragmentXml: string, opts: CondenseOptions
     boundariesMarked = dropBlankParagraphs(doc, paras, opts.reversal);
   } else {
     boundariesMarked = mergeParagraphs(doc, paras, opts);
+  }
+
+  // Styled markers were written iff boundaries were marked AND the path styles them: the merge
+  // path only counts boundaries when it writes styled markers; the retain path counts both modes
+  // but styles only `reversal:"marker"`. Their style must be DEFINED in the package or Word
+  // strips every reference on insert and Uncondense goes blind — see ensureCondenseMarkStyleDefined.
+  if (boundariesMarked > 0 && (!opts.retainParagraphs || opts.reversal === "marker")) {
+    ensureCondenseMarkStyleDefined(doc);
   }
 
   const after = serialize(doc);
