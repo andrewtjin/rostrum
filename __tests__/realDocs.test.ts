@@ -1,37 +1,31 @@
 // AUTOMATED REAL-DOCUMENT TESTS — the headless automation of the manual "wet test".
 //
-// Runs the full engine + (faked) adapter stack over the ACTUAL `.docx` files in
-// `rostrum/samples/` (see realDocs.ts). It catches engine-vs-real-OOXML bugs and
-// enforces the single-`<w:p>` writeback invariant (the live-host bug class) against
-// genuine docs, and reports real timing per size tier.
+// Runs engine checks over the ACTUAL `.docx` files in `rostrum/samples/` (see
+// realDocs.ts): outline-level resolution fidelity, the Stage 4.2g relationship-type
+// coverage guard, and the NBSP space-bridge regressions on the real dds2 card.
 //
-//   * small / medium — always run (correctness + thoroughness).
-//   * large / xlarge — run ONLY with ROSTRUM_PERF=1 (timing/optimization), since
-//     parsing a 26M-char document.xml is slow + memory-heavy. Deferred docs are logged.
+// The heavyweight hide/showAll round-trips (full engine + faked adapter per sample)
+// live in the realDocsShard*.test.ts family instead — Jest parallelizes per test FILE,
+// and keeping every sample's CPU-bound round-trip here made this one file the whole
+// suite's wall (see runHideReverseShard in realDocs.ts). This file also guards the
+// shard family's wiring so a deleted/drifted shard can't silently drop sample coverage.
 //
 // The outline-level resolution suite below always runs (no samples needed).
 
-import { createOfficeWordPort } from "../src/core/officeWordPort";
-import { hide, showAll, classifyParagraph } from "../src/core/invisibility";
+import * as fs from "fs";
+import * as path from "path";
+import { classifyParagraph } from "../src/core/invisibility";
 import { readRuns } from "../src/core/ooxml";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
-import { harness, hiddenFlags, mkDoc, settings } from "./fakeWord";
 import {
   discoverSamples,
   paragraphsFromDocumentXml,
   readDocxParts,
   readDocumentRelTypes,
-  SampleRef,
-  SizeTier
+  SampleRef
 } from "./realDocs";
 
-const KEEP_COLORS = ["cyan", "yellow", "green", "lightGray", "magenta", "red"];
-const HEAVY_TIERS: SizeTier[] = ["large", "xlarge"];
-const RUN_HEAVY = process.env.ROSTRUM_PERF === "1";
-
 const all = discoverSamples();
-const active = all.filter((s) => RUN_HEAVY || !HEAVY_TIERS.includes(s.tier));
-const deferred = all.filter((s) => !active.includes(s));
 
 // ---------------------------------------------------------------------------
 // Outline-level resolution fidelity (basedOn cascade). Always runs — proves the
@@ -86,71 +80,36 @@ describe("outline-level resolution (basedOn cascade → Paragraph.outlineLevel)"
 });
 
 // ---------------------------------------------------------------------------
-// The real-.docx pass.
+// Shard-family integrity guard. The hide/showAll round-trips run round-robin across the
+// realDocsShard*.test.ts files (sample i runs in shard i % N — runHideReverseShard in
+// realDocs.ts). The failure mode this guards is SILENT: delete a shard file, rename it
+// off the `realDocs` prefix, or let a file's (shard, of) arguments drift from the family
+// size, and some samples simply stop being round-tripped — nothing else would fail.
+// This pins the family to its contract, and needs no samples, so it also runs on CI.
 // ---------------------------------------------------------------------------
-describe("real Word documents (samples/)", () => {
-  if (!all.length) {
-    it("no .docx samples found — drop files into rostrum/samples to enable", () => {
-      expect(all).toHaveLength(0);
-    });
-    return;
-  }
+describe("real-doc shard family integrity (realDocsShard*.test.ts)", () => {
+  const SHARD_RE = /^realDocsShard(\d+)\.test\.ts$/;
+  const shardFiles = fs.readdirSync(__dirname).filter((f) => SHARD_RE.test(f));
 
-  if (deferred.length) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[realdoc] ${deferred.length} heavy sample(s) deferred — set ROSTRUM_PERF=1 to run: ` +
-        deferred.map((s) => `${s.file} [${s.tier}]`).join(", ")
-    );
-  }
+  it("shards exist, are contiguous 1..N, and each wires (k-1, N) into the shared runner", () => {
+    const n = shardFiles.length;
+    // At least 2: one shard would re-serialize the round-trips into a single worker,
+    // recreating the very wall the family exists to remove.
+    expect(n).toBeGreaterThanOrEqual(2);
 
-  it.each(active)(
-    "hides then fully reverses every real paragraph without corruption — $file [$tier]",
-    async (s: SampleRef) => {
-      const { documentXml, stylesXml } = await readDocxParts(s.fullPath);
-      const paras = paragraphsFromDocumentXml(documentXml, stylesXml);
-      expect(paras.length).toBeGreaterThan(0);
-      // Headings resolved via the basedOn cascade (outlineNumber 1–4 = kept levels 0–3).
-      const headings = paras.filter((p) => p.outlineNumber >= 1 && p.outlineNumber <= 4).length;
+    // Contiguous 1..N — a gap means a deleted/renamed shard left a hole in coverage.
+    const indices = shardFiles.map((f) => Number(SHARD_RE.exec(f)![1])).sort((a, b) => a - b);
+    expect(indices).toEqual(Array.from({ length: n }, (_, i) => i + 1));
 
-      const doc = mkDoc(paras);
-      const h = harness(doc);
-      const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
-
-      const t0 = Date.now();
-      const res = await hide(port, settings(KEEP_COLORS));
-      const hideMs = Date.now() - t0;
-
-      // Every per-paragraph writeback runs assertSingleParagraph; reaching this point
-      // proves the single-`<w:p>` invariant held across ALL real paragraphs.
-      expect(res.paragraphsScanned).toBe(paras.length);
-      expect(res.paragraphsChanged).toBeGreaterThan(0);
-
-      const t1 = Date.now();
-      await showAll(port);
-      const showMs = Date.now() - t1;
-
-      // Reversibility: nothing remains hidden after Show All. Tolerate paragraphs the
-      // engine could not parse (counted as skipped) — they were never hidden anyway.
-      const stillHidden = doc.paragraphs.filter((p) => {
-        try {
-          return hiddenFlags(p.xml).some(Boolean);
-        } catch {
-          return false;
-        }
-      }).length;
-      expect(stillHidden).toBe(0);
-
-      const parasPerSec = Math.round((paras.length / Math.max(hideMs, 1)) * 1000);
-      // eslint-disable-next-line no-console
-      console.log(
-        `[realdoc ${s.tier}] ${s.file}: ${paras.length} paras (${headings} heading-level) | ` +
-          `hid ${res.paragraphsChanged} (skipped ${res.paragraphsSkipped}) in ${hideMs}ms ` +
-          `(${parasPerSec} paras/s) | showAll ${showMs}ms`
-      );
-    },
-    300000
-  );
+    // Each shard k must call runHideReverseShard(k-1, N) with N = the FAMILY size, so
+    // the modulo partition is exact: every active sample lands in exactly one shard.
+    for (const f of shardFiles) {
+      const k = Number(SHARD_RE.exec(f)![1]);
+      const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+      expect({ file: f, wired: new RegExp(`runHideReverseShard\\(\\s*${k - 1}\\s*,\\s*${n}\\s*\\)`).test(src) })
+        .toEqual({ file: f, wired: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -187,7 +146,7 @@ describe("commitXml part coverage across real docs (Stage 4.2g formatting guard)
     });
     // No fixtures (e.g. CI — samples/ is gitignored): skip the data-driven guard. Calling
     // `it.each([])` is a hard Jest error ("empty Array of table data"), so we must `return`
-    // BEFORE it, mirroring the guard in the "real Word documents (samples/)" block above.
+    // BEFORE it, mirroring the empty-shard guard in runHideReverseShard (realDocs.ts).
     return;
   }
 

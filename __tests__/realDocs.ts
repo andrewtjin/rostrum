@@ -1,4 +1,5 @@
-// Helpers for the REAL-document test suite (realDocs.test.ts).
+// Helpers + shared runner for the REAL-document test family (realDocs.test.ts and the
+// realDocsShard*.test.ts hide/reverse shards — see runHideReverseShard at the bottom).
 //
 // These read the actual `.docx` files dropped into `rostrum/samples/`, pull out
 // `word/document.xml` (the real OOXML Word produces) plus `word/styles.xml`, and turn
@@ -25,9 +26,11 @@ import * as fs from "fs";
 import * as path from "path";
 import JSZip from "jszip";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { createOfficeWordPort } from "../src/core/officeWordPort";
+import { hide, showAll } from "../src/core/invisibility";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
 import { parseStyleDefs, outlineNumberOf, type StyleDef } from "../src/core/outline";
-import { FakePara } from "./fakeWord";
+import { FakePara, harness, hiddenFlags, mkDoc, settings } from "./fakeWord";
 
 // xmldom node handles vary across versions; public signatures stay fully typed (string in/out) and we
 // use a localized `any` for the node objects — the same pragmatic choice ooxmlCondense.ts/ooxmlPackage.ts make.
@@ -235,4 +238,110 @@ export function singleParagraphDocumentXml(
     openTag = shell.endsWith("/>") ? `${shell.slice(0, -2)}>` : shell.replace(/<\/w:document>\s*$/, "");
   }
   return `${openTag}<w:body>${matchXml}</w:body></w:document>`;
+}
+
+// ---------------------------------------------------------------------------
+// SHARDED hide/reverse round-trips (realDocsShard*.test.ts).
+//
+// Jest's unit of parallelism is the test FILE, and hide() is synchronous CPU-bound
+// xmldom work (test.concurrent can't overlap it within one worker). Keeping every
+// sample's round-trip in ONE file therefore serialized ~17-19s of engine work into a
+// single worker while every other suite finished in a fraction of that — that one file
+// WAS the local `npm test` wall. The thin realDocsShardN.test.ts files each call the
+// runner below with a distinct (shard, of), splitting the smallest-first sample list
+// round-robin so the wall becomes the LARGEST doc instead of the SUM of all of them.
+// All logic lives here so the shard files can't drift apart; realDocs.test.ts guards
+// the family's (shard, of) wiring.
+// ---------------------------------------------------------------------------
+
+/** Highlight colors a debater keeps — mirrors the add-in's default keep set. */
+const KEEP_COLORS = ["cyan", "yellow", "green", "lightGray", "magenta", "red"];
+/** Tiers deferred by default: parsing a 26M-char document.xml is slow + memory-heavy. */
+const HEAVY_TIERS: SizeTier[] = ["large", "xlarge"];
+/** Opt-in switch for the heavy tiers (timing/optimization runs). */
+const RUN_HEAVY = process.env.ROSTRUM_PERF === "1";
+
+/**
+ * Register this shard's slice of the real-document hide/showAll round-trip tests.
+ * `shard` is 0-based; sample i (smallest-first from discoverSamples) runs in shard
+ * `i % of`, so round-robin keeps the per-shard byte load balanced. Must be CALLED from
+ * a `*.test.ts` file — it registers `describe`/`it` blocks with Jest.
+ */
+export function runHideReverseShard(shard: number, of: number): void {
+  const all = discoverSamples();
+  const active = all.filter((s) => RUN_HEAVY || !HEAVY_TIERS.includes(s.tier));
+  const deferred = all.filter((s) => !active.includes(s));
+  // Round-robin over the smallest-first discovery order: with N samples and `of` shards
+  // each shard gets ~N/of docs and the big ones spread across different workers.
+  const mine = active.filter((_, i) => i % of === shard);
+
+  describe(`real Word documents (samples/) — shard ${shard + 1}/${of}`, () => {
+    // Placeholder keeps the suite green when this shard has no samples — either CI
+    // (samples/ is gitignored and absent) or fewer active samples than shards. Calling
+    // `it.each([])` is a hard Jest error, so we must `return` before it.
+    if (!mine.length) {
+      it("no .docx samples for this shard — drop files into rostrum/samples to enable", () => {
+        expect(mine).toHaveLength(0);
+      });
+      return;
+    }
+
+    // Log the deferred heavy docs ONCE for the whole family (shard 0 only — every shard
+    // computes the same `deferred` list, and 4 duplicate log lines would just be noise).
+    if (shard === 0 && deferred.length) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[realdoc] ${deferred.length} heavy sample(s) deferred — set ROSTRUM_PERF=1 to run: ` +
+          deferred.map((s) => `${s.file} [${s.tier}]`).join(", ")
+      );
+    }
+
+    it.each(mine)(
+      "hides then fully reverses every real paragraph without corruption — $file [$tier]",
+      async (s: SampleRef) => {
+        const { documentXml, stylesXml } = await readDocxParts(s.fullPath);
+        const paras = paragraphsFromDocumentXml(documentXml, stylesXml);
+        expect(paras.length).toBeGreaterThan(0);
+        // Headings resolved via the basedOn cascade (outlineNumber 1–4 = kept levels 0–3).
+        const headings = paras.filter((p) => p.outlineNumber >= 1 && p.outlineNumber <= 4).length;
+
+        const doc = mkDoc(paras);
+        const h = harness(doc);
+        const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
+
+        const t0 = Date.now();
+        const res = await hide(port, settings(KEEP_COLORS));
+        const hideMs = Date.now() - t0;
+
+        // Every per-paragraph writeback runs assertSingleParagraph; reaching this point
+        // proves the single-`<w:p>` invariant held across ALL real paragraphs.
+        expect(res.paragraphsScanned).toBe(paras.length);
+        expect(res.paragraphsChanged).toBeGreaterThan(0);
+
+        const t1 = Date.now();
+        await showAll(port);
+        const showMs = Date.now() - t1;
+
+        // Reversibility: nothing remains hidden after Show All. Tolerate paragraphs the
+        // engine could not parse (counted as skipped) — they were never hidden anyway.
+        const stillHidden = doc.paragraphs.filter((p) => {
+          try {
+            return hiddenFlags(p.xml).some(Boolean);
+          } catch {
+            return false;
+          }
+        }).length;
+        expect(stillHidden).toBe(0);
+
+        const parasPerSec = Math.round((paras.length / Math.max(hideMs, 1)) * 1000);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[realdoc ${s.tier}] ${s.file}: ${paras.length} paras (${headings} heading-level) | ` +
+            `hid ${res.paragraphsChanged} (skipped ${res.paragraphsSkipped}) in ${hideMs}ms ` +
+            `(${parasPerSec} paras/s) | showAll ${showMs}ms`
+        );
+      },
+      300000
+    );
+  });
 }
