@@ -159,8 +159,7 @@ li {
 }
 code,
 kbd {
-    font-family:
-        ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.9em;
     background: var(--card);
     border: 1px solid var(--line);
@@ -185,6 +184,46 @@ kbd {
     color: var(--muted);
     font-size: 0.9rem;
     margin-top: 6px;
+}
+/* Primary file-download button. The manifest is THE thing you grab to install, so it gets a real
+   button affordance instead of a plain link. The previous version filled with var(--card) — the
+   SAME color as the .card surface it sits on — so it vanished into the background; only a hairline
+   border hinted it was a control. This treatment lifts it off the card with a white surface, a
+   navy (--accent) outline, and a ↓ download glyph, reading unmistakably as "download this file".
+   It's louder than a link but quieter than the filled hero .cta, so the page keeps one clear
+   action hierarchy: hero CTAs > download button > inline links. */
+.button-link {
+    display: inline-block;
+    /* vertical-align keeps the compact button centered on the text baseline it sits in, so it
+       rides the prose line instead of bulging the line-height. */
+    vertical-align: baseline;
+    background: #fff;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    /* Slim vertical padding — this is an INLINE control inside a sentence; tall padding stretched
+       the line box and read as jarring. Keep it close to the cap height of the surrounding text. */
+    padding: 2px 11px;
+    border-radius: 7px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease;
+}
+/* ↓ signals "this downloads a file" without needing the word "download" in every label. */
+.button-link::after {
+    content: " ↓";
+}
+/* Fill navy on hover/focus — strong, unambiguous feedback that it's an interactive control. */
+.button-link:hover,
+.button-link:focus-visible {
+    background: var(--accent);
+    color: var(--accent-ink);
+}
+.button-link:focus-visible {
+    outline: 3px solid #88aadd;
+    outline-offset: 2px;
 }
 /* Hero: a plain-language benefit line under the muted slogan, then a row of platform
    install buttons. .tagline keeps its shared style; we only tighten its bottom gap when a
