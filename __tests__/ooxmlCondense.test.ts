@@ -199,6 +199,14 @@ describe("retain-paragraphs mode", () => {
     expect(paraTexts(out.xml)).toEqual(["AAA", "BBB"]);
   });
 
+  it("destructive: never removes the final remaining paragraph (all-blank selection)", () => {
+    // Pins the keep-at-least-one guard (a range must end with a paragraph) — the guard now uses a
+    // live count instead of re-scanning the document per blank, and this is its only direct test.
+    const xml = body(p(run("   ")), p(run(" ")), p(run("  ")));
+    const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "none" });
+    expect(readFragmentParagraphs(out.xml)).toHaveLength(1);
+  });
+
   it("losslessly condenses a blank paragraph whose mark has a foreign style, restoring it on uncondense", () => {
     // A blank paragraph carrying a non-Rostrum mark style used to be SKIPPED (the original style collides
     // with our break style in the single rStyle slot). Now we park the pristine mark rPr in a hidden

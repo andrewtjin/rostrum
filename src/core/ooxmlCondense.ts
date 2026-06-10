@@ -793,9 +793,14 @@ function mergeParagraphs(doc: any, paras: any[], opts: CondenseOptions): number 
  */
 function dropBlankParagraphs(doc: any, paras: any[], reversal: CondenseOptions["reversal"]): number {
   let count = 0;
+  // `paras` is exactly the body's direct paragraphs (see condenseFragmentOoxml), so a destructive
+  // removal shrinks that count by one, and marker-mode (vanish-stamp) never removes a node at all.
+  // Tracking the count live keeps the same guard semantics while replacing a full-document
+  // bodyScope+directParagraphs re-scan per blank — quadratic on selections with many blanks.
+  let remaining = directParagraphs(bodyScope(doc)).length;
   for (const p of paras) {
     if (!isBlankParagraph(p)) continue;
-    if (directParagraphs(bodyScope(doc)).length <= 1) break; // keep at least one paragraph
+    if (remaining <= 1) break; // keep at least one paragraph
     if (reversal === "marker") {
       // Lossless removal stamps the paragraph mark with the break style + `<w:vanish/>`, so it collapses
       // now and Uncondense (which keys on the break style) restores it. rPr allows only ONE `<w:rStyle>`,
@@ -824,6 +829,7 @@ function dropBlankParagraphs(doc: any, paras: any[], reversal: CondenseOptions["
       count++;
     } else if (p.parentNode) {
       p.parentNode.removeChild(p);
+      remaining--;
       count++;
     }
   }
