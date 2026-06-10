@@ -14,9 +14,15 @@ import { FeatureContribution, RibbonGroup } from "../types";
 // The shared ribbon runtime owns the in-flight guard + progress pop-out + result mapping; here we only
 // say how to build the Condense controller. No `init()` (it has no document manifest to read) and no
 // progress wiring (range ops are a single tiny read+write round-trip, nothing to stream).
+//
+// `quiet`: these are bounded, instant ops that emit no progress, so a transient "Working…" pop-out is
+// pure noise (it can even outlast the op). Suppress it on success — the document visibly changes — and
+// let the pop-out appear ONLY when the op errors/blocks (e.g. Track Changes), the ribbon's one channel
+// to report a failure the user must act on.
 const runner = createRibbonRunner({
   feature: "condense",
   build: async () => new CondenseController({}),
+  quiet: true,
 });
 
 const ribbon: RibbonGroup = {
