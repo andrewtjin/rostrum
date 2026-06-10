@@ -24,6 +24,7 @@ import {
   StorageLike
 } from "../core/settings";
 import { TrackChangesActiveError } from "../core/guards";
+import { createPacer, Pacer } from "../core/cancel";
 import {
   CancelledError,
   CiteRepairCapablePort,
@@ -96,6 +97,12 @@ export class RostrumController {
   private inFlight = false;
   /** Flipped by `cancel()`; the adapter polls it between read chunks. */
   private cancelFlag = false;
+  /** ONE pacer for the long pure-JS phases (pure-read assembly + classify), wired to the SAME
+   *  `cancelFlag` the Cancel button flips. It yields a macrotask between ~50ms work slices so
+   *  the pane can paint progress and the Cancel click handler can actually run mid-operation —
+   *  without it the whole pre-write window is a single frozen JS turn and Cancel is dead in the
+   *  default pure-whole-body path. Built in the constructor (after `now` resolves). */
+  private readonly pacer: Pacer;
 
   constructor(options: ControllerOptions) {
     this.features = options.features;
@@ -105,6 +112,9 @@ export class RostrumController {
     this.explicitStrategy = options.commitStrategy;
     this.log = options.logger ?? rootLogger("pane");
     this.now = options.now ?? ((): number => Date.now());
+    // The pacer reads `cancelFlag` lazily (closure), so `resetCancel()` re-arms it for free.
+    // It shares the injected clock so tests can force/starve yields deterministically.
+    this.pacer = createPacer({ cancel: { isCancelled: () => this.cancelFlag }, now: this.now });
     // Pure whole-body (⑦) is the default; a per-device opt-OUT (or a test override) can turn it off.
     this.pureWholeBody = options.pureWholeBody ?? loadPureWholeBody(this.storage ?? memoryStorage(), true);
     this.port = this.createPort();
@@ -125,6 +135,8 @@ export class RostrumController {
       outline: { numberBase: "oneBased" },
       onProgress: this.onProgress,
       cancel: { isCancelled: () => this.cancelFlag },
+      // Pure-read pacing: lets the read-assembly loop paint + observe Cancel (see `pacer`).
+      pacer: this.pacer,
       logger: rootLogger("adapter")
     });
   }
@@ -236,7 +248,8 @@ export class RostrumController {
   async hide(autoToggleTrackChanges = false): Promise<OpOutcome> {
     return this.runMutation(
       "hide",
-      () => engineHide(this.port, this.settings, { autoToggleTrackChanges }),
+      // `pacing` keeps the classify loop paintable/cancellable (same pacer the port uses).
+      () => engineHide(this.port, this.settings, { autoToggleTrackChanges, pacing: this.pacer }),
       () => {
         this.armed = true;
       }
@@ -247,7 +260,7 @@ export class RostrumController {
   async reHide(autoToggleTrackChanges = false): Promise<OpOutcome> {
     return this.runMutation(
       "reHide",
-      () => engineReHide(this.port, this.settings, { autoToggleTrackChanges }),
+      () => engineReHide(this.port, this.settings, { autoToggleTrackChanges, pacing: this.pacer }),
       () => {
         this.armed = true;
       }

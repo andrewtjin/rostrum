@@ -63,6 +63,7 @@ import {
   CiteRepairParagraph,
   planCiteRepairs
 } from "./citeRepair";
+import { CancelledError, CancelToken, createPacer, Pacer } from "./cancel";
 import { CITE_STYLE_ID } from "./styles";
 import { MANIFEST_NAMESPACE } from "./manifest";
 import { Logger, describeError, logger as rootLogger } from "./debug";
@@ -129,19 +130,12 @@ export interface CiteRepairCapablePort extends WordPort {
   repairCites(): Promise<CiteRepairResult>;
 }
 
-/** Cooperative cancellation, checked between read chunks (never mid-commit). */
-export interface CancelToken {
-  isCancelled(): boolean;
-}
-
-/** Thrown when the caller cancels during the (pre-write, always-safe) read phase. */
-export class CancelledError extends Error {
-  constructor() {
-    super("Rostrum operation cancelled before any changes were written.");
-    this.name = "CancelledError";
-    Object.setPrototypeOf(this, CancelledError.prototype);
-  }
-}
+// `CancelToken`/`CancelledError` moved to core/cancel.ts (so the host-agnostic engine can
+// pace/cancel without importing this adapter) and are re-exported here verbatim — every
+// existing import site (controller.ts, tests) keeps compiling against the SAME class
+// identity, which the controller's `instanceof CancelledError` mapping depends on.
+export { CancelledError } from "./cancel";
+export type { CancelToken, Pacer } from "./cancel";
 
 export interface OfficeWordPortOptions {
   /** Defaults to the global `Word.run`. Inject a fake in tests. */
@@ -165,8 +159,17 @@ export interface OfficeWordPortOptions {
   chunkSize?: number;
   /** Progress callback (read chunks + commit). */
   onProgress?: (info: ProgressInfo) => void;
-  /** Cancellation token, polled between read chunks. */
+  /** Cancellation token, polled between read chunks (and per paragraph in the pure read). */
   cancel?: CancelToken;
+  /**
+   * Paces the PURE whole-body read's package-assembly loop (avenue ⑦): `tick()` is awaited
+   * once per paragraph, throwing `CancelledError` on cancellation and yielding a macrotask
+   * when its budget elapses — so the task pane can paint progress and a Cancel click can
+   * actually land. The loop is otherwise synchronous JS after the one read sync, so a bare
+   * `cancel` poll could never observe a click made after that sync resolved. When absent, a
+   * never-yielding pacer over `cancel` preserves the previous semantics exactly.
+   */
+  pacer?: Pacer;
   /** Logger to use; defaults to the shared tracer's "adapter" namespace. */
   logger?: Logger;
 }
@@ -239,6 +242,8 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private readonly chunkSize: number;
   private readonly onProgress?: (info: ProgressInfo) => void;
   private readonly cancel?: CancelToken;
+  /** Ticked per paragraph in the pure read; defaults to a never-yielding wrap of `cancel`. */
+  private readonly pacer: Pacer;
   private readonly log: Logger;
 
   /** Updates buffered by `writeParagraphs`, flushed atomically by the next manifest op. */
@@ -260,6 +265,11 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     this.chunkSize = Math.max(1, options.chunkSize ?? 200);
     this.onProgress = options.onProgress;
     this.cancel = options.cancel;
+    // The pure-read loop always ticks a pacer. Without an injected one, fall back to a
+    // never-yielding (Infinity-budget) pacer over the plain cancel token — byte-for-byte the
+    // old bare `isCancelled()` poll, so cancel-only callers keep their exact semantics.
+    this.pacer =
+      options.pacer ?? createPacer({ cancel: options.cancel, budgetMs: Number.POSITIVE_INFINITY });
     this.log = options.logger ?? rootLogger("adapter");
     this.log.debug("officeWordPort created", {
       strategy: this.strategy,
@@ -383,8 +393,11 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     const out: RawParagraph[] = [];
     let outlineSample: unknown = null;
     for (let i = 0; i < total; i++) {
-      // Cancellation is honored during the (pre-write, always-safe) read; this loop is pure JS.
-      if (this.cancel?.isCancelled()) throw new CancelledError();
+      // Pre-write, always-safe window: tick the pacer — it observes cancellation AND (when a
+      // yielding pacer was injected) slices this pure-JS loop into macrotask-bounded chunks so
+      // the pane can paint progress and a Cancel click can land mid-read. Without an injected
+      // pacer this is exactly the old bare `isCancelled()` poll (never yields).
+      await this.pacer.tick();
       const headingLevel = pkg.headingLevel(i);
       const inTable = pkg.inTable(i);
       out.push({ index: i, headingLevel, inTable, ooxml: pkg.paragraphXml(i) });

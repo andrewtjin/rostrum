@@ -6,6 +6,10 @@
 // Stage 2). Keeping the contract narrow is what makes the whole engine unit
 // testable against a fake port.
 
+// Type-only: the cooperative pacing/cancellation contract (core/cancel.ts) is as
+// host-agnostic as this file — no Office.js behind it.
+import type { Pacer } from "./cancel";
+
 /**
  * Track-changes state, mirroring `Word.ChangeTrackingMode`. We gate Hide when
  * this is anything other than "Off" (decision #14) so tracked-revision noise
@@ -160,6 +164,16 @@ export interface HideOptions {
    * UI can prompt first (decision #14).
    */
   autoToggleTrackChanges?: boolean;
+  /**
+   * Paces the classify loop: `tick()` is awaited once per paragraph. It throws
+   * `CancelledError` to abort BEFORE anything is written (updates are buffered in
+   * the adapter and never flushed; the Track-Changes gate's `finally` restores the
+   * prior mode), and it yields a macrotask when its time budget elapses so a live
+   * task pane stays paintable and cancellable through this otherwise-synchronous
+   * pure-JS phase. Optional — headless/engine-direct callers (tests, benchmarks)
+   * omit it and pay zero overhead.
+   */
+  pacing?: Pacer;
 }
 
 /** Which optional capabilities the current host advertises (decision #18). */

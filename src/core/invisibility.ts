@@ -127,6 +127,13 @@ export async function hide(
     const updates: ParagraphUpdate[] = [];
     let skipped = 0;
     for (const p of paras) {
+      // Cooperative pacing/cancellation, OUTSIDE the per-paragraph try: a CancelledError must
+      // abort the whole pass — still pre-write (updates are only buffered below; the adapter
+      // never flushes them, and the TC gate's `finally` restores the prior mode) — not be
+      // miscounted as one "skipped" paragraph. The tick also yields a macrotask on budget so
+      // a live pane can paint and the Cancel click can land during this pure-JS loop. Guarded
+      // so engine-direct callers without pacing keep a straight synchronous loop (zero cost).
+      if (opts.pacing) await opts.pacing.tick();
       try {
         const plan = classifyParagraph(p, settings);
         // Carry the action so the adapter can apply a native font.hidden toggle for

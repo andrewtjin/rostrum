@@ -1,0 +1,368 @@
+// Pacing + cancellation for the long pure-JS phases (core/cancel.ts).
+//
+// The default pure whole-body Hide (avenue ⑦) runs ONE host read sync, then a long stretch
+// of synchronous JS — package assembly + per-paragraph classify — before the commit sync.
+// On the live single-threaded runtime that stretch froze the pane: progress could not paint
+// and a Cancel click queued unprocessed, so the old bare `isCancelled()` poll could never
+// observe a click made after the read sync resolved. The `Pacer` folds the cancel poll into
+// a per-iteration `tick()` that also yields a macrotask on a time budget.
+//
+// These tests pin four things: (1) the pacer's own contract (budget metering, cancel
+// observed before AND after a yield); (2) BYTE-IDENTITY — a paced hide writes exactly the
+// bytes an unpaced hide writes (pacing may change scheduling, never output), on synthetic
+// fixtures AND a real .docx; (3) a cancel landing in the yield window aborts PRE-WRITE:
+// document byte-unchanged, nothing flushed, manifest never armed, Track Changes restored;
+// (4) end-to-end through the RostrumController, a Cancel "click" queued AFTER Hide started
+// actually lands mid-operation — the exact user story that was dead before pacing.
+
+import { CancelledError, createPacer } from "../src/core/cancel";
+import {
+  CancelledError as ReExportedCancelledError,
+  createOfficeWordPort
+} from "../src/core/officeWordPort";
+import { hide } from "../src/core/invisibility";
+import { RostrumController } from "../src/taskpane/controller";
+import { FeatureSupport } from "../src/core/types";
+import { FakeDoc, mkDoc, para, run, harness, settings } from "./fakeWord";
+import { discoverSamples, paragraphsFromDocumentXml, readDocxParts } from "./realDocs";
+
+// ---------------------------------------------------------------------------
+// The pacer contract itself (no engine involved).
+// ---------------------------------------------------------------------------
+describe("createPacer", () => {
+  it("re-exports the SAME CancelledError class from the adapter (instanceof must keep working)", () => {
+    // The controller maps `e instanceof CancelledError` → the "cancelled" outcome; if the
+    // adapter's re-export ever became a copy instead of the same class, that check would
+    // silently break. Identity, not just shape.
+    expect(ReExportedCancelledError).toBe(CancelledError);
+  });
+
+  it("yields once per elapsed budget and re-arms the window (fake clock)", async () => {
+    let t = 0;
+    let yields = 0;
+    const pacer = createPacer({ budgetMs: 50, now: () => t, yieldFn: async () => void yields++ });
+    await pacer.tick(); // 0ms elapsed → stays synchronous
+    t = 49;
+    await pacer.tick(); // still inside the budget
+    expect(yields).toBe(0);
+    t = 50;
+    await pacer.tick(); // budget elapsed → one yield, window re-arms at t=50
+    expect(yields).toBe(1);
+    t = 99;
+    await pacer.tick(); // re-armed window not yet elapsed
+    expect(yields).toBe(1);
+    t = 100;
+    await pacer.tick();
+    expect(yields).toBe(2);
+  });
+
+  it("budget 0 yields on every tick; budget Infinity never yields", async () => {
+    let always = 0;
+    const eager = createPacer({ budgetMs: 0, yieldFn: async () => void always++ });
+    await eager.tick();
+    await eager.tick();
+    expect(always).toBe(2);
+
+    let never = 0;
+    const lazy = createPacer({ budgetMs: Number.POSITIVE_INFINITY, yieldFn: async () => void never++ });
+    await lazy.tick();
+    await lazy.tick();
+    expect(never).toBe(0);
+  });
+
+  it("throws CancelledError when already cancelled — without burning another yield", async () => {
+    let yields = 0;
+    const pacer = createPacer({
+      cancel: { isCancelled: () => true },
+      budgetMs: 0,
+      yieldFn: async () => void yields++
+    });
+    await expect(pacer.tick()).rejects.toBeInstanceOf(CancelledError);
+    expect(yields).toBe(0); // cancel is checked BEFORE the yield
+  });
+
+  it("observes a cancel that lands DURING the yield — the Cancel-click window", async () => {
+    // This is the load-bearing re-check: the click handler runs inside the yielded
+    // macrotask, so the pacer must look again AFTER the yield resolves.
+    let cancelled = false;
+    const pacer = createPacer({
+      cancel: { isCancelled: () => cancelled },
+      budgetMs: 0,
+      yieldFn: async () => {
+        cancelled = true; // the "click"
+      }
+    });
+    await expect(pacer.tick()).rejects.toBeInstanceOf(CancelledError);
+  });
+
+  it("Infinity-budget pacer still observes a pre-cancelled token (the adapter's bare-poll fallback)", async () => {
+    // The adapter wraps a plain `cancel` option in a never-yielding pacer; the old bare
+    // `isCancelled()` poll semantics must survive that wrap exactly.
+    const pacer = createPacer({
+      cancel: { isCancelled: () => true },
+      budgetMs: Number.POSITIVE_INFINITY
+    });
+    await expect(pacer.tick()).rejects.toBeInstanceOf(CancelledError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Through the full adapter + engine (pure whole-body, the DEFAULT Hide path).
+// ---------------------------------------------------------------------------
+
+const lvl0 = `<w:pPr><w:outlineLvl w:val="0"/></w:pPr>`; // package-resolvable Heading 1
+
+/** A representative mix: kept heading, hidden card, kept cite, partial highlight. Built
+ *  fresh per call so paced/unpaced runs mutate independent (but identical) documents. */
+const makeDoc = (tc: Parameters<typeof mkDoc>[1] = "Off"): FakeDoc =>
+  mkDoc(
+    [
+      para(run("Heading"), { pPr: lvl0 }),
+      para(run("a long card body")),
+      para(run("Author 2019", { cite: true })),
+      para(run("intro ") + run("warrant", { highlight: "yellow" }))
+    ],
+    tc
+  );
+
+describe("paced hide through the pure whole-body path", () => {
+  it("writes BYTE-IDENTICAL output to an unpaced hide — pacing changes scheduling, never bytes", async () => {
+    const docA = makeDoc();
+    const docB = makeDoc();
+    const hA = harness(docA);
+    const hB = harness(docB);
+    const portA = createOfficeWordPort({
+      runner: hA.runner,
+      pureWholeBody: true,
+      logger: hA.tracer.logger("adapter")
+    });
+    // Budget 0 = a yield on EVERY tick — the maximally-perturbed schedule; output must not care.
+    let yields = 0;
+    const pacer = createPacer({ budgetMs: 0, yieldFn: async () => void yields++ });
+    const portB = createOfficeWordPort({
+      runner: hB.runner,
+      pureWholeBody: true,
+      pacer,
+      logger: hB.tracer.logger("adapter")
+    });
+
+    const resA = await hide(portA, settings(["yellow"]));
+    const resB = await hide(portB, settings(["yellow"]), { pacing: pacer });
+
+    expect(docB.paragraphs.map((p) => p.xml)).toEqual(docA.paragraphs.map((p) => p.xml));
+    expect(docB.manifest?.xml).toBe(docA.manifest?.xml);
+    expect(resB).toEqual(resA);
+    // Call-count guard (parseCount-style): the pure read ticks once per package paragraph and
+    // the classify loop once per read paragraph — exactly 2N with budget 0. If a loop stops
+    // ticking (pane freezes again) or starts double-ticking, this fails loudly.
+    expect(yields).toBe(2 * docA.paragraphs.length);
+  });
+
+  it("a cancel landing mid-CLASSIFY aborts pre-write: doc untouched, nothing flushed, TC restored", async () => {
+    // TC starts ON + autoToggle, so the gate toggles Off then MUST restore on the throw.
+    const doc = makeDoc("TrackAll");
+    const before = doc.paragraphs.map((p) => p.xml);
+    const h = harness(doc);
+    // The port gets NO pacer (read runs straight through); only the classify loop is paced,
+    // and the first yield flips the flag — pinning cancellation INSIDE the classify phase.
+    const port = createOfficeWordPort({
+      runner: h.runner,
+      pureWholeBody: true,
+      logger: h.tracer.logger("adapter")
+    });
+    let cancelled = false;
+    const pacing = createPacer({
+      cancel: { isCancelled: () => cancelled },
+      budgetMs: 0,
+      yieldFn: async () => {
+        cancelled = true; // the "click" during the classify loop's first yield
+      }
+    });
+
+    await expect(
+      hide(port, settings(["yellow"]), { autoToggleTrackChanges: true, pacing })
+    ).rejects.toBeInstanceOf(CancelledError);
+
+    expect(doc.paragraphs.map((p) => p.xml)).toEqual(before); // byte-unchanged
+    expect(doc.manifest).toBeNull(); // never armed
+    // The buffered updates were never flushed: no document/manifest write of any kind hit
+    // the host. (tc.set entries are expected — the gate toggled Off and restored.)
+    const writeOps = h.ctx.commitLog.filter((c) => /insertOoxml|setXml|add|font\.hidden/.test(c.op));
+    expect(writeOps).toEqual([]);
+    expect(doc.tcMode).toBe("TrackAll"); // the gate's finally restored the prior mode
+  });
+
+  it("a cancel landing mid-READ (the port's pacer) aborts the pure read the same way", async () => {
+    const doc = makeDoc();
+    const before = doc.paragraphs.map((p) => p.xml);
+    const h = harness(doc);
+    let cancelled = false;
+    const pacer = createPacer({
+      cancel: { isCancelled: () => cancelled },
+      budgetMs: 0,
+      yieldFn: async () => {
+        cancelled = true;
+      }
+    });
+    const port = createOfficeWordPort({
+      runner: h.runner,
+      pureWholeBody: true,
+      pacer,
+      logger: h.tracer.logger("adapter")
+    });
+    await expect(port.readParagraphs()).rejects.toBeInstanceOf(CancelledError);
+    expect(doc.paragraphs.map((p) => p.xml)).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end: the pane's Cancel button through the RostrumController.
+// ---------------------------------------------------------------------------
+describe("controller Cancel lands mid-Hide (end-to-end)", () => {
+  const FULL: FeatureSupport = {
+    canHide: true,
+    canCustomXml: true,
+    canChangeTracking: true,
+    canStyleBorders: true,
+    canStyleFormat: true,
+    canGetStyles: true
+  };
+  const memStorage = () => {
+    const m = new Map<string, string>();
+    return {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v)
+    };
+  };
+
+  it("a cancel() queued AFTER hide() started produces the 'cancelled' outcome, doc untouched", async () => {
+    const doc = makeDoc();
+    const before = doc.paragraphs.map((p) => p.xml);
+    const h = harness(doc);
+    // The injected clock advances 100ms per reading, so EVERY pacer tick sees an elapsed
+    // budget and yields a real macrotask — the deterministic stand-in for a doc large
+    // enough to overrun the 50ms budget.
+    let t = 0;
+    const ctrl = new RostrumController({
+      features: FULL,
+      runner: h.runner,
+      storage: memStorage(),
+      logger: h.tracer.logger("pane"),
+      now: () => (t += 100)
+    });
+    await ctrl.init();
+
+    const op = ctrl.hide(); // pure whole-body default — do NOT await yet
+    // Queue the Cancel "click" as a macrotask registered AFTER hide() started, BEFORE its
+    // first paced yield resumes (same-delay timers fire FIFO). Pre-pacing, the whole op ran
+    // to completion in one JS turn — this timer would have fired too late and the outcome
+    // would be "ok", so this test genuinely fails without the fix.
+    await new Promise<void>((resolve) =>
+      setTimeout(() => {
+        ctrl.cancel();
+        resolve();
+      }, 0)
+    );
+
+    expect(await op).toEqual({ status: "cancelled" });
+    expect(doc.paragraphs.map((p) => p.xml)).toEqual(before); // nothing written
+    expect(doc.manifest).toBeNull(); // never armed
+    expect(ctrl.status().armed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real-document byte-identity + honest overhead numbers (skipped when samples/ absent, e.g. CI).
+// ---------------------------------------------------------------------------
+describe("paced vs unpaced hide on a real document", () => {
+  const KEEP_COLORS = ["cyan", "yellow", "green", "lightGray", "magenta", "red"];
+  const lightSamples = discoverSamples().filter((s) => s.tier === "small" || s.tier === "medium");
+
+  /** Hide the same real doc twice — unpaced and paced — and assert byte-identity. Returns
+   *  timings + yield count so the perf-gated case can report honest overhead numbers. */
+  async function pacedVsUnpaced(
+    fullPath: string,
+    pacerBudgetMs: number,
+    makeYieldFn: (bump: () => void) => () => Promise<void>
+  ): Promise<{ paras: number; unpacedMs: number; pacedMs: number; yields: number }> {
+      const { documentXml, stylesXml } = await readDocxParts(fullPath);
+      const base = paragraphsFromDocumentXml(documentXml, stylesXml);
+      // Two independent copies of the same real paragraphs (hide mutates xml in place).
+      const docA = mkDoc(base.map((p) => ({ ...p })));
+      const docB = mkDoc(base.map((p) => ({ ...p })));
+      const hA = harness(docA);
+      const hB = harness(docB);
+      const portA = createOfficeWordPort({
+        runner: hA.runner,
+        pureWholeBody: true,
+        logger: hA.tracer.logger("adapter")
+      });
+      let yields = 0;
+      const pacer = createPacer({ budgetMs: pacerBudgetMs, yieldFn: makeYieldFn(() => yields++) });
+      const portB = createOfficeWordPort({
+        runner: hB.runner,
+        pureWholeBody: true,
+        pacer,
+        logger: hB.tracer.logger("adapter")
+      });
+
+      // PACED runs FIRST, deliberately. In-process timings are heap-state-dominated: whichever
+      // hide runs second inherits the first's ballooned heap. Measured both orders (2026-06):
+      // unpaced-first → 10.4s unpaced / 12.2s paced (a fake "+17%"); paced-first → 5.8s paced /
+      // 5.8s unpaced (a tie — and BOTH faster, because the paced run's yields let V8 GC
+      // incrementally instead of monopolizing the thread). So this order biases AGAINST the
+      // pacer the least and the numbers below honestly show overhead within noise.
+      const t1 = Date.now();
+      const resB = await hide(portB, settings(KEEP_COLORS), { pacing: pacer });
+      const pacedMs = Date.now() - t1;
+      const t0 = Date.now();
+      const resA = await hide(portA, settings(KEEP_COLORS));
+      const unpacedMs = Date.now() - t0;
+
+      // Byte-identity on REAL OOXML — the core guarantee that pacing can't corrupt output.
+      expect(docB.paragraphs.map((p) => p.xml).join(" ")).toBe(
+        docA.paragraphs.map((p) => p.xml).join(" ")
+      );
+      expect(resB).toEqual(resA);
+      expect(yields).toBeGreaterThan(0); // the loops really sliced
+      return { paras: base.length, unpacedMs, pacedMs, yields };
+  }
+
+  // Always-run correctness: the SMALLEST sample (fast), with budget 0 — a yield between
+  // EVERY paragraph is the maximally-perturbed schedule, the strongest identity probe.
+  const smallest = lightSamples[0];
+  (smallest ? it : it.skip)(
+    "byte-identical under a yield-every-tick schedule (smallest sample)",
+    async () => {
+      await pacedVsUnpaced(smallest!.fullPath, 0, (bump) => async () => bump());
+    },
+    300000
+  );
+
+  // Perf measurement: the LARGEST non-heavy sample with the PRODUCTION pacer settings (50ms
+  // budget, real timer yields). Gated like realDocs' heavy tiers — in-process jest timings
+  // swing seconds run-to-run (GC/JIT), so this is for deliberate measurement, not the gate.
+  const largest = lightSamples[lightSamples.length - 1];
+  (largest && process.env.ROSTRUM_PERF === "1" ? it : it.skip)(
+    "overhead with PRODUCTION pacer settings (50ms budget, real timer yields) — ROSTRUM_PERF=1",
+    async () => {
+      const r = await pacedVsUnpaced(
+        largest!.fullPath,
+        50,
+        (bump) => () =>
+          new Promise<void>((resolve) =>
+            setTimeout(() => {
+              bump();
+              resolve();
+            }, 0)
+          )
+      );
+      // eslint-disable-next-line no-console
+      console.log(
+        `[pacing ${largest!.tier}] ${largest!.file}: ${r.paras} paras | ` +
+          `unpaced ${r.unpacedMs}ms | paced(50ms budget) ${r.pacedMs}ms | ${r.yields} yields`
+      );
+    },
+    300000
+  );
+});
