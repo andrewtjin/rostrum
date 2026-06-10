@@ -251,7 +251,10 @@ export function singleParagraphDocumentXml(
 // runner below with a distinct (shard, of), splitting the smallest-first sample list
 // round-robin so the wall becomes the LARGEST doc instead of the SUM of all of them.
 // All logic lives here so the shard files can't drift apart; realDocs.test.ts guards
-// the family's (shard, of) wiring.
+// the family's (shard, of) wiring. NOTE: the per-sample `[realdoc] … in Xms` lines are
+// CONTENTION-AFFECTED under this sharded layout — four workers compete for cores during
+// a full `npm test`, inflating wall times ~40-50% vs the same doc alone — so regression
+// comparisons should use an isolated run (e.g. `npx jest realDocsShard4 -t ExFlex`).
 // ---------------------------------------------------------------------------
 
 /** Highlight colors a debater keeps — mirrors the add-in's default keep set. */

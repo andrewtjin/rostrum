@@ -14,6 +14,7 @@
     "dev-server": "webpack serve --mode development",
     "watch": "webpack --mode development --watch",
     "test": "jest",
+    "test:fast": "jest --testPathIgnorePatterns realDocs",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "typecheck": "tsc --noEmit",

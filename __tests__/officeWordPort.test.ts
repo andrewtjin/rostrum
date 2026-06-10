@@ -545,6 +545,13 @@ describe("repairCites", () => {
     const h = harness(doc);
     const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
 
+    // Apply-loop reuse guard — the REPAIR-path complement of the lazy-wrap test below: the
+    // planner wraps the ONE candidate (the cite paragraph; the tag's headingLevel is read
+    // eagerly but its fragment never), and the apply loop must REUSE that cached fragment.
+    // The fake host's body.insertOoxml splits the committed body via paragraphXml on its OWN
+    // package, so calls are filtered by receiver below: the first call is necessarily the
+    // adapter's package (the fake's package only exists once the commit lands).
+    const spy = jest.spyOn(WholeBodyPackage.prototype, "paragraphXml");
     const res = await port.repairCites();
     expect(res).toEqual({ paragraphsRepaired: 1, runsRepaired: 1 });
     // The whole body was committed in exactly one insertOoxml (no per-paragraph loop).
@@ -552,6 +559,11 @@ describe("repairCites", () => {
     // The cite paragraph now carries the cite character style; the tag is unchanged.
     expect(doc.paragraphs[1].xml).toContain(`<w:rStyle w:val="Style13ptBold"/>`);
     expect(doc.paragraphs[0].xml).not.toContain(`<w:rStyle w:val="Style13ptBold"/>`);
+    // Exactly one wrap on the adapter's package — the planner's probe; the apply loop's read
+    // is a cache hit. Re-wrapping per repaired paragraph at apply would make this 2 and fail.
+    const adapterPkg = spy.mock.contexts[0];
+    expect(spy.mock.contexts.filter((c) => c === adapterPkg)).toHaveLength(1);
+    spy.mockRestore();
   });
 
   it("is a no-op (zeros, no commit) when there is nothing to repair", async () => {

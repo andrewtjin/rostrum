@@ -12,8 +12,9 @@
 // bytes an unpaced hide writes (pacing may change scheduling, never output), on synthetic
 // fixtures AND a real .docx; (3) a cancel landing in the yield window aborts PRE-WRITE:
 // document byte-unchanged, nothing flushed, manifest never armed, Track Changes restored;
-// (4) end-to-end through the RostrumController, a Cancel "click" queued AFTER Hide started
-// actually lands mid-operation — the exact user story that was dead before pacing.
+// (4) end-to-end through the RostrumController, a Cancel "click" queued AFTER Hide (or
+// Re-hide — both wire the controller's one pacer) started actually lands mid-operation —
+// the exact user story that was dead before pacing.
 
 import { CancelledError, createPacer } from "../src/core/cancel";
 import {
@@ -21,6 +22,7 @@ import {
   createOfficeWordPort
 } from "../src/core/officeWordPort";
 import { hide } from "../src/core/invisibility";
+import * as invisibility from "../src/core/invisibility";
 import { RostrumController } from "../src/taskpane/controller";
 import { FeatureSupport } from "../src/core/types";
 import { FakeDoc, mkDoc, para, run, harness, settings } from "./fakeWord";
@@ -218,7 +220,7 @@ describe("paced hide through the pure whole-body path", () => {
 // ---------------------------------------------------------------------------
 // End-to-end: the pane's Cancel button through the RostrumController.
 // ---------------------------------------------------------------------------
-describe("controller Cancel lands mid-Hide (end-to-end)", () => {
+describe("controller Cancel lands mid-Hide / mid-Re-hide (end-to-end)", () => {
   const FULL: FeatureSupport = {
     canHide: true,
     canCustomXml: true,
@@ -268,6 +270,72 @@ describe("controller Cancel lands mid-Hide (end-to-end)", () => {
     expect(doc.paragraphs.map((p) => p.xml)).toEqual(before); // nothing written
     expect(doc.manifest).toBeNull(); // never armed
     expect(ctrl.status().armed).toBe(false);
+  });
+
+  it("a cancel() during reHide() lands the same way — the armed doc and manifest stay put", async () => {
+    // Mirrors the hide() case for the OTHER paced mutation. What "nothing written" must
+    // mean HERE is different: reHide re-derives over an ARMED doc, so a cancelled pass has
+    // to leave the armed state — hidden bytes, manifest, armed flag — exactly as the first
+    // Hide committed it. (This proves the cancel user story; the engine-side `pacing`
+    // option gets its own dedicated pin in the next test, because the port's read-pacer
+    // alone — the SAME shared pacer — can land this cancel even if reHide dropped it.)
+    const doc = makeDoc();
+    const h = harness(doc);
+    let t = 0;
+    const ctrl = new RostrumController({
+      features: FULL,
+      runner: h.runner,
+      storage: memStorage(),
+      logger: h.tracer.logger("pane"),
+      now: () => (t += 100)
+    });
+    await ctrl.init();
+    // Arm via a real prior Hide — reHide's user story is re-derivation over an ARMED doc
+    // (catching newly typed text). Running it to completion also proves resetCancel()
+    // re-arms the one SHARED pacer between operations.
+    expect((await ctrl.hide()).status).toBe("ok");
+    const armedParas = doc.paragraphs.map((p) => p.xml);
+    const armedManifest = doc.manifest?.xml;
+
+    const op = ctrl.reHide(); // do NOT await yet
+    // Same FIFO-timer trick as the hide case above: the Cancel "click" macrotask is
+    // registered after reHide() started, so it fires before the first paced yield resumes.
+    await new Promise<void>((resolve) =>
+      setTimeout(() => {
+        ctrl.cancel();
+        resolve();
+      }, 0)
+    );
+
+    expect(await op).toEqual({ status: "cancelled" });
+    // The cancelled re-derivation flushed NOTHING: document bytes and manifest are still
+    // exactly the armed state the first Hide committed, and the controller stays armed.
+    expect(doc.paragraphs.map((p) => p.xml)).toEqual(armedParas);
+    expect(doc.manifest?.xml).toBe(armedManifest);
+    expect(ctrl.status().armed).toBe(true);
+  });
+
+  it("reHide() hands the controller's pacer to the engine (the classify-loop wiring)", async () => {
+    // The e2e above cannot catch reHide dropping `pacing: this.pacer` — the port's
+    // read-pacer is the same shared pacer and lands the cancel on its own. But WITHOUT
+    // the engine option the classify loop reverts to one unpaced synchronous stretch
+    // (paint + Cancel dead mid-classify on a large doc), so the wiring itself is pinned:
+    // the engine must receive a tickable pacing option. (spyOn calls through, so the op
+    // still runs for real.)
+    const spy = jest.spyOn(invisibility, "reHide");
+    const doc = makeDoc();
+    const h = harness(doc);
+    const ctrl = new RostrumController({
+      features: FULL,
+      runner: h.runner,
+      storage: memStorage(),
+      logger: h.tracer.logger("pane")
+    });
+    await ctrl.init();
+    expect((await ctrl.reHide()).status).toBe("ok");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(typeof spy.mock.calls[0][2]?.pacing?.tick).toBe("function");
+    spy.mockRestore();
   });
 });
 
