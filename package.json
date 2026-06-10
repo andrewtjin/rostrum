@@ -17,7 +17,10 @@
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
     "gen:manifest": "tsx tools/gen-manifest.ts",
-    "gen:manifest:prod": "tsx tools/gen-manifest.ts --out=dist/manifest.xml"
+    "gen:manifest:prod": "tsx tools/gen-manifest.ts --out=dist/manifest.xml",
+    "gen:icons": "node scripts/gen-icons.mjs",
+    "audit:parts": "node scripts/auditDocxParts.mjs",
+    "audit:separators": "node scripts/auditSeparators.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.6",
@@ -26,6 +29,7 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
+    "@types/node": "^25.9.1",
     "@types/office-js": "^1.0.377",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
