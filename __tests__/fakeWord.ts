@@ -77,13 +77,13 @@ export function buildPackage(paras: FakePara[]): string {
 // Fake RequestContext
 // ---------------------------------------------------------------------------
 
-export interface CommitEntry {
+interface CommitEntry {
   sync: number;
   op: string;
   index?: number;
 }
 
-export class FakeContext {
+class FakeContext {
   private queue: Array<() => void> = [];
   syncNo = 0;
   readonly commitLog: CommitEntry[] = [];

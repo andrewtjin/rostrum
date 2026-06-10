@@ -37,7 +37,7 @@ import { FakePara } from "./fakeWord";
  *  real-doc test suites share ONE source of the literal (no per-file re-declaration to drift). */
 export const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 /** Flat-OPC package namespace, as Word's `Range.getOoxml()` emits it. */
-export const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
+const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
 /** DOM Node.ELEMENT_NODE — named for the same reason ooxmlPackage.ts/ooxmlCondense.ts name it (no bare `1`). */
 const ELEMENT_NODE = 1;
 
@@ -163,7 +163,7 @@ export function paragraphsFromDocumentXml(documentXml: string, stylesXml: string
  * `^\s*` would absorb a BOM only when one PRECEDES `<?xml`, so a part that has a BOM but no prolog needs
  * the dedicated strip. (JS `\s` does include U+FEFF, but only the prolog branch relies on that.)
  */
-export function stripProlog(xml: string): string {
+function stripProlog(xml: string): string {
   return xml.replace(/^﻿/, "").replace(/^\s*<\?xml[^>]*\?>\s*/, "");
 }
 

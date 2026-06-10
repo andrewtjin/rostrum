@@ -26,11 +26,6 @@ import { ParsedParagraph, makeAllVisible } from "./ooxml";
 import { withTrackChangesGate } from "./guards";
 import { MANIFEST_SCHEMA_VERSION, clearManifestPart, saveManifest } from "./manifest";
 
-// The canonical `ParagraphAction` now lives in types.ts (so `ParagraphUpdate` can
-// reference it for the adapter's native-vs-OOXML dispatch). Re-exported here so the
-// existing import path (`from "./invisibility"`) keeps working for callers/tests.
-export type { ParagraphAction };
-
 export interface ParagraphPlan {
   index: number;
   action: ParagraphAction;

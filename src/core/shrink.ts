@@ -20,7 +20,7 @@ import {
 } from "./ooxmlCondense";
 
 /** The default Normal size (half-points) when a fragment carries no styles part: 11pt (modern Word). */
-export const DEFAULT_NORMAL_HALF_PTS = 22;
+const DEFAULT_NORMAL_HALF_PTS = 22;
 /** Half-points for a 6pt paragraph mark (Verbatim's "Shrink ¶"). */
 const SIX_PT_HALF = 12;
 
@@ -44,7 +44,7 @@ export function keepFullSize(run: FragmentRunView): boolean {
 }
 
 /** The effective current size of a run in half-points: its explicit `<w:sz>`, else the Normal size. */
-export function effectiveRunSizeHalfPts(run: FragmentRunView, normalHalfPts: number): number {
+function effectiveRunSizeHalfPts(run: FragmentRunView, normalHalfPts: number): number {
   return run.sizeHalfPts ?? normalHalfPts;
 }
 

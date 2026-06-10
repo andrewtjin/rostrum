@@ -28,7 +28,7 @@ export function emitProgress(p: ProgressInfo): void {
 }
 
 /** Normalize a controller's OpOutcome into the suite-wide CommandResult. */
-export function toResult(out: OpOutcome): CommandResult {
+function toResult(out: OpOutcome): CommandResult {
   switch (out.status) {
     case "ok":
       return { status: "ok", message: out.message };

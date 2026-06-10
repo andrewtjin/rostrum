@@ -97,7 +97,7 @@ export function ptToHalfPoints(pt: number): number {
 }
 
 /** Pocket box appearance — single thin border on all four sides. */
-export const POCKET_BORDER = {
+const POCKET_BORDER = {
   /** OOXML border style token. */
   val: "single",
   /** Eighths of a point: 4 = 0.5pt. */
