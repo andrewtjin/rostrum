@@ -6,7 +6,8 @@
 #   • index.html (the landing/sideload page, copied from site/ by webpack)
 #   • manifest.xml (PROD manifest, written AFTER the build by gen:manifest:prod)
 #
-# The deploy is GATED on green tests + a clean typecheck, so a broken bundle can't reach users.
+# The deploy is GATED on green tests + the core-engine coverage thresholds (jest.config.js)
+# + a clean typecheck, so a broken or under-tested bundle can't reach users.
 #
 # ONE-TIME manual setup (cannot be scripted): repo Settings ▸ Pages ▸ Source = "GitHub Actions".
 # Confirm the published URL is exactly https://andrewtjin.github.io/rostrum/ — if the repo name
@@ -39,7 +40,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm test
+      # Coverage (not plain `npm test`) so jest.config.js's coverageThreshold actually
+      # executes — deploys block on core-engine coverage regressions, not just red tests.
+      - run: npm run test:coverage
       - run: npm run typecheck
       - run: npm run build
       # Prod manifest is written AFTER build (build's `clean` wipes dist first); --origin must

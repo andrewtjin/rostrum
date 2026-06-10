@@ -15,6 +15,7 @@
     "watch": "webpack --mode development --watch",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "typecheck": "tsc --noEmit",
     "gen:manifest": "tsx tools/gen-manifest.ts",
     "gen:manifest:prod": "tsx tools/gen-manifest.ts --out=dist/manifest.xml",
