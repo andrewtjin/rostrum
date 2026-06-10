@@ -165,15 +165,21 @@
             </div>
             <!-- CSS-only lightbox overlays. position:fixed when :target, so their
                  placement in the DOM doesn't affect flow. The full-bleed bg link
-                 and the ✕ both return to #cleaner to dismiss. -->
+                 and the ✕ both return to #cleaner to dismiss. loading="lazy" here
+                 is load-bearing: display:none hides the lightbox but does NOT
+                 stop an <img> fetch, so without it both full-size PNGs download
+                 eagerly at parse time and (because browsers dedupe same-URL
+                 images) defeat the thumbnails' lazy attribute above. The zoom
+                 still renders instantly — the same-URL thumbnails populate the
+                 cache before any click can happen. -->
             <div id="zoom-rostrum" class="lightbox" role="dialog" aria-label="Rostrum hidden page, full size">
                 <a href="#cleaner" class="lightbox-bg" aria-label="Close"></a>
-                <img src="./assets/hidden-rostrum.png" alt="Rostrum hidden page at full size" />
+                <img src="./assets/hidden-rostrum.png" alt="Rostrum hidden page at full size" loading="lazy" />
                 <a href="#cleaner" class="lightbox-close" aria-label="Close">✕</a>
             </div>
             <div id="zoom-verbatim" class="lightbox" role="dialog" aria-label="Verbatim hidden page, full size">
                 <a href="#cleaner" class="lightbox-bg" aria-label="Close"></a>
-                <img src="./assets/hidden-verbatim.png" alt="Verbatim hidden page at full size" />
+                <img src="./assets/hidden-verbatim.png" alt="Verbatim hidden page at full size" loading="lazy" />
                 <a href="#cleaner" class="lightbox-close" aria-label="Close">✕</a>
             </div>
 
