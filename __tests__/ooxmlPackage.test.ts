@@ -8,7 +8,8 @@ import {
 import { readRuns } from "../src/core/ooxml";
 // The real xmldom Node constructor — its prototype carries cloneNode for every node subclass,
 // so spying there counts EVERY deep clone the engine makes (the zero-clone perf guard below).
-import { Node as XmldomNode } from "@xmldom/xmldom";
+// XMLSerializer is spied the same way for the headingLevel zero-serialize guard.
+import { Node as XmldomNode, XMLSerializer as XmldomXMLSerializer } from "@xmldom/xmldom";
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
@@ -438,5 +439,111 @@ describe("WholeBodyPackage", () => {
     const wb = new WholeBodyPackage(pkg([p("only")]));
     expect(() => wb.paragraphXml(5)).toThrow(RangeError);
     expect(() => wb.replace(5, p("x"))).toThrow(RangeError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("WholeBodyPackage.headingLevel (node-direct outline resolution)", () => {
+  // headingLevel reads the paragraph's own direct-child <w:pPr> instead of serializing
+  // the whole <w:p> subtree for outlineNumberOf's regexes — the dominant per-paragraph
+  // cost of the pure whole-body read (and repairCites re-pays it for every paragraph).
+  // Beyond the perf invariant, direct-child scoping is semantically TIGHTER: the old
+  // regex could falsely match an outlineLvl/pStyle from a nested textbox paragraph or a
+  // <w:pPrChange> revision. Both delta directions are pinned below.
+
+  /** A whole-body package with a real styles part (Heading1/4 + the Analytics cascade). */
+  function styledDoc(bodyParas: string[]): string {
+    return (
+      `<pkg:package xmlns:pkg="${PKG_NS}">` +
+      `<pkg:part pkg:name="/word/styles.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"><pkg:xmlData>` +
+      `<w:styles xmlns:w="${W_NS}">` +
+      `<w:style w:type="paragraph" w:styleId="Heading1"><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style>` +
+      `<w:style w:type="paragraph" w:styleId="Heading4"><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="3"/></w:pPr></w:style>` +
+      `<w:style w:type="paragraph" w:styleId="Analytics"><w:basedOn w:val="Heading4"/></w:style>` +
+      `<w:style w:type="paragraph" w:styleId="Normal"></w:style>` +
+      `</w:styles></pkg:xmlData></pkg:part>` +
+      `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
+      `<w:document xmlns:w="${W_NS}"><w:body>${bodyParas.join("")}<w:sectPr/></w:body></w:document>` +
+      `</pkg:xmlData></pkg:part></pkg:package>`
+    );
+  }
+
+  it("resolves inline outlineLvl, the style cascade, the name fallback, and body", () => {
+    const wb = new WholeBodyPackage(
+      styledDoc([
+        // Inline <w:outlineLvl> beats the (body) paragraph style.
+        `<w:p><w:pPr><w:pStyle w:val="Normal"/><w:outlineLvl w:val="2"/></w:pPr><w:r><w:t>inline wins</w:t></w:r></w:p>`,
+        // The structural basedOn cascade: Analytics → Heading4 → level 3 (the kept navy tag).
+        `<w:p><w:pPr><w:pStyle w:val="Analytics"/></w:pPr><w:r><w:t>cascade</w:t></w:r></w:p>`,
+        // Heading2 is NOT in styles.xml — the heading-name last resort (C-1) must still apply.
+        `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>name fallback</w:t></w:r></w:p>`,
+        `<w:p><w:r><w:t>plain body</w:t></w:r></w:p>`
+      ])
+    );
+    expect(wb.headingLevel(0)).toBe(2);
+    expect(wb.headingLevel(1)).toBe(3);
+    expect(wb.headingLevel(2)).toBe(1);
+    expect(wb.headingLevel(3)).toBeNull();
+  });
+
+  it("clamps an out-of-range inline level (>= 9) to body, like the live Paragraph.outlineLevel", () => {
+    const wb = new WholeBodyPackage(
+      styledDoc([`<w:p><w:pPr><w:outlineLvl w:val="9"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>`])
+    );
+    expect(wb.headingLevel(0)).toBeNull();
+  });
+
+  it("ignores a Heading1 nested inside a textbox when the OUTER paragraph is body (regex-leak fix)", () => {
+    // The old serialize+regex form scanned the WHOLE subtree, so the nested textbox
+    // paragraph's <w:pStyle w:val="Heading1"/> leaked onto the outer body paragraph and
+    // wrongly KEPT it. The live Paragraph.outlineLevel reports the outer paragraph as body.
+    const textboxed =
+      `<w:p><w:r><w:t>outer body</w:t></w:r>` +
+      `<w:r><w:txbxContent><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>boxed tag</w:t></w:r></w:p></w:txbxContent></w:r></w:p>`;
+    const wb = new WholeBodyPackage(styledDoc([textboxed]));
+    expect(wb.count).toBe(1); // the textbox <w:p> is not a story paragraph…
+    expect(wb.headingLevel(0)).toBeNull(); // …and its style must not leak onto the outer one
+  });
+
+  it("ignores an old outlineLvl inside a <w:pPrChange> revision (regex-leak fix)", () => {
+    // A tracked formatting change records the PREVIOUS pPr inside <w:pPrChange>. The
+    // paragraph's CURRENT properties declare no level, so it is body — the old regex
+    // matched the revision's stale <w:outlineLvl> and wrongly reported a heading.
+    const revised =
+      `<w:p><w:pPr>` +
+      `<w:pPrChange w:id="1" w:author="a" w:date="2026-01-01T00:00:00Z"><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:pPrChange>` +
+      `</w:pPr><w:r><w:t>demoted to body</w:t></w:r></w:p>`;
+    const wb = new WholeBodyPackage(styledDoc([revised]));
+    expect(wb.headingLevel(0)).toBeNull();
+  });
+
+  it("tolerates a malformed inline w:val (falls through to the style, like the string form)", () => {
+    // The string form's `w:val="(\d+)"` never matched non-digits; the node walk must not
+    // turn them into NaN levels either — the style cascade takes over.
+    const wb = new WholeBodyPackage(
+      styledDoc([`<w:p><w:pPr><w:pStyle w:val="Analytics"/><w:outlineLvl w:val="x9"/></w:pPr></w:p>`])
+    );
+    expect(wb.headingLevel(0)).toBe(3); // Analytics cascade, not NaN
+  });
+
+  it("resolves WITHOUT serializing the paragraph subtree — zero XMLSerializer calls (perf invariant)", () => {
+    // parseCount.test.ts-style call-count guard (never a wall-clock threshold): the whole
+    // point of the node-direct walk is that classify's heading resolution stops paying an
+    // XMLSerializer pass per paragraph. A reintroduced serialize(node) fails here.
+    const wb = new WholeBodyPackage(
+      styledDoc([
+        `<w:p><w:pPr><w:pStyle w:val="Analytics"/></w:pPr><w:r><w:t>tag</w:t></w:r></w:p>`,
+        `<w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:t>heading</w:t></w:r></w:p>`,
+        `<w:p><w:r><w:t>body</w:t></w:r></w:p>`
+      ])
+    );
+    // Spy AFTER construction — the ctor legitimately serializes the styles part once.
+    const spy = jest.spyOn(XmldomXMLSerializer.prototype as any, "serializeToString" as never);
+    try {
+      for (let i = 0; i < wb.count; i++) wb.headingLevel(i);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

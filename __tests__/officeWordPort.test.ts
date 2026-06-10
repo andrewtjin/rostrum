@@ -531,7 +531,10 @@ describe("repairCites", () => {
   // A tag paragraph whose XML carries an inline outline level, so the WholeBodyPackage
   // resolves headingLevel 3 (the package read has no proxies). The cite paragraph below it
   // has a bold author+year run with NO rStyle (the mis-styled-cite shape).
-  const tagPPr = `<w:outlineLvl w:val="3"/>`;
+  // Schema-valid shape: outlineLvl lives inside <w:pPr> — headingLevel reads ONLY the
+  // paragraph's own direct-child pPr, exactly like Word itself (a bare outlineLvl outside
+  // pPr is markup Word never emits and never honors).
+  const tagPPr = `<w:pPr><w:outlineLvl w:val="3"/></w:pPr>`;
   const boldAuthor = `<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">Smith 20</w:t></w:r>`;
 
   it("detects a mis-styled cite after a tag and commits the rStyle via ONE insertOoxml", async () => {

@@ -5,7 +5,12 @@
 // branch: inline <w:outlineLvl>, the basedOn cascade (the real Analytics→Heading4 case),
 // cycle safety, the 0-based→1-based normalization, and the body fallback.
 
-import { parseStyleDefs, styleOutlineLevel, outlineNumberOf } from "../src/core/outline";
+import {
+  parseStyleDefs,
+  styleOutlineLevel,
+  outlineNumberOf,
+  outlineNumberFromProps
+} from "../src/core/outline";
 
 // A styles.xml mirroring a real debate doc: Heading1..4 carry their own outlineLvl, and
 // Analytics (+ its typo Analytic) inherit level 3 from Heading4 via basedOn. Default has none.
@@ -153,5 +158,41 @@ describe("outlineNumberOf (1-based Paragraph.outlineLevel equivalent)", () => {
         <w:style w:styleId="Normal"></w:style>
       </w:styles>`);
     expect(outlineNumberOf(`<w:p><w:pPr><w:pStyle w:val="CardBody"/></w:pPr></w:p>`, d)).toBe(10);
+  });
+});
+
+describe("outlineNumberFromProps (the shared cascade behind both front ends)", () => {
+  // The string resolver above and the node-direct WholeBodyPackage.headingLevel both feed
+  // their extracted <w:pPr> signals into this ONE cascade — these tests pin its contract so
+  // the two front ends can never drift apart on resolution semantics.
+  const defs = parseStyleDefs(STYLES_XML);
+
+  it("a non-null inline level wins over any style", () => {
+    expect(outlineNumberFromProps(0, "BodyText", defs)).toBe(1); // inline Heading 1 beats body style
+    expect(outlineNumberFromProps(2, "Heading1", defs)).toBe(3); // inline 2 beats Heading1's own 0
+  });
+
+  it("falls back to the pStyle cascade (Analytics → Heading4 → 3 → reported 4)", () => {
+    expect(outlineNumberFromProps(null, "Analytics", defs)).toBe(4);
+  });
+
+  it("falls back to the heading-name last resort when the structural cascade is empty (C-1)", () => {
+    const lossy = parseStyleDefs(`
+      <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:style w:styleId="Heading1"><w:basedOn w:val="Normal"/></w:style>
+        <w:style w:styleId="Normal"></w:style>
+      </w:styles>`);
+    expect(outlineNumberFromProps(null, "Heading1", lossy)).toBe(1);
+  });
+
+  it("reports body (10) when both signals are absent or the style resolves nothing", () => {
+    expect(outlineNumberFromProps(null, null, defs)).toBe(10);
+    expect(outlineNumberFromProps(null, "BodyText", defs)).toBe(10);
+    expect(outlineNumberFromProps(null, "DoesNotExist", defs)).toBe(10);
+  });
+
+  it("clamps an out-of-range inline level (>= 9) to body (10)", () => {
+    expect(outlineNumberFromProps(9, null, defs)).toBe(10);
+    expect(outlineNumberFromProps(9, "Heading1", defs)).toBe(10); // clamp is terminal, no style retry
   });
 });

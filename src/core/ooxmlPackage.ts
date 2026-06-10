@@ -24,7 +24,7 @@
 //      write so the two halves operate on one tree.
 
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
-import { parseStyleDefs, outlineNumberOf, type StyleDef } from "./outline";
+import { parseStyleDefs, outlineNumberFromProps, type StyleDef } from "./outline";
 
 // xmldom's node types vary across versions; we keep public signatures fully typed
 // (string in/out, number/null) and use a localized `any` for node handles — the
@@ -504,15 +504,53 @@ export class WholeBodyPackage {
    * paragraph, resolved PURELY from the package: the paragraph's inline `<w:outlineLvl>`, else its
    * `<w:pStyle>` effective level via the `basedOn` cascade in the bundled styles.xml. This is what
    * lets the pure whole-body classify path (avenue ⑦) attach a keep level WITHOUT a Word proxy
-   * (the host reports `canGetStyles:false`). `outlineNumberOf` returns the 1-based
+   * (the host reports `canGetStyles:false`). `outlineNumberFromProps` returns the 1-based
    * `Paragraph.outlineLevel` equivalent (1–9 = headings, 10 = body), so the 0-based mapping here is
    * exactly `normalizeOutlineNumber(…, "oneBased")` — keeping the pure path and the proxy path on
    * one outline convention.
+   *
+   * READS THE NODE DIRECTLY — NEVER SERIALIZES. Both outline signals live, per the OOXML schema,
+   * only in the paragraph's own direct-child `<w:pPr>`, so a two-level child walk is all the
+   * extraction needed. The old form serialized the ENTIRE `<w:p>` subtree (runs, hyperlinks,
+   * nested textboxes) just so `outlineNumberOf`'s two regexes could re-find those elements —
+   * the dominant per-paragraph cost of the pure whole-body read, paid AGAIN by `repairCites`.
+   * The walk is also semantically TIGHTER than the regex, which could falsely match an
+   * `<w:outlineLvl>`/`<w:pStyle>` from a nested `w:txbxContent` paragraph or a `<w:pPrChange>`
+   * revision when the outer paragraph declares none; direct-child scoping matches the live
+   * `Paragraph.outlineLevel` semantics (0 corpus mismatches across all real sample docs).
+   * __tests__/ooxmlPackage.test.ts guards the zero-serialize count and both delta directions.
    */
   headingLevel(i: number): number | null {
     const node = this.paras[i];
     if (!node) throw new RangeError(`paragraph index ${i} out of range (count ${this.count})`);
-    const n = outlineNumberOf(serialize(node), this.styleDefs);
+    // The paragraph's OWN properties: the first direct element child named <w:pPr>. The schema
+    // mandates pPr-first when present, but scan all children to tolerate lenient producers.
+    let pPr: any = null;
+    for (let k = node.firstChild; k; k = k.nextSibling) {
+      if (k.nodeType === ELEMENT_NODE && k.nodeName === "w:pPr") {
+        pPr = k;
+        break;
+      }
+    }
+    let inlineLvl: number | null = null;
+    let styleId: string | null = null;
+    if (pPr) {
+      // Direct children only — a <w:pPrChange> revision's nested old pPr must NOT leak through.
+      // First occurrence wins (the schema allows at most one of each anyway).
+      for (let k = pPr.firstChild; k; k = k.nextSibling) {
+        if (k.nodeType !== ELEMENT_NODE) continue;
+        if (k.nodeName === "w:outlineLvl" && inlineLvl === null) {
+          const v = k.getAttribute("w:val");
+          // All-digits only — mirrors the string form's `w:val="(\d+)"`, so a malformed value
+          // falls through to the style cascade instead of poisoning the level with NaN.
+          if (v && /^\d+$/.test(v)) inlineLvl = Number(v);
+        } else if (k.nodeName === "w:pStyle" && styleId === null) {
+          const v = k.getAttribute("w:val");
+          if (v) styleId = v; // empty/missing val = no style, same as the regex's [^"]+
+        }
+      }
+    }
+    const n = outlineNumberFromProps(inlineLvl, styleId, this.styleDefs);
     return n >= 1 && n <= 9 ? n - 1 : null;
   }
 

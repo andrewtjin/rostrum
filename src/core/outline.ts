@@ -122,30 +122,49 @@ export function styleOutlineLevel(styleId: string, defs: Map<string, StyleDef>):
 }
 
 /**
- * The numeric value the LIVE `Paragraph.outlineLevel` would report for a paragraph,
- * resolved faithfully from OOXML: a direct `<w:pPr><w:outlineLvl>` wins; else the
- * paragraph style's effective level via the `basedOn` cascade; else body. OOXML outline
- * levels are 0-based (0 = Heading 1 … 8 = Heading 9; 9/absent = body), and Word reports
- * them 1-based (Heading 1 = 1 … body = 10) — so the return is normalized to the 1-based
- * convention the adapter already feeds through `normalizeOutlineNumber` (ooxmlPackage.ts),
- * keeping the whole-body path and the proxy path on one downstream normalization.
+ * The numeric value the LIVE `Paragraph.outlineLevel` would report, resolved from a
+ * paragraph's ALREADY-EXTRACTED properties: its inline `<w:outlineLvl>` value (0-based,
+ * null when absent) and its `<w:pStyle>` id (null when absent). This is the resolution
+ * CASCADE shared by both front ends — the string-regex `outlineNumberOf` below and the
+ * node-direct `WholeBodyPackage.headingLevel` (ooxmlPackage.ts), which walks the
+ * paragraph's own `<w:pPr>` children instead of serializing the whole subtree just so
+ * two regexes can re-find them (the dominant per-paragraph cost on the pure whole-body
+ * read). OOXML outline levels are 0-based (0 = Heading 1 … 8 = Heading 9; 9/absent =
+ * body), and Word reports them 1-based (Heading 1 = 1 … body = 10) — so the return is
+ * normalized to the 1-based convention the adapter already feeds through
+ * `normalizeOutlineNumber` (ooxmlPackage.ts), keeping the whole-body path and the proxy
+ * path on one downstream normalization.
  */
-export function outlineNumberOf(paraXml: string, defs: Map<string, StyleDef>): number {
-  // 1) A direct inline <w:outlineLvl> wins (attribute-order tolerant — review C-2).
-  const inline = /<w:outlineLvl\b[^>]*\bw:val="(\d+)"/.exec(paraXml);
-  if (inline) {
-    const ol = Number(inline[1]);
-    return ol >= 9 ? 10 : ol + 1;
+export function outlineNumberFromProps(
+  inlineLvl: number | null,
+  styleId: string | null,
+  defs: Map<string, StyleDef>
+): number {
+  // 1) A direct inline <w:outlineLvl> wins.
+  if (inlineLvl !== null) {
+    return inlineLvl >= 9 ? 10 : inlineLvl + 1;
   }
   // 2) The paragraph style: the STRUCTURAL basedOn cascade first, then the heading-name last resort
   //    (review C-1 — a built-in heading whose styles.xml omits an explicit <w:outlineLvl> would
   //    otherwise resolve to body and be HIDDEN, diverging from the live Paragraph.outlineLevel).
-  const ps = /<w:pStyle\b[^>]*\bw:val="([^"]+)"/.exec(paraXml);
-  if (ps) {
-    const structural = styleOutlineLevel(ps[1], defs);
-    const ol = structural !== null ? structural : headingNameLevel(ps[1], defs);
+  if (styleId) {
+    const structural = styleOutlineLevel(styleId, defs);
+    const ol = structural !== null ? structural : headingNameLevel(styleId, defs);
     if (ol !== null) return ol >= 9 ? 10 : ol + 1;
   }
   // 3) Body.
   return 10;
+}
+
+/**
+ * The numeric value the LIVE `Paragraph.outlineLevel` would report for a paragraph's
+ * OOXML string: the two property extractions (attribute-order tolerant — review C-2)
+ * feeding the shared cascade above. Kept as the string API for callers that already
+ * hold serialized XML (the realDocs test harness); the hot whole-body classify path
+ * resolves from the live node instead and never pays this serialization.
+ */
+export function outlineNumberOf(paraXml: string, defs: Map<string, StyleDef>): number {
+  const inline = /<w:outlineLvl\b[^>]*\bw:val="(\d+)"/.exec(paraXml);
+  const ps = /<w:pStyle\b[^>]*\bw:val="([^"]+)"/.exec(paraXml);
+  return outlineNumberFromProps(inline ? Number(inline[1]) : null, ps ? ps[1] : null, defs);
 }

@@ -136,7 +136,8 @@ describe("applyStyles gating", () => {
   it("repairs cites even when the size phase fails — one phase's failure never aborts the other", async () => {
     // The fake host does not model `getStyles()`, so the size phase throws here; that must NOT
     // abort cite-repair (the resilience guarantee). The op stays OK and reports the cite.
-    const tagPPr = `<w:outlineLvl w:val="3"/>`;
+    // Schema-valid shape: outlineLvl lives inside <w:pPr> (headingLevel reads ONLY there).
+    const tagPPr = `<w:pPr><w:outlineLvl w:val="3"/></w:pPr>`;
     const boldAuthor = `<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">Smith 20</w:t></w:r>`;
     const doc = mkDoc([
       para(run("Tag heading"), { pPr: tagPPr }),
@@ -150,7 +151,8 @@ describe("applyStyles gating", () => {
   });
 
   it("still repairs cites and reports them even when sizing is unsupported", async () => {
-    const tagPPr = `<w:outlineLvl w:val="3"/>`;
+    // Schema-valid shape: outlineLvl lives inside <w:pPr> (headingLevel reads ONLY there).
+    const tagPPr = `<w:pPr><w:outlineLvl w:val="3"/></w:pPr>`;
     const boldAuthor = `<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">Smith 20</w:t></w:r>`;
     const doc = mkDoc([
       para(run("Tag heading"), { pPr: tagPPr }),
