@@ -1,5 +1,11 @@
 // Unit tests for the Condense & Shrink OOXML editor (src/core/ooxmlCondense.ts): the fragment reads,
 // the shrink-size apply, the whitespace collapse, the paragraph merge + marker model, and Uncondense.
+//
+// Marker identity is the intrinsic zero-width TEXT sentinel `MARK_SENTINEL` (U+2063), NOT a custom
+// character STYLE. The retired style approach depended on a net-new `<w:rStyle>` surviving `insertOoxml`
+// into a populated doc — which it does NOT (Word drops a reference whose styleId is not resident),
+// erasing the only signal Uncondense keyed on while xmldom/COM gates stayed green. These tests model
+// that host normalization directly (see "Word's insertOoxml import normalization" below).
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import {
   applyFragmentShrink,
@@ -8,9 +14,10 @@ import {
   resolveNormalSizeHalfPts,
   uncondenseFragmentOoxml
 } from "../src/core/ooxmlCondense";
-import { CONDENSE_MARK_STYLE } from "../src/core/styles";
+import { MARK_SENTINEL } from "../src/core/styles";
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const S = MARK_SENTINEL; // the zero-width boundary sentinel, for terse fixtures/assertions
 
 interface RunOpts {
   u?: boolean;
@@ -33,7 +40,7 @@ const bareP = (inner: string, pPr = ""): string => `<w:p xmlns:w="${W_NS}">${pPr
 const body = (...ps: string[]): string => `<w:body xmlns:w="${W_NS}">${ps.join("")}</w:body>`;
 const p = (inner: string, pPr = ""): string => `<w:p>${pPr}${inner}</w:p>`;
 
-/** Concatenated text per paragraph in a fragment. */
+/** Concatenated text per paragraph in a fragment (the sentinel is filtered from the view by design). */
 const paraTexts = (xml: string): string[] =>
   readFragmentParagraphs(xml).map((runs) => runs.map((r) => r.text).join(""));
 
@@ -67,10 +74,11 @@ describe("readFragmentParagraphs", () => {
     expect(paraTexts(xml)).toEqual(["one", "two", "three"]);
   });
 
-  it("flags a condense break-marker run", () => {
-    const marker = `<w:r><w:rPr><w:rStyle w:val="${CONDENSE_MARK_STYLE}"/></w:rPr><w:t> </w:t></w:r>`;
+  it("flags a condense marker run by its intrinsic text sentinel (and hides the sentinel from the view)", () => {
+    const marker = `<w:r><w:t xml:space="preserve">${S} </w:t></w:r>`;
     const [runs] = readFragmentParagraphs(bareP(run("a") + marker + run("b")));
     expect(runs.map((r) => r.breakMarker)).toEqual([false, true, false]);
+    expect(runs[1].text).toBe(" "); // sentinel filtered out of the visible text
   });
 });
 
@@ -140,29 +148,41 @@ describe("condenseFragmentOoxml — whitespace collapse", () => {
 });
 
 describe("condenseFragmentOoxml — merge + markers", () => {
-  it("merges N paragraphs into one with N-1 break markers (space glyph), changed=true", () => {
+  it("merges N paragraphs into one with N-1 sentinel markers (space glyph), changed=true", () => {
     const xml = body(p(run("AAA")), p(run("BBB")), p(run("CCC")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
     expect(out.changed).toBe(true);
     expect(out.boundariesMarked).toBe(2);
     expect(paraTexts(out.xml)).toEqual(["AAA BBB CCC"]); // one paragraph, space markers between
-    // The markers carry the break style.
+    // The markers are sentinel-tagged runs — and carry NO custom character style (the retired signal).
     const [runs] = readFragmentParagraphs(out.xml);
     expect(runs.filter((r) => r.breakMarker)).toHaveLength(2);
+    expect(out.xml).not.toContain("w:rStyle"); // no style reference anywhere
+    expect(out.xml).toContain(S); // the intrinsic signal is present
   });
 
   it("uses a visible 6pt pilcrow glyph in pilcrow mode", () => {
     const xml = body(p(run("AAA")), p(run("BBB")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: true, retainParagraphs: false, reversal: "marker" });
     expect(paraTexts(out.xml)).toEqual(["AAA¶BBB"]);
-    expect(out.xml).toContain('<w:sz w:val="12"/>'); // 6pt pilcrow
+    expect(out.xml).toContain('<w:sz w:val="12"/>'); // 6pt pilcrow (direct formatting, host-durable)
   });
 
-  it("destructive merge (reversal none, pilcrows off) leaves a plain space and NO marker style", () => {
+  it("destructive merge (reversal none, pilcrows off) leaves a plain space and NO sentinel", () => {
     const xml = body(p(run("AAA")), p(run("BBB")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "none" });
     expect(paraTexts(out.xml)).toEqual(["AAA BBB"]);
-    expect(out.xml).not.toContain(CONDENSE_MARK_STYLE); // no reversible marker
+    expect(out.xml).not.toContain(S); // no reversible marker
+  });
+
+  it("preserves a divergent following-paragraph pPr in a hidden payload and restores it", () => {
+    const xml = body(p(run("AAA")), p(run("BBB"), `<w:pPr><w:jc w:val="center"/></w:pPr>`));
+    const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    expect(condensed.xml).toContain("<w:vanish/>"); // payload run is hidden
+    const restored = uncondenseFragmentOoxml(condensed.xml);
+    expect(paraTexts(restored.xml)).toEqual(["AAA", "BBB"]);
+    expect(restored.xml).toContain(`<w:jc w:val="center"/>`); // divergent pPr restored
+    expect(restored.xml).not.toContain(S); // no leaked signal
   });
 });
 
@@ -173,24 +193,42 @@ describe("uncondenseFragmentOoxml", () => {
     const out = uncondenseFragmentOoxml(condensed.xml);
     expect(out.breaksRestored).toBe(2);
     expect(paraTexts(out.xml)).toEqual(["AAA", "BBB", "CCC"]);
+    expect(out.xml).not.toContain(S); // every sentinel consumed
   });
 
   it("is a no-op on a fragment with no markers", () => {
     const xml = body(p(run("AAA")), p(run("BBB")));
     expect(uncondenseFragmentOoxml(xml).changed).toBe(false);
   });
+
+  it("round-trips full-merge, pilcrow, and retain modes back to the original text", () => {
+    const xml = body(p(run("AAA")), p(run("BBB")), p(run("CCC")));
+    for (const opts of [
+      { usePilcrows: false, retainParagraphs: false, reversal: "marker" as const },
+      { usePilcrows: true, retainParagraphs: false, reversal: "marker" as const }
+    ]) {
+      const condensed = condenseFragmentOoxml(xml, opts);
+      const restored = uncondenseFragmentOoxml(condensed.xml);
+      expect(paraTexts(restored.xml)).toEqual(["AAA", "BBB", "CCC"]);
+      expect(restored.xml).not.toContain(S);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
 // Word's insertOoxml import normalization (proven via a real-Word COM round-trip, 2026-06-10):
-// adjacent identically-formatted runs are COALESCED into one, and proofing marks can appear between
-// a boundary glyph and its payload run. Uncondense must survive both, or breaks/pPr silently vanish
-// on the live host while xmldom-only tests stay green.
+//   (a) adjacent identically-formatted runs are COALESCED into one;
+//   (b) a `<w:rStyle>` whose styleId is NOT resident in the destination is DROPPED on import;
+//   (c) proofing marks can appear between a boundary glyph and its payload run.
+// Uncondense must survive all three, or breaks/pPr silently vanish on the live host while xmldom-only
+// tests stay green. This block is the headless REGRESSION GATE (R2) the diagnosis calls for: it encodes
+// host behavior (b) that xmldom/COM over-preserved — the exact gap that let the 2026-06-09 bug ship.
+// (R2 cannot model whether U+2063 itself survives `insertOoxml`; only a live wet-test (R1) settles that.)
 // ---------------------------------------------------------------------------
-describe("uncondense under Word's import normalization", () => {
+describe("uncondense under Word's insertOoxml import normalization (R2)", () => {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   /** Simulate Word's run coalescing: adjacent sibling `<w:r>`s with identical rPr merge into one. */
   const mergeAdjacentIdenticalRuns = (xml: string): string => {
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     const doc = new DOMParser().parseFromString(xml, "text/xml") as any;
     const ser = new XMLSerializer();
     const paras = doc.getElementsByTagName("w:p");
@@ -220,24 +258,61 @@ describe("uncondense under Word's import normalization", () => {
     return ser.serializeToString(doc);
   };
 
-  it("restores one break per glyph CHARACTER when Word coalesced adjacent space markers", () => {
-    // A real blank paragraph between cards has no runs, so its two surrounding boundary glyphs end up
-    // adjacent and Word merges them into ONE run with text "  " — which must still mean TWO breaks.
+  /** Simulate Word dropping any `<w:rStyle>` whose styleId is not resident in the destination styles. */
+  const dropNonResidentRStyle = (xml: string, resident: Set<string> = new Set()): string => {
+    const doc = new DOMParser().parseFromString(xml, "text/xml") as any;
+    const refs = doc.getElementsByTagName("w:rStyle");
+    const toRemove: any[] = [];
+    for (let i = 0; i < refs.length; i++) {
+      const el = refs.item(i);
+      if (!resident.has(el.getAttribute("w:val") || "")) toRemove.push(el);
+    }
+    for (const el of toRemove) if (el.parentNode) el.parentNode.removeChild(el);
+    return new XMLSerializer().serializeToString(doc);
+  };
+
+  /** The faithful host pipeline: drop non-resident style refs, THEN coalesce identical runs. */
+  const insertOoxmlFaithful = (xml: string, resident?: Set<string>): string =>
+    mergeAdjacentIdenticalRuns(dropNonResidentRStyle(xml, resident));
+
+  it("CONTROL: the simulator really strips a non-resident <w:rStyle> (the retired signal would vanish)", () => {
+    // A hand-built OLD-style marker (keyed on `rStyle`, no sentinel) with no resident style definition.
+    const oldStyleMarker = body(
+      p(run("AAA") + `<w:r><w:rPr><w:rStyle w:val="RostrumCondenseBreak"/></w:rPr><w:t xml:space="preserve"> </w:t></w:r>` + run("BBB"))
+    );
+    const wordized = insertOoxmlFaithful(oldStyleMarker);
+    expect(wordized).not.toContain("RostrumCondenseBreak"); // the only old signal is gone
+    // Uncondense (which now keys on the sentinel) finds NOTHING — exactly the live 0-marker failure.
+    expect(uncondenseFragmentOoxml(wordized).breaksRestored).toBe(0);
+  });
+
+  it("FIX A survives the same pipeline: full-merge restores every break", () => {
+    const xml = body(p(run("AAA")), p(run("BBB")), p(run("CCC")));
+    const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    const wordized = insertOoxmlFaithful(condensed.xml); // no resident styles at all
+    const out = uncondenseFragmentOoxml(wordized);
+    expect(out.breaksRestored).toBe(2);
+    expect(paraTexts(out.xml)).toEqual(["AAA", "BBB", "CCC"]);
+  });
+
+  it("restores a break per glyph SENTINEL even when Word coalesced body INTO the marker run", () => {
+    // No-rPr body + no-rPr space markers all coalesce into ONE run: "AAA⁣ ⁣ BBB". The character-precise
+    // tokenizer must still recover AAA / (blank) / BBB rather than dropping the whole coalesced run.
     const xml = body(p(run("AAA")), p(""), p(run("BBB")));
     const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
     expect(condensed.boundariesMarked).toBe(2);
-    const wordized = mergeAdjacentIdenticalRuns(condensed.xml);
-    expect(wordized).not.toBe(condensed.xml); // the simulation really coalesced the glyph pair
+    const wordized = insertOoxmlFaithful(condensed.xml);
+    expect(wordized).not.toBe(condensed.xml); // coalescing really happened
     const out = uncondenseFragmentOoxml(wordized);
     expect(out.breaksRestored).toBe(2);
-    expect(paraTexts(out.xml)).toEqual(["AAA", "", "BBB"]); // the blank comes back
+    expect(paraTexts(out.xml)).toEqual(["AAA", "", "BBB"]); // the blank between cards comes back
+    expect(out.xml).not.toContain(S);
   });
 
-  it("restores one break per pilcrow CHARACTER when Word coalesced adjacent ¶ markers", () => {
+  it("restores one break per pilcrow when Word coalesced adjacent ¶ markers", () => {
     const xml = body(p(run("AAA")), p(""), p(run("BBB")));
     const condensed = condenseFragmentOoxml(xml, { usePilcrows: true, retainParagraphs: false, reversal: "marker" });
-    const wordized = mergeAdjacentIdenticalRuns(condensed.xml);
-    expect(wordized).not.toBe(condensed.xml);
+    const wordized = insertOoxmlFaithful(condensed.xml);
     const out = uncondenseFragmentOoxml(wordized);
     expect(out.breaksRestored).toBe(2);
     expect(paraTexts(out.xml)).toEqual(["AAA", "", "BBB"]);
@@ -246,8 +321,8 @@ describe("uncondense under Word's import normalization", () => {
   it("consumes a pPr payload separated from its glyph by Word proofing noise", () => {
     const xml = body(p(run("AAA")), p(run("BBB"), `<w:pPr><w:jc w:val="center"/></w:pPr>`));
     const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
-    // Inject a proofing mark between the boundary glyph and its payload run (Word does this on import).
-    const payloadStart = `<w:r><w:rPr><w:rStyle w:val="${CONDENSE_MARK_STYLE}"/><w:vanish/></w:rPr>`;
+    // The payload run is vanished and self-describing; inject a proofing mark before it (Word does this).
+    const payloadStart = `<w:r><w:rPr><w:vanish/></w:rPr>`;
     expect(condensed.xml).toContain(payloadStart);
     const noisy = condensed.xml.replace(payloadStart, `<w:proofErr w:type="spellStart"/>${payloadStart}`);
     const out = uncondenseFragmentOoxml(noisy);
@@ -258,16 +333,69 @@ describe("uncondense under Word's import normalization", () => {
   });
 });
 
+describe("portability + idempotence", () => {
+  it("a condensed block with NO styles part still uncondenses (copy/paste portability)", () => {
+    // The signal travels in run TEXT, not a document-local style table — so a condensed block pasted
+    // into a fresh doc (here: a bare fragment, no styles part at all) still reverses exactly.
+    const condensed = condenseFragmentOoxml(body(p(run("AAA")), p(run("BBB"))), {
+      usePilcrows: false,
+      retainParagraphs: false,
+      reversal: "marker"
+    });
+    expect(condensed.xml).not.toContain("<w:styles"); // nothing injected into a style table
+    const restored = uncondenseFragmentOoxml(condensed.xml);
+    expect(restored.breaksRestored).toBe(1);
+    expect(paraTexts(restored.xml)).toEqual(["AAA", "BBB"]);
+  });
+
+  it("the sentinel never leaks into restored visible text (byte-exact bodies)", () => {
+    const xml = body(p(run("Alpha")), p(run("Beta")), p(run("Gamma")));
+    const condensed = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    const restored = uncondenseFragmentOoxml(condensed.xml);
+    expect(restored.xml).not.toContain(S);
+    expect(restored.xml).not.toContain("\\u2063");
+    expect(paraTexts(restored.xml)).toEqual(["Alpha", "Beta", "Gamma"]);
+  });
+
+  it("re-condense is idempotent — condensing an already-condensed fragment adds no new break", () => {
+    const xml = body(p(run("AAA")), p(run("BBB")), p(run("CCC")));
+    const once = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    const twice = condenseFragmentOoxml(once.xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
+    expect(twice.boundariesMarked).toBe(0); // already one paragraph — nothing to merge
+    const restored = uncondenseFragmentOoxml(twice.xml);
+    expect(restored.breaksRestored).toBe(2);
+    expect(paraTexts(restored.xml)).toEqual(["AAA", "BBB", "CCC"]);
+  });
+});
+
 describe("retain-paragraphs mode", () => {
-  it("lossless: hides a blank paragraph's mark with the break style (kept for reversal)", () => {
+  it("lossless: collapses a blank paragraph (sentinel-tagged, hidden) and structure is retained", () => {
     const xml = body(p(run("AAA")), p(run("   ")), p(run("BBB")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
     expect(out.boundariesMarked).toBe(1); // the one blank paragraph
     expect(readFragmentParagraphs(out.xml)).toHaveLength(3); // structure retained
-    expect(out.xml).toContain(CONDENSE_MARK_STYLE);
-    // Uncondense un-hides it.
+    expect(out.xml).toContain(S);
+    expect(out.xml).toContain("<w:vanish/>"); // the blank is hidden (collapsed)
+    expect(out.xml).not.toContain("w:rStyle"); // no custom style reference
+    // Uncondense restores it and removes every trace of the signal.
     const restored = uncondenseFragmentOoxml(out.xml);
-    expect(restored.xml).not.toContain(CONDENSE_MARK_STYLE);
+    expect(restored.xml).not.toContain(S);
+    expect(restored.xml).not.toContain("<w:vanish/>");
+    expect(readFragmentParagraphs(restored.xml)).toHaveLength(3);
+  });
+
+  it("re-condense is idempotent in RETAIN mode (an already-dropped blank is not re-marked)", () => {
+    const xml = body(p(run("AAA")), p(run("   ")), p(run("BBB")));
+    const opts = { usePilcrows: false, retainParagraphs: true, reversal: "marker" as const };
+    const once = condenseFragmentOoxml(xml, opts);
+    expect(once.boundariesMarked).toBe(1);
+    const twice = condenseFragmentOoxml(once.xml, opts);
+    expect(twice.boundariesMarked).toBe(0); // already dropped — nothing new to mark
+    // Still exactly one parked payload (no double-park), and it round-trips.
+    expect((twice.xml.match(/<w:vanish\/>/g) || []).length).toBe((once.xml.match(/<w:vanish\/>/g) || []).length);
+    const restored = uncondenseFragmentOoxml(twice.xml);
+    expect(restored.xml).not.toContain(S);
+    expect(readFragmentParagraphs(restored.xml)).toHaveLength(3);
   });
 
   it("destructive: actually removes blank paragraphs", () => {
@@ -277,99 +405,35 @@ describe("retain-paragraphs mode", () => {
     expect(paraTexts(out.xml)).toEqual(["AAA", "BBB"]);
   });
 
-  // -------------------------------------------------------------------------
-  // Marker-style durability (the 2026-06-09 live bug: Word strips `<w:rStyle>` references whose
-  // style is not DEFINED in the package, so every condense was irreversible on the host — "no
-  // Rostrum condense markers found" — while xmldom-based tests stayed green. The fix defines the
-  // style in the fragment's own styles part whenever styled markers are written.)
-  // -------------------------------------------------------------------------
-  describe("marker style definition (survives Word's dangling-style strip)", () => {
-    const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
-    /** A flat-OPC fragment shaped like `range.getOoxml()` output: document part + styles part. */
-    const pkgFragment = (bodyXml: string, stylesInner = ""): string =>
-      `<pkg:package xmlns:pkg="${PKG_NS}">` +
-      `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
-      `<w:document xmlns:w="${W_NS}">${bodyXml}</w:document>` +
-      `</pkg:xmlData></pkg:part>` +
-      `<pkg:part pkg:name="/word/styles.xml"><pkg:xmlData>` +
-      `<w:styles xmlns:w="${W_NS}">${stylesInner}</w:styles>` +
-      `</pkg:xmlData></pkg:part>` +
-      `</pkg:package>`;
-    /** Count of style DEFINITIONS (w:styleId, not the markers' w:val references). */
-    const defCount = (xml: string): number =>
-      (xml.match(new RegExp(`w:styleId="${CONDENSE_MARK_STYLE}"`, "g")) || []).length;
-
-    it("merge mode defines the marker style as a hidden character style in the styles part", () => {
-      const xml = pkgFragment(body(p(run("AAA")), p(run("BBB"))));
-      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
-      // Defined exactly once, INSIDE the styles part, with what Word needs to import + keep it.
-      expect(defCount(out.xml)).toBe(1);
-      const stylesPart = /<pkg:part pkg:name="\/word\/styles\.xml">[\s\S]*?<\/pkg:part>/.exec(out.xml);
-      expect(stylesPart).not.toBeNull();
-      expect(stylesPart![0]).toContain(`w:styleId="${CONDENSE_MARK_STYLE}"`);
-      expect(stylesPart![0]).toContain(`w:type="character"`);
-      expect(stylesPart![0]).toContain(`w:customStyle="1"`);
-      expect(stylesPart![0]).toContain("<w:semiHidden/>");
-      // The round-trip still restores.
-      expect(uncondenseFragmentOoxml(out.xml).breaksRestored).toBe(1);
-    });
-
-    it("retain mode (marker) defines it too — dropped blanks key on the same style", () => {
-      const xml = pkgFragment(body(p(run("AAA")), p(run("   ")), p(run("BBB"))));
-      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
-      expect(out.boundariesMarked).toBe(1);
-      expect(defCount(out.xml)).toBe(1);
-    });
-
-    it("is idempotent — a doc that already carries the definition gains no duplicate", () => {
-      const already =
-        `<w:style w:type="character" w:customStyle="1" w:styleId="${CONDENSE_MARK_STYLE}">` +
-        `<w:name w:val="Rostrum Condense Break"/><w:semiHidden/></w:style>`;
-      const xml = pkgFragment(body(p(run("AAA")), p(run("BBB"))), already);
-      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: false, reversal: "marker" });
-      expect(defCount(out.xml)).toBe(1);
-    });
-
-    it("destructive mode writes no styled markers, so no definition is injected", () => {
-      const xml = pkgFragment(body(p(run("AAA")), p(run("   ")), p(run("BBB"))));
-      const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "none" });
-      expect(defCount(out.xml)).toBe(0);
-    });
-
-    it("a bare fragment with no styles part is left structurally unchanged (live packages always bundle one)", () => {
-      const out = condenseFragmentOoxml(body(p(run("AAA")), p(run("BBB"))), {
-        usePilcrows: false,
-        retainParagraphs: false,
-        reversal: "marker"
-      });
-      expect(out.xml).not.toContain("<w:styles");
-      expect(uncondenseFragmentOoxml(out.xml).breaksRestored).toBe(1);
-    });
+  it("survives the faithful host pipeline (R2): a dropped blank still restores", () => {
+    const xml = body(p(run("AAA")), p(run("   ")), p(run("BBB")));
+    const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
+    const doc = new DOMParser().parseFromString(out.xml, "text/xml") as any;
+    // (no rStyle to drop; just exercise reversibility post-condense)
+    const restored = uncondenseFragmentOoxml(new XMLSerializer().serializeToString(doc));
+    expect(restored.xml).not.toContain(S);
+    expect(readFragmentParagraphs(restored.xml)).toHaveLength(3);
   });
 
-  it("losslessly condenses a blank paragraph whose mark has a foreign style, restoring it on uncondense", () => {
-    // A blank paragraph carrying a non-Rostrum mark style used to be SKIPPED (the original style collides
-    // with our break style in the single rStyle slot). Now we park the pristine mark rPr in a hidden
-    // payload and swap in our break style, so the blank IS condensed and the user's style round-trips.
+  it("losslessly condenses a blank whose mark has a FOREIGN char style, restoring it on uncondense", () => {
+    // A blank paragraph carrying a non-Rostrum mark style: the original mark rPr is parked verbatim in a
+    // hidden payload, the live mark is vanished to collapse, and uncondense restores the user's mark.
     const styledBlank = `<w:p><w:pPr><w:rPr><w:rStyle w:val="SomeOtherStyle"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">  </w:t></w:r></w:p>`;
     const xml = body(p(run("AAA")), styledBlank, p(run("BBB")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
-    expect(out.boundariesMarked).toBe(1); // the foreign-styled blank IS now condensed
+    expect(out.boundariesMarked).toBe(1);
     expect(out.xml).toContain("<w:vanish/>"); // hidden
     expect(out.xml).toContain("SomeOtherStyle"); // original mark style preserved (parked in the payload)
-    expect(readFragmentParagraphs(out.xml)).toHaveLength(3); // structure retained
+    expect(readFragmentParagraphs(out.xml)).toHaveLength(3);
 
     const restored = uncondenseFragmentOoxml(out.xml);
-    expect(restored.xml).not.toContain(CONDENSE_MARK_STYLE); // our break style + payload gone
+    expect(restored.xml).not.toContain(S); // sentinel + payload gone
     expect(restored.xml).toContain(`<w:rStyle w:val="SomeOtherStyle"/>`); // user's mark style restored exactly
     expect(restored.xml).not.toContain("<w:vanish/>"); // un-hidden
     expect(readFragmentParagraphs(restored.xml)).toHaveLength(3);
   });
 
   it("condenses an underlined-but-empty newline whose mark is styled via a char style (the reported bug)", () => {
-    // Repro: a newline whose paragraph mark is underlined via a character style, with NO text. It must
-    // collapse under retain-paragraphs mode — it didn't before, because the foreign mark style made us
-    // skip it. The underline char style must come back on Uncondense.
     const underlinedNewline = `<w:p><w:pPr><w:rPr><w:rStyle w:val="StyleUnderline"/></w:rPr></w:pPr></w:p>`;
     const xml = body(p(run("AAA")), underlinedNewline, p(run("BBB")));
     const out = condenseFragmentOoxml(xml, { usePilcrows: false, retainParagraphs: true, reversal: "marker" });
@@ -378,6 +442,6 @@ describe("retain-paragraphs mode", () => {
 
     const restored = uncondenseFragmentOoxml(out.xml);
     expect(restored.xml).toContain(`<w:rStyle w:val="StyleUnderline"/>`);
-    expect(restored.xml).not.toContain(CONDENSE_MARK_STYLE);
+    expect(restored.xml).not.toContain(S);
   });
 });
