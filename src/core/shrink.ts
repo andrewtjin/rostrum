@@ -15,6 +15,7 @@ import { KEEP_OUTLINE_MAX } from "./styles";
 import {
   ParagraphShrinkPlan,
   applyFragmentShrink,
+  parseFragment,
   readFragmentParagraphs,
   resolveNormalSizeHalfPts
 } from "./ooxmlCondense";
@@ -132,7 +133,11 @@ function hasAlphanumeric(text: string): boolean {
  * non-heading paragraph mark to 6pt. A collapsed/single-paragraph heading refuses (Verbatim parity).
  */
 export function shrinkFragment(fragmentXml: string, opts: ShrinkOptions): ShrinkResult & { xml: string } {
-  const paras = readFragmentParagraphs(fragmentXml);
+  // Parse ONCE and thread the tree through both the read (here) and the apply (below): the fragment
+  // string never changes in between, and re-parsing it was the single largest avoidable cost of a
+  // press — the flat-OPC fragment bundles the full styles.xml, so even a one-card selection paid it.
+  const parsed = parseFragment(fragmentXml);
+  const paras = readFragmentParagraphs(fragmentXml, parsed);
   const normalHalfPts = opts.normalHalfPts;
 
   // Heading refusal: a single-paragraph (collapsed or one-paragraph) selection on a heading is a no-op.
@@ -180,7 +185,8 @@ export function shrinkFragment(fragmentXml: string, opts: ShrinkOptions): Shrink
     return plan;
   });
 
-  const applied = applyFragmentShrink(fragmentXml, plans);
+  // Last use of `parsed` — applyFragmentShrink mutates (consumes) the shared tree.
+  const applied = applyFragmentShrink(fragmentXml, plans, parsed);
   return {
     xml: applied.xml,
     changed: applied.changed,
@@ -199,7 +205,9 @@ export function unshrinkFragment(
   fragmentXml: string,
   outlineLevels: (number | null)[]
 ): ShrinkResult & { xml: string } {
-  const paras = readFragmentParagraphs(fragmentXml);
+  // Same parse-once fusion as shrinkFragment: one tree serves the read and the (consuming) apply.
+  const parsed = parseFragment(fragmentXml);
+  const paras = readFragmentParagraphs(fragmentXml, parsed);
   const plans: ParagraphShrinkPlan[] = paras.map((runs, p) => {
     if (isHeading(outlineLevels[p] ?? null)) {
       return { runSizes: runs.map(() => undefined) };
@@ -208,7 +216,7 @@ export function unshrinkFragment(
     // Clear any shrunk paragraph mark too (markSize null = remove the explicit mark size).
     return { runSizes, markSizeHalfPts: null };
   });
-  const applied = applyFragmentShrink(fragmentXml, plans);
+  const applied = applyFragmentShrink(fragmentXml, plans, parsed);
   return {
     xml: applied.xml,
     changed: applied.changed,

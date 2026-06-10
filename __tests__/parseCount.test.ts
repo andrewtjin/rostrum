@@ -14,6 +14,12 @@
 // HERE — a non-flaky guard (a call COUNT, not a wall-clock threshold). It also asserts the
 // classification is still CORRECT on each shape, so it can't pass by parsing once but
 // producing the wrong OOXML.
+//
+// A second block locks the SAME invariant onto Shrink: `shrinkFragment`/`unshrinkFragment`
+// used to parse the fragment TWICE (readFragmentParagraphs to read, applyFragmentShrink to
+// mutate — over the identical unchanged string). `parseFragment` fused that to one parse,
+// threaded through both calls; a byte-identity test pins the fused path to the still-callable
+// legacy path so the equivalence stays assertable forever.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -37,8 +43,15 @@ jest.mock("@xmldom/xmldom", () => {
 
 import { classifyParagraph } from "../src/core/invisibility";
 import { readRuns } from "../src/core/ooxml";
+import {
+  ParagraphShrinkPlan,
+  applyFragmentShrink,
+  parseFragment,
+  readFragmentParagraphs
+} from "../src/core/ooxmlCondense";
+import { shrinkFragment, unshrinkFragment } from "../src/core/shrink";
 import { settings } from "./fakeWord";
-import { RawParagraph } from "../src/core/types";
+import { RawParagraph, ShrinkOptions } from "../src/core/types";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const KEEP = settings(["yellow", "cyan", "green"]);
@@ -142,5 +155,67 @@ describe("classifyParagraph parses each paragraph exactly once (perf invariant)"
     expect(vis).not.toContain("givesEurope");
     expect(vis).toContain("gives");
     expect(vis).toContain("Europe");
+  });
+});
+
+describe("Shrink parses the fragment exactly once per press (perf invariant)", () => {
+  // A multi-paragraph fragment (readFragmentParagraphs/applyFragmentShrink operate on EVERY <w:p>,
+  // unlike classifyParagraph's single-paragraph scope).
+  const frag = (...paras: string[]): string =>
+    `<w:document xmlns:w="${W}"><w:body>${paras.map((p) => `<w:p>${p}</w:p>`).join("")}</w:body></w:document>`;
+
+  // Representative multi-run shape for a press: an underlined keeper (the cut), an explicitly-sized
+  // plain body run, a highlighted keeper, and a second body paragraph. The style/Normal resolvers
+  // are regex-only, so the DOMParser count below isolates exactly the read+apply parses.
+  const fixture = frag(
+    run("kept cut ", `<w:u w:val="single"/>`) +
+      run("plain body text ", `<w:sz w:val="22"/>`) +
+      run("tagline", hl("yellow")),
+    run("second paragraph body", `<w:sz w:val="22"/>`)
+  );
+  const opts: ShrinkOptions = {
+    normalHalfPts: 22,
+    outlineLevels: [null, null],
+    omissionPatterns: [],
+    shrinkParagraphMarks: false
+  };
+
+  it("shrinkFragment — one parse, and the press still lands (8pt rung, keepers untouched)", () => {
+    parseCount = 0;
+    const result = shrinkFragment(fixture, opts);
+    expect(parseCount).toBe(1); // read + apply share ONE tree (was 2 before the parseFragment fusion)
+    expect(result.changed).toBe(true);
+    expect(result.appliedSizeHalfPts).toBe(16); // 11pt body → the 8pt rung
+    const [p1, p2] = readFragmentParagraphs(result.xml);
+    expect(p1[0].sizeHalfPts).toBeNull(); // underlined keeper: no explicit size added
+    expect(p1[1].sizeHalfPts).toBe(16); // body run shrunk to the rung
+    expect(p1[2].sizeHalfPts).toBeNull(); // highlighted keeper: untouched
+    expect(p2[0].sizeHalfPts).toBe(16); // second paragraph's body shrunk too
+  });
+
+  it("unshrinkFragment — one parse, explicit sizes cleared back to Normal", () => {
+    const pressed = shrinkFragment(fixture, opts).xml;
+    parseCount = 0;
+    const result = unshrinkFragment(pressed, [null, null]);
+    expect(parseCount).toBe(1);
+    expect(result.changed).toBe(true);
+    // Every run reverts to inherited Normal (no explicit <w:sz> anywhere).
+    const runs = readFragmentParagraphs(result.xml).flat();
+    expect(runs.length).toBe(4);
+    expect(runs.every((r) => r.sizeHalfPts === null)).toBe(true);
+  });
+
+  it("the fused (pre-parsed) path is byte-identical to the legacy two-parse path", () => {
+    // Read side: identical run views with and without the handle.
+    expect(readFragmentParagraphs(fixture, parseFragment(fixture))).toEqual(readFragmentParagraphs(fixture));
+    // Apply side: byte-identical XML out (a fresh handle per call — apply consumes its tree).
+    const plans: ParagraphShrinkPlan[] = [
+      { runSizes: [undefined, 16, undefined] },
+      { runSizes: [null], markSizeHalfPts: 12 }
+    ];
+    const legacy = applyFragmentShrink(fixture, plans);
+    const fused = applyFragmentShrink(fixture, plans, parseFragment(fixture));
+    expect(fused.xml).toBe(legacy.xml);
+    expect(fused.changed).toBe(legacy.changed);
   });
 });

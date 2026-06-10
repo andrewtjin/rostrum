@@ -74,6 +74,26 @@ function serialize(node: any): string {
   return new XMLSerializer().serializeToString(node);
 }
 
+/**
+ * An opaque pre-parsed fragment handle for read-then-write callers. A Shrink press reads the
+ * fragment (`readFragmentParagraphs`) and then writes sizes back (`applyFragmentShrink`) over the
+ * SAME unchanged string, so parsing it twice is pure waste — and parsing dominates a press because
+ * the flat-OPC fragment always bundles the full styles.xml, even for a one-card selection.
+ * `parseFragment` lets such callers parse ONCE and thread the tree through both calls — the same
+ * read-then-mutate-one-tree fusion `ParsedParagraph` gave classifyParagraph in ooxml.ts. The handle
+ * is opaque (callers never touch xmldom internals), and the trailing optional params keep the
+ * legacy parse-per-call path callable so tests can assert fused/legacy byte-identity forever.
+ */
+export interface ParsedFragment {
+  /** @internal The xmldom document — only this module may read or mutate it. */
+  doc: any;
+}
+
+/** Parse a fragment once, for threading through `readFragmentParagraphs` + `applyFragmentShrink`. */
+export function parseFragment(fragmentXml: string): ParsedFragment {
+  return { doc: parse(fragmentXml) };
+}
+
 /** The element to search paragraphs within: the first `<w:body>` if present, else the document root. */
 function bodyScope(doc: any): any {
   const bodies = doc.getElementsByTagName("w:body");
@@ -486,10 +506,12 @@ function readRun(runEl: any, index: number, styleMap: Map<string, StyleEmphasis>
 /**
  * Read every STORY paragraph in the fragment as an array of run views (document order). The Shrink
  * engine consumes this to decide per-run sizes; the per-paragraph indexing is what `applyFragmentShrink`
- * writes back against. An empty fragment (no `<w:p>`) reads as `[]`.
+ * writes back against. An empty fragment (no `<w:p>`) reads as `[]`. Pass `parsed` (from
+ * `parseFragment`) to reuse an existing tree instead of re-parsing `fragmentXml`; reading never
+ * mutates it, so the handle stays valid for a later `applyFragmentShrink` over the same string.
  */
-export function readFragmentParagraphs(fragmentXml: string): FragmentRunView[][] {
-  const doc = parse(fragmentXml);
+export function readFragmentParagraphs(fragmentXml: string, parsed?: ParsedFragment): FragmentRunView[][] {
+  const doc = parsed ? parsed.doc : parse(fragmentXml);
   // The keep-signal (underline / box) is usually applied through a character style, so resolve the
   // fragment's bundled styles.xml ONCE and thread the map down to each run view.
   const styleMap = resolveStyleEmphasis(fragmentXml);
@@ -539,13 +561,16 @@ export interface ParagraphShrinkPlan {
  * Apply per-run (and optional paragraph-mark) sizes to the fragment. `plans[i]` aligns to the i-th story
  * paragraph from `readFragmentParagraphs`. Pure: returns the new XML and whether anything changed
  * (computed by comparing the serialized tree before and after, so xmldom's own normalization never
- * reports a spurious change — keeping Shrink idempotency assertions honest).
+ * reports a spurious change — keeping Shrink idempotency assertions honest). Pass `parsed` (from
+ * `parseFragment`) to reuse an existing tree instead of re-parsing `fragmentXml`; this MUTATES
+ * (consumes) the handle — the tree is edited in place, so the caller must not use it afterwards.
  */
 export function applyFragmentShrink(
   fragmentXml: string,
-  plans: ParagraphShrinkPlan[]
+  plans: ParagraphShrinkPlan[],
+  parsed?: ParsedFragment
 ): { xml: string; changed: boolean } {
-  const doc = parse(fragmentXml);
+  const doc = parsed ? parsed.doc : parse(fragmentXml);
   const before = serialize(doc);
   const paras = storyParagraphs(bodyScope(doc));
   for (let p = 0; p < paras.length && p < plans.length; p++) {
