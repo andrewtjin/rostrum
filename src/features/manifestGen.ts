@@ -11,6 +11,7 @@
 // are short opaque counters (Lbl0/Tip0/Url0/Grp0) while the human text lives in the DefaultValue
 // (uncapped) and element `id`s (cap 125) stay descriptive for debugging.
 import { FeatureContribution } from "./types";
+import { MANIFEST_VERSION } from "./version";
 
 /** The non-feature-derived manifest values (mirrors the current manifest's static header). */
 export interface ManifestConfig {
@@ -58,7 +59,9 @@ export const manifestConfig: ManifestConfig = {
   //        (each of which only existed to make Always-On work). Because the structure shrank back to a
   //        plain TaskPaneApp, re-sideloading over a machine that saw the old .5 spike needs a one-time
   //        WEF cache clear (Office won't treat a lower revision as an update — see LESSONS).
-  version: "0.3.0.1",
+  // The digits themselves live in features/version.ts (single source; guarded against package.json
+  // drift by version.test.ts) — bump them THERE.
+  version: MANIFEST_VERSION,
   providerName: "Rostrum",
   defaultLocale: "en-US",
   displayName: "Rostrum",

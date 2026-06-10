@@ -10,6 +10,7 @@
 import * as React from "react";
 import { FeatureSupport } from "../../core/types";
 import { formatEntry, LogEntry, LogLevel, tracer } from "../../core/debug";
+import { PRODUCT_VERSION } from "../../features/version";
 
 const LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
@@ -129,7 +130,9 @@ function capTail(entries: LogEntry[], max = 300): LogEntry[] {
 
 function hostHeader(props: { features: FeatureSupport | null }): Record<string, unknown> {
   const nav = typeof navigator !== "undefined" ? navigator.userAgent : "n/a";
-  return { userAgent: nav, features: props.features, when: new Date().toISOString() };
+  // version: every support exchange starts with "what version are you on" — answer it in the
+  // bug report itself so the user never has to find it.
+  return { version: PRODUCT_VERSION, userAgent: nav, features: props.features, when: new Date().toISOString() };
 }
 
 function safeJson(v: unknown): string {

@@ -9,6 +9,7 @@
 // Trust Center / a catalog-registry toggle — never an in-pane button. This pane therefore STATES how
 // Rostrum is installed and POINTS at the external OFF steps, rather than pretending to toggle it.
 import * as React from "react";
+import { PRODUCT_VERSION } from "../version";
 
 export function SettingsPanel(): React.ReactElement {
   return (
@@ -49,6 +50,10 @@ export function SettingsPanel(): React.ReactElement {
           turn Rostrum back on, re-tick <strong>Show in Menu</strong> and restart.
         </p>
       </div>
+
+      {/* The one place a student can read their running version — support asks and the site's
+          Updates section both start from "what version are you on". */}
+      <p className="r-note">Rostrum v{PRODUCT_VERSION}</p>
     </div>
   );
 }
