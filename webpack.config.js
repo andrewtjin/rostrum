@@ -45,6 +45,14 @@ module.exports = async (env, argv) => {
     resolve: {
       extensions: [".ts", ".tsx", ".js"]
     },
+    optimization: {
+      // The three pages (pane, dialog, progress) each bundled their own copy of React
+      // (x3) and the core engine + xmldom (x2). Splitting shared chunks dedupes them:
+      // total JS shipped drops ~55%, and a chunk fetched for one page is already in the
+      // WebView's cache when another page loads. HtmlWebpackPlugin injects each page's
+      // chunk set into its HTML automatically; filenames stay content-hashed.
+      splitChunks: { chunks: "all" }
+    },
     module: {
       rules: [
         // transpileOnly: the full semantic check already runs as its own gate (`npm run
