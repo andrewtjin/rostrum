@@ -47,7 +47,10 @@ module.exports = async (env, argv) => {
     },
     module: {
       rules: [
-        { test: /\.tsx?$/, use: "ts-loader", exclude: /node_modules/ }
+        // transpileOnly: the full semantic check already runs as its own gate (`npm run
+        // typecheck` locally and as the CI step right before build), so re-checking inside
+        // webpack only duplicates work (~28% slower prod build, worse watch-mode rebuilds).
+        { test: /\.tsx?$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ }
       ]
     },
     plugins: [

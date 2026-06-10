@@ -14,7 +14,10 @@ module.exports = {
   roots: ["<rootDir>/__tests__", "<rootDir>/src"],
   testMatch: ["**/__tests__/**/*.test.ts"],
   transform: {
-    "^.+\\.tsx?$": ["ts-jest", { tsconfig: { module: "CommonJS" } }]
+    // isolatedModules skips ts-jest's per-file semantic re-check — `tsc --noEmit` is the
+    // dedicated type gate (local + CI), so tests only need transpilation. ~15% faster cold
+    // runs; warm runs unchanged (transform cache).
+    "^.+\\.tsx?$": ["ts-jest", { isolatedModules: true, tsconfig: { module: "CommonJS" } }]
   },
   collectCoverageFrom: [
     "src/core/**/*.ts",
