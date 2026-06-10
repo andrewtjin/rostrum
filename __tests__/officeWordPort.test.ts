@@ -7,6 +7,7 @@
 import { createOfficeWordPort, CancelledError } from "../src/core/officeWordPort";
 import { hide, showAll } from "../src/core/invisibility";
 import { readRuns } from "../src/core/ooxml";
+import { WholeBodyPackage } from "../src/core/ooxmlPackage";
 import { parseManifestOrNull, MANIFEST_NAMESPACE } from "../src/core/manifest";
 import {
   W_NS,
@@ -558,6 +559,31 @@ describe("repairCites", () => {
     const res = await port.repairCites();
     expect(res).toEqual({ paragraphsRepaired: 0, runsRepaired: 0 });
     expect(h.ctx.commitLog.some((c) => c.op === "body.insertOoxml")).toBe(false);
+  });
+
+  it("wraps fragments lazily — only the tag window is materialized, never all N paragraphs", async () => {
+    // 1 tag + 1 plain body paragraph + 20 trailing paragraphs. The planner scans each tag
+    // window only to its FIRST real paragraph (here index 1, which fails the cite gates),
+    // so exactly ONE fragment is ever wrapped — and the no-repair exit skips the commit,
+    // so the spy sees ONLY planner-driven `paragraphXml` calls. The bound is deliberately
+    // tight: eager materialization (the old shape) would count 22, and a NON-caching
+    // getter would count 3 (the planner's list/empty/evaluate probes each re-wrapping),
+    // so either regression fails this guard.
+    const doc = mkDoc([
+      para(run("Tag heading"), { pPr: tagPPr }),
+      para(run("ordinary body text")),
+      ...Array.from({ length: 20 }, (_, i) => para(run(`trailing body ${i}`)))
+    ]);
+    const h = harness(doc);
+    const port = createOfficeWordPort({ runner: h.runner, logger: h.tracer.logger("adapter") });
+
+    const spy = jest.spyOn(WholeBodyPackage.prototype, "paragraphXml");
+    const res = await port.repairCites();
+    expect(res).toEqual({ paragraphsRepaired: 0, runsRepaired: 0 });
+    expect(h.ctx.commitLog.some((c) => c.op === "body.insertOoxml")).toBe(false);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(2); // the one candidate, cached
+    expect(spy.mock.calls.length).toBeLessThan(doc.paragraphs.length);
+    spy.mockRestore();
   });
 
   it("does not repair a cite-like paragraph that is NOT after a tag (leak guard)", async () => {

@@ -768,10 +768,28 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
         }
 
         // Build the planner's view from the package: each paragraph's raw XML + its
-        // resolved heading level (the tag-boundary signal).
+        // resolved heading level (the tag-boundary signal). `headingLevel` is EAGER —
+        // the planner reads it for EVERY paragraph to find tag windows — but the wrapped
+        // fragment is a CACHED LAZY getter: `planCiteRepairs` only reads `.xml` for
+        // paragraphs inside a tag's forward-scan window (the list/empty probes and the
+        // single candidate), ~10% of a real doc, while `paragraphXml` is expensive per
+        // call (clone + serialize + rels walk + flat-OPC wrapping). Materializing all N
+        // up front cost more than the whole plan (~20s of blocking webview JS on a
+        // 13k-paragraph doc, paid even when zero repairs are found). The cache also lets
+        // the apply loop below reuse each repaired candidate's already-built fragment.
         const paras: CiteRepairParagraph[] = [];
         for (let i = 0; i < pkg.count; i++) {
-          paras.push({ xml: pkg.paragraphXml(i), headingLevel: pkg.headingLevel(i) });
+          const idx = i; // explicit per-paragraph capture for the getter closure
+          let cached: string | null = null;
+          paras.push({
+            headingLevel: pkg.headingLevel(idx),
+            // A getter structurally satisfies the interface's `xml: string`; it defers
+            // the wrap until (and unless) this paragraph is actually inspected.
+            get xml(): string {
+              if (cached === null) cached = pkg.paragraphXml(idx);
+              return cached;
+            }
+          });
         }
         const repairs = planCiteRepairs(paras, CITE_STYLE_ID);
         if (repairs.length === 0) {
@@ -782,7 +800,8 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
         // Apply each repair to its paragraph fragment and splice it back into the package.
         // `paragraphXml(i)` is a flat-OPC package wrapping one `<w:p>`; `pkg.replace` accepts
         // exactly that shape (it extracts the single body `<w:p>`), so we mutate the fragment
-        // and hand it straight back.
+        // and hand it straight back. Every repaired index was a planner candidate, so its
+        // lazy fragment is already materialized — this read is a cache hit, not a re-wrap.
         let runsRepaired = 0;
         for (const r of repairs) {
           const fragment = paras[r.paragraphIndex].xml;
