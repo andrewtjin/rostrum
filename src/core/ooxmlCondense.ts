@@ -14,7 +14,7 @@
 // Everything here is pure: string in, string out, via @xmldom/xmldom — no Office.js.
 
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
-import { MARK_SENTINEL, CITE_STYLE_ID } from "./styles";
+import { MARK_SIGNATURE, MARK_SIGNATURES, CITE_STYLE_ID } from "./styles";
 import { CondenseOptions, FragmentRunView } from "./types";
 
 // xmldom node types vary across versions; we keep public signatures fully typed (string in/out,
@@ -28,11 +28,37 @@ const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 /**
  * The two visible boundary GLYPHS a merge-mode marker can carry: a plain space (full-merge) or a 6pt
  * `¶` (pilcrow mode). Each is exactly ONE UTF-16 code unit, so the split tokenizer drops a boundary's
- * glyph with a single `.slice(1)`. They double as a GUARD: a sentinel is only honored as a boundary
- * when the char that follows it is one of these — so a stray sentinel in user text (astronomically
- * unlikely for U+2063, but never zero) can never silently eat the following character.
+ * glyph with a single `.slice(1)` (the SIGNATURE's own length is consumed by the capture-split). They
+ * double as a GUARD: a signature is only honored as a boundary when the char that follows it is one of
+ * these — so a stray signature in user text (essentially nonexistent for the ZWSP+WJ pair, near-zero
+ * for legacy U+2063, but never exactly zero) can never silently eat the following character.
  */
 const BOUNDARY_GLYPHS = new Set<string>([" ", "¶"]);
+
+// ---------------------------------------------------------------------------
+// Signature-set regexes. WRITE paths emit only MARK_SIGNATURE (ZWSP+WJ); every READ/STRIP path below
+// must honor the FULL set (current pair + legacy single U+2063) so docs condensed by the 2026-06-10
+// deployed build still uncondense losslessly — and a single run may carry BOTH kinds after
+// re-condensing a legacy doc. Signatures are multi-code-unit SEQUENCES, so these are ALTERNATIONS
+// (longest first — a shorter alternative must never shadow a longer one), NOT a character class: a
+// lone organic U+200B (endemic in web-pasted text) must match NOTHING — single-char containment is
+// exactly what let organic ZWSPs fabricate breaks and poison the shrink view (2026-06-10 repro).
+// Built once from MARK_SIGNATURES so adding/retiring a signature is a styles.ts-only change.
+// ---------------------------------------------------------------------------
+
+/** Alternation body matching ANY known signature, longest first (no member needs regex-escaping). */
+const SIGNATURE_ALT = [...MARK_SIGNATURES].sort((a, b) => b.length - a.length).join("|");
+/** Test: does a string contain any signature? */
+const ANY_SIGNATURE = new RegExp(SIGNATURE_ALT, "u");
+/** Strip: remove every signature of every kind (fresh `g` regex — no lastIndex state to share). */
+const ALL_SIGNATURES_G = new RegExp(SIGNATURE_ALT, "gu");
+/**
+ * Split keeping the separator: `text.split(SIGNATURE_SPLIT)` yields `[body0, sig1, part1, sig2, …]`
+ * — the captured group preserves WHICH signature preceded each part, so the unmerge tokenizer can
+ * re-emit a non-boundary signature VERBATIM as its exact original sequence (lossless even for a
+ * legacy stray in a mixed run; never normalized to the current written form).
+ */
+const SIGNATURE_SPLIT = new RegExp(`(${SIGNATURE_ALT})`, "u");
 
 /**
  * Namespace declarations for the standalone wrapper used to re-parse a stored `<w:pPr>`/`<w:rPr>`
@@ -200,9 +226,10 @@ function runTextRaw(runEl: any): string {
 
 /**
  * Run text rendered for a view: `<w:t>` verbatim, `<w:tab>` -> \t, `<w:br>`/`<w:cr>` -> \n. The marker
- * SENTINEL is filtered OUT of the view: it is an internal boundary signal, never user-visible text, so
+ * SIGNATURE is filtered OUT of the view: it is an internal boundary signal, never user-visible text, so
  * a view (Shrink's per-run read, the whitespace-collapse rebuild, restored segment text) must never
- * carry it. Detection/splitting use `runTextRaw` instead, which keeps sentinels intact.
+ * carry it. Detection/splitting use `runTextRaw` instead, which keeps signatures intact. Only FULL
+ * signatures are filtered — a lone organic ZWSP in user text is real content and passes through.
  */
 function runTextView(runEl: any): string {
   let text = "";
@@ -218,7 +245,7 @@ function runTextView(runEl: any): string {
     }
   };
   walk(runEl);
-  return text.split(MARK_SENTINEL).join("");
+  return text.replace(ALL_SIGNATURES_G, ""); // filter EVERY signature kind (current pair + legacy)
 }
 
 function runHighlight(runEl: any): string | null {
@@ -308,28 +335,28 @@ function runSizeHalfPts(runEl: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** True when a run carries the marker SENTINEL anywhere in its text — the intrinsic condense signal. */
-function containsSentinel(runEl: any): boolean {
-  return runTextRaw(runEl).includes(MARK_SENTINEL);
+/** True when a run carries ANY marker signature (current pair or legacy) in its text — the condense signal. */
+function containsSignature(runEl: any): boolean {
+  return ANY_SIGNATURE.test(runTextRaw(runEl));
 }
 
 /** A condense MARKER run (glyph boundary OR data payload), identified by the intrinsic text sentinel. */
 function isMarkerRun(runEl: any): boolean {
-  return containsSentinel(runEl);
+  return containsSignature(runEl);
 }
 
 /**
- * A marker run's payload text: its raw text with every sentinel stripped and edges trimmed. A data run
- * stores serialized XML as `SENTINEL + "<w:pPr…/>"`; the sentinel must be removed before the XML is
- * classified or re-parsed (a leading sentinel would make `<w:pPr` fail both `startsWith` and the parser).
+ * A marker run's payload text: its raw text with every signature stripped and edges trimmed. A data run
+ * stores serialized XML as `SIGNATURE + "<w:pPr…/>"`; the signature must be removed before the XML is
+ * classified or re-parsed (a leading signature would make `<w:pPr` fail both `startsWith` and the parser).
  */
 function payloadText(runEl: any): string {
-  return runTextRaw(runEl).split(MARK_SENTINEL).join("").trim();
+  return runTextRaw(runEl).replace(ALL_SIGNATURES_G, "").trim();
 }
 
 /** A marker run that stores a divergent following-paragraph `<w:pPr>` (vanished; payload begins `<w:pPr`). */
 function isPPrDataRun(runEl: any): boolean {
-  return containsSentinel(runEl) && vanishOn(runRPr(runEl)) && payloadText(runEl).startsWith("<w:pPr");
+  return containsSignature(runEl) && vanishOn(runRPr(runEl)) && payloadText(runEl).startsWith("<w:pPr");
 }
 
 /**
@@ -338,7 +365,7 @@ function isPPrDataRun(runEl: any): boolean {
  * {@link dropBlankParagraphs}. (`<w:rPr/>` means the blank's mark had no own properties.)
  */
 function isMarkRPrDataRun(runEl: any): boolean {
-  return containsSentinel(runEl) && vanishOn(runRPr(runEl)) && payloadText(runEl).startsWith("<w:rPr");
+  return containsSignature(runEl) && vanishOn(runRPr(runEl)) && payloadText(runEl).startsWith("<w:rPr");
 }
 
 /** A marker run carrying a serialized-XML payload (a stored pPr or mark rPr) rather than a visible glyph. */
@@ -704,9 +731,9 @@ function rebuildSimpleRunText(doc: any, runEl: any, text: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a visible boundary glyph run whose text is `SENTINEL + glyph` (glyph = a space, or a 6pt `¶`).
- * The intrinsic sentinel — NOT a style reference — is what makes it a marker, because run TEXT survives
- * `insertOoxml` where a net-new custom `<w:rStyle>` does not (see {@link MARK_SENTINEL}). The pilcrow's
+ * Build a visible boundary glyph run whose text is `SIGNATURE + glyph` (glyph = a space, or a 6pt `¶`).
+ * The intrinsic signature — NOT a style reference — is what makes it a marker, because run TEXT survives
+ * `insertOoxml` where a net-new custom `<w:rStyle>` does not (see {@link MARK_SIGNATURE}). The pilcrow's
  * 6pt size is direct formatting (`<w:sz>`/`<w:szCs>`), which also survives. A space marker needs no rPr.
  */
 function makeGlyphMarker(doc: any, glyph: string, sizeHalfPts: number | null): any {
@@ -723,16 +750,16 @@ function makeGlyphMarker(doc: any, glyph: string, sizeHalfPts: number | null): a
   }
   const t = doc.createElement("w:t");
   t.setAttribute("xml:space", "preserve");
-  t.appendChild(doc.createTextNode(MARK_SENTINEL + glyph));
+  t.appendChild(doc.createTextNode(MARK_SIGNATURE + glyph));
   r.appendChild(t);
   return r;
 }
 
 /**
- * Build a hidden, vanished marker run whose `<w:t>` carries `SENTINEL + payloadXml` — either a divergent
+ * Build a hidden, vanished marker run whose `<w:t>` carries `SIGNATURE + payloadXml` — either a divergent
  * following paragraph's `<w:pPr>` (merge mode) or a dropped blank's original mark `<w:rPr>` (retain mode).
- * Stored as TEXT: the serializer escapes it (`<`->`&lt;`), Uncondense strips the sentinel, un-escapes and
- * re-parses. Self-describing (the sentinel + leading tag identify it), so it travels with the paragraph
+ * Stored as TEXT: the serializer escapes it (`<`->`&lt;`), Uncondense strips the signature, un-escapes and
+ * re-parses. Self-describing (the signature + leading tag identify it), so it travels with the paragraph
  * (copy/paste-safe; no global state, no style table). `<w:vanish/>` is direct formatting that both hides
  * the payload AND keeps the run from coalescing into an adjacent VISIBLE glyph/body run on import.
  */
@@ -743,7 +770,7 @@ function makeDataRun(doc: any, payloadXml: string): any {
   r.appendChild(rPr);
   const t = doc.createElement("w:t");
   t.setAttribute("xml:space", "preserve");
-  t.appendChild(doc.createTextNode(MARK_SENTINEL + payloadXml));
+  t.appendChild(doc.createTextNode(MARK_SIGNATURE + payloadXml));
   r.appendChild(t);
   return r;
 }
@@ -785,7 +812,7 @@ export function condenseFragmentOoxml(fragmentXml: string, opts: CondenseOptions
     boundariesMarked = mergeParagraphs(doc, paras, opts);
   }
 
-  // No styles-part injection: markers self-identify through the intrinsic text {@link MARK_SENTINEL}
+  // No styles-part injection: markers self-identify through the intrinsic text {@link MARK_SIGNATURE}
   // + direct run formatting, both of which survive `insertOoxml` into a populated doc — unlike the
   // retired custom `<w:rStyle>`, which Word stripped on import (the 2026-06-09 irreversibility bug).
 
@@ -931,7 +958,7 @@ export function uncondenseFragmentOoxml(fragmentXml: string): UncondenseOoxmlRes
   for (const p of directParagraphs(scope)) {
     const dataRun = paragraphRuns(p).find((r) => isMarkRPrDataRun(r));
     if (!dataRun) continue;
-    // Restore the user's paragraph mark VERBATIM from the parked payload (sentinel already stripped by
+    // Restore the user's paragraph mark VERBATIM from the parked payload (signature already stripped by
     // `payloadText`). An empty `<w:rPr/>` payload means the blank's mark had no own properties → drop the
     // live mark rPr entirely (which also removes the `<w:vanish/>` we added to collapse it).
     const original = importRPr(doc, payloadText(dataRun));
@@ -972,16 +999,17 @@ const IGNORABLE_BETWEEN_MARKER_AND_PAYLOAD = new Set<string>(["w:proofErr", "w:b
  * boundary's payload run, or a clone of the merged pPr (the uniform-card-body common case). The markers
  * and payload runs are dropped. Returns the number of breaks restored (segments created − 1).
  *
- * CHARACTER-PRECISE on the SENTINEL, not whole-run-atomic, because the marker signal now lives IN run
+ * PRECISE PER SIGNATURE OCCURRENCE, not whole-run-atomic, because the marker signal lives IN run
  * text and Word coalesces adjacent identically-formatted runs on `insertOoxml`. Two consequences this
  * must survive: (a) two consecutive boundaries (an empty former paragraph between cards) merge into ONE
- * run `SENTINEL glyph SENTINEL glyph` → still TWO breaks; (b) a glyph marker can merge with adjacent
- * BODY text of identical formatting → the run text becomes `body SENTINEL glyph body`. Tokenizing on the
- * sentinel (text before the first = body for the current segment; each sentinel = one boundary; the ONE
- * glyph char after it is dropped; the remainder is body for the new segment, re-emitted with the marker
- * run's own rPr — which equals the body's, since identical rPr is exactly what let them coalesce) makes
- * the split lossless under ANY coalescing. A sentinel NOT followed by a boundary glyph is treated as
- * literal text (kept verbatim), so a stray sentinel can never eat a character.
+ * run `SIGNATURE glyph SIGNATURE glyph` → still TWO breaks; (b) a glyph marker can merge with adjacent
+ * BODY text of identical formatting → the run text becomes `body SIGNATURE glyph body`. Tokenizing on
+ * the signature set (text before the first = body for the current segment; each signature = one
+ * boundary; the ONE glyph char after it is dropped; the remainder is body for the new segment,
+ * re-emitted with the marker run's own rPr — which equals the body's, since identical rPr is exactly
+ * what let them coalesce) makes the split lossless under ANY coalescing. A signature NOT followed by a
+ * boundary glyph is treated as literal text (kept verbatim as its exact original sequence), so a stray
+ * signature can never eat a character — and a lone organic ZWSP never tokenizes at all.
  */
 function splitParagraphAtMarkers(doc: any, pEl: any): number {
   const content = paragraphContentNodes(pEl);
@@ -1009,11 +1037,19 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
     const node = content[i];
     if (node.nodeType === ELEMENT_NODE && node.nodeName === "w:r" && isGlyphMarkerRun(node)) {
       const rPrNode = runRPr(node);
-      const parts = runTextRaw(node).split(MARK_SENTINEL);
-      pushBody(rPrNode, parts[0]); // text before the first sentinel stays in the current segment
+      // Capture-split on the SIGNATURE SET: tokens = [body0, sig1, part1, sig2, part2, …]. A single
+      // run can interleave BOTH signature kinds (re-condensing a legacy-condensed doc writes new-pair
+      // boundaries beside surviving U+2063 ones, and Word coalesces them into one run), so the split
+      // must honor every kind — and the captured separator lets a NON-boundary signature be re-emitted
+      // verbatim as exactly the sequence it was (never normalized to the current written form). The
+      // split consumes each signature's FULL length (1 or 2 code units); the glyph after it is always
+      // exactly one code unit, dropped via `.slice(1)`.
+      const tokens = runTextRaw(node).split(SIGNATURE_SPLIT);
+      pushBody(rPrNode, tokens[0]); // text before the first signature stays in the current segment
       let boundariesHere = 0;
-      for (let k = 1; k < parts.length; k++) {
-        const part = parts[k];
+      for (let k = 1; k < tokens.length; k += 2) {
+        const signature = tokens[k]; // the actual signature sequence found (current pair OR legacy)
+        const part = tokens[k + 1] !== undefined ? tokens[k + 1] : "";
         const glyph = part.length > 0 ? part[0] : "";
         if (BOUNDARY_GLYPHS.has(glyph)) {
           // Real boundary: open a new segment, drop the one glyph char, keep any trailing body.
@@ -1022,9 +1058,9 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
           boundariesHere++;
           pushBody(rPrNode, part.slice(1));
         } else {
-          // Sentinel not followed by a known glyph (collision / host re-split): keep it verbatim so no
+          // Signature not followed by a known glyph (collision / host re-split): keep it verbatim so no
           // character is ever lost; do NOT open a boundary here.
-          pushBody(rPrNode, MARK_SENTINEL + part);
+          pushBody(rPrNode, signature + part);
         }
       }
       if (boundariesHere === 0) continue; // nothing split off this run — no payload to consume
@@ -1043,7 +1079,7 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
       }
       const next = content[j];
       if (next && next.nodeType === ELEMENT_NODE && next.nodeName === "w:r" && isPPrDataRun(next)) {
-        segmentPPr[segmentPPr.length - 1] = payloadText(next); // sentinel-stripped pPr XML
+        segmentPPr[segmentPPr.length - 1] = payloadText(next); // signature-stripped pPr XML
         // Keep the stepped-over noise (bookmark edges matter); it lands in the boundary's new segment.
         for (const s of skipped) segments[segments.length - 1].push(s);
         i = j; // consume through the payload run
@@ -1079,15 +1115,15 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
   return segments.length - 1;
 }
 
-/** Strip any stray sentinel before re-parsing a payload (callers pass `payloadText`, but be defensive). */
-function stripSentinel(xml: string): string {
-  return xml.split(MARK_SENTINEL).join("");
+/** Strip any stray signature (every kind) before re-parsing a payload (callers pass `payloadText`, but be defensive). */
+function stripSignatures(xml: string): string {
+  return xml.replace(ALL_SIGNATURES_G, "");
 }
 
 /** Parse a stored `<w:pPr>` string and import it into `doc` (namespace-wrapped so every prefix resolves). */
 function importPPr(doc: any, pPrXml: string): any | null {
   try {
-    const wrapped = `<w:p ${WRAP_NS}>${stripSentinel(pPrXml)}</w:p>`;
+    const wrapped = `<w:p ${WRAP_NS}>${stripSignatures(pPrXml)}</w:p>`;
     const frag = parse(wrapped);
     const pPr = frag.getElementsByTagName("w:pPr").item(0);
     return pPr ? doc.importNode(pPr, true) : null;
@@ -1099,7 +1135,7 @@ function importPPr(doc: any, pPrXml: string): any | null {
 /** Parse a stored mark `<w:rPr>` string and import it into `doc` (namespace-wrapped so every prefix resolves). */
 function importRPr(doc: any, rPrXml: string): any | null {
   try {
-    const wrapped = `<w:p ${WRAP_NS}><w:pPr>${stripSentinel(rPrXml)}</w:pPr></w:p>`;
+    const wrapped = `<w:p ${WRAP_NS}><w:pPr>${stripSignatures(rPrXml)}</w:pPr></w:p>`;
     const frag = parse(wrapped);
     const rPr = frag.getElementsByTagName("w:rPr").item(0);
     return rPr ? doc.importNode(rPr, true) : null;

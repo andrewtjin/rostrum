@@ -244,7 +244,7 @@ export interface WordPort {
 export interface FragmentRunView extends RunView {
   /** Explicit `<w:sz>` value in half-points on this run, or null when it inherits from the style. */
   sizeHalfPts: number | null;
-  /** True when this run is a condense marker — identified by the intrinsic text sentinel (`MARK_SENTINEL`). */
+  /** True when this run is a condense marker — identified by an intrinsic text signature in `MARK_SIGNATURES` (current ZWSP+WJ pair or legacy U+2063). */
   breakMarker: boolean;
   /**
    * True when the run is character-boxed (`<w:bdr>` with a real border) — directly OR through its
@@ -258,8 +258,8 @@ export interface FragmentRunView extends RunView {
 
 /**
  * How a Condense operation handles reversibility — the single seam that flips lossless ↔ destructive.
- *   * `"marker"` (default): each former paragraph boundary becomes a sentinel-tagged marker run
- *     (`MARK_SENTINEL`), so Uncondense is an exact inverse. Lossless.
+ *   * `"marker"` (default): each former paragraph boundary becomes a signature-tagged marker run
+ *     (`MARK_SIGNATURE`), so Uncondense is an exact inverse. Lossless.
  *   * `"none"`: boundaries collapse to a plain space with no marker — Verbatim-style destructive,
  *     allowed ONLY when pilcrows are off (a visible pilcrow IS a marker). Faster, not reversible.
  */
