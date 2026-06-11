@@ -474,6 +474,44 @@ describe("organic U+200B in user text (never a marker)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Glyph-marker fail-safe: the split rebuilds a marker run from `runTextRaw`, which concatenates the
+// `<w:t>`s ACROSS intervening elements and drops them. A run whose signature only exists in that
+// concatenation (e.g. ZWSP at the end of one <w:t>, WJ at the start of the next, a <w:tab/> between)
+// must therefore FAIL glyph-marker detection and be left verbatim — losslessness outranks marker
+// detection. (Pre-existing class: the same concat-and-drop corrupted on the deployed U+2063 build.)
+// ---------------------------------------------------------------------------
+describe("glyph-marker detection requires a text-only run (fail-safe)", () => {
+  it("leaves a run verbatim when its signature spans <w:t>s around a tab — no fabricated break, tab kept", () => {
+    // The executed reviewer fixture: raw-text concat is "AAA" + ZWSP + WJ + " BBB" (a full signature
+    // followed by a space), but the tab BETWEEN the <w:t>s would be dropped by the rebuild.
+    const WJ = S.slice(1); // U+2060 WORD JOINER (second half of the pair)
+    const xml = body(
+      p(`<w:r><w:t xml:space="preserve">AAA${ZWSP}</w:t><w:tab/><w:t xml:space="preserve">${WJ} BBB</w:t></w:r>`)
+    );
+    const out = uncondenseFragmentOoxml(xml);
+    expect(out.changed).toBe(false); // complete no-op — the run is not a glyph marker
+    expect(out.breaksRestored).toBe(0); // no fabricated break
+    expect(out.xml).toContain("<w:tab/>"); // the tab survives
+    expect(out.xml).toContain(`AAA${ZWSP}`); // every text byte still in place, in its original <w:t>
+    expect(out.xml).toContain(`${WJ} BBB`);
+  });
+
+  it("still detects every GENUINE glyph marker (condense only writes rPr+t runs) — no false negative", () => {
+    const xml = body(p(run("AAA")), p(run("BBB")), p(run("CCC")));
+    for (const opts of [
+      { usePilcrows: false, retainParagraphs: false, reversal: "marker" as const }, // space markers, no rPr
+      { usePilcrows: true, retainParagraphs: false, reversal: "marker" as const } // 6pt ¶ markers, WITH rPr
+    ]) {
+      const condensed = condenseFragmentOoxml(xml, opts);
+      expect(condensed.boundariesMarked).toBe(2);
+      const restored = uncondenseFragmentOoxml(condensed.xml);
+      expect(restored.breaksRestored).toBe(2); // both markers detected and split
+      expect(paraTexts(restored.xml)).toEqual(["AAA", "BBB", "CCC"]);
+    }
+  });
+});
+
 describe("portability + idempotence", () => {
   it("a condensed block with NO styles part still uncondenses (copy/paste portability)", () => {
     // The signal travels in run TEXT, not a document-local style table — so a condensed block pasted

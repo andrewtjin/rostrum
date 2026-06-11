@@ -301,16 +301,37 @@ function vanishOn(rPr: any): boolean {
 
 const INELIGIBLE_RUN_TAGS = ["w:fldChar", "w:instrText", "w:footnoteReference", "w:endnoteReference", "w:drawing", "w:object", "w:pict"];
 
-/** True when a run is plain text (only rPr / w:t / w:tab / w:br / w:cr) — safe to normalize whitespace. */
-function isSimpleTextRun(runEl: any): boolean {
+/** Allowed element children of a "simple text" run (whitespace-normalizable shape). */
+const SIMPLE_TEXT_RUN_TAGS = new Set<string>(["w:rPr", "w:t", "w:tab", "w:br", "w:cr"]);
+
+/** Allowed element children of a "text only" run (`runTextRaw`-rebuildable shape — see below). */
+const TEXT_ONLY_RUN_TAGS = new Set<string>(["w:rPr", "w:t"]);
+
+/** True when every ELEMENT child of a run is in `allowed` (the shared walk behind both shape checks). */
+function runHasOnlyChildren(runEl: any, allowed: ReadonlySet<string>): boolean {
   const kids = runEl.childNodes;
   for (let i = 0; i < kids.length; i++) {
     const k = kids.item(i);
-    if (k.nodeType !== ELEMENT_NODE) continue;
-    const n = k.nodeName;
-    if (n !== "w:rPr" && n !== "w:t" && n !== "w:tab" && n !== "w:br" && n !== "w:cr") return false;
+    if (k.nodeType === ELEMENT_NODE && !allowed.has(k.nodeName)) return false;
   }
   return true;
+}
+
+/** True when a run is plain text (only rPr / w:t / w:tab / w:br / w:cr) — safe to normalize whitespace. */
+function isSimpleTextRun(runEl: any): boolean {
+  return runHasOnlyChildren(runEl, SIMPLE_TEXT_RUN_TAGS);
+}
+
+/**
+ * True when a run carries NOTHING but its rPr and `<w:t>` text. This is the shape a glyph marker must
+ * have to be split safely: the tokenizer rebuilds a marker run from `runTextRaw`, which concatenates
+ * the `<w:t>`s and silently DROPS every other child — so honoring a marker inside a run that also
+ * carries a `<w:tab/>`/`<w:br/>`/drawing would destroy that content (e.g. `<w:t>AAA{U+200B}</w:t>`
+ * `<w:tab/><w:t>{U+2060} BBB</w:t>` would fabricate a break AND lose the tab). Condense only ever writes
+ * simple `rPr+t` glyph markers, so requiring this shape costs no genuine detection.
+ */
+function isTextOnlyRun(runEl: any): boolean {
+  return runHasOnlyChildren(runEl, TEXT_ONLY_RUN_TAGS);
 }
 
 function runEligible(runEl: any): boolean {
@@ -373,9 +394,15 @@ function isDataRun(runEl: any): boolean {
   return isPPrDataRun(runEl) || isMarkRPrDataRun(runEl);
 }
 
-/** A marker run that is a VISIBLE boundary glyph (a space or `¶`) — the actual paragraph break. */
+/**
+ * A marker run that is a VISIBLE boundary glyph (a space or `¶`) — the actual paragraph break.
+ * REQUIRES the text-only shape: the split rebuilds the run from `runTextRaw`, so a run that also
+ * carries non-text children (`<w:tab/>`, `<w:br/>`, a drawing…) must FAIL detection and be left
+ * verbatim — losslessness outranks marker detection (fail-safe). Genuine condense-written glyph
+ * markers are always `rPr+t` only, so this rejects no real marker.
+ */
 function isGlyphMarkerRun(runEl: any): boolean {
-  return isMarkerRun(runEl) && !isDataRun(runEl);
+  return isMarkerRun(runEl) && !isDataRun(runEl) && isTextOnlyRun(runEl);
 }
 
 // ---------------------------------------------------------------------------
