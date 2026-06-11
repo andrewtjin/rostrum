@@ -15,16 +15,33 @@
 export const CITE_STYLE_ID = "Style13ptBold";
 
 /**
- * Character-style id stamped on a **condense break marker** run — the run Condense inserts at
- * each former paragraph boundary when it merges N `<w:p>` into one. It is the condense analogue of
- * `CITE_STYLE_ID`: an unambiguous, copy/paste-safe signal carried in the run's own `<w:rStyle>` that
- * survives round-trips, so `Uncondense` can find every boundary by `rStyle == CONDENSE_MARK_STYLE`
- * (mirroring how cites are detected) rather than by fragile bookmarks or a document-global sidecar.
- * A divergent following-paragraph `<w:pPr>` is stored as the (vanished) marker run's own text payload,
- * so each merged paragraph stays fully self-describing and reversible. The id is namespaced so it can
- * never collide with a debater's own character style.
+ * LEGACY condense break-marker character-style id. RETIRED as the marker signal — it depended on a
+ * custom `<w:rStyle>` reference surviving `insertOoxml` into a populated doc, which it does NOT: Word
+ * drops an `<w:rStyle>` whose styleId is not resident in the destination's style table, erasing the
+ * only signal Uncondense keyed on (the 2026-06-09 live irreversibility bug; xmldom + COM both
+ * over-preserved the style, so every headless/COM gate stayed green while the live host stripped it).
+ * Replaced by {@link MARK_SENTINEL} — an intrinsic, directly-formatted, self-describing TEXT signal
+ * that survives the round-trip. Kept only as documentation of the retired approach; nothing keys on it.
  */
 export const CONDENSE_MARK_STYLE = "RostrumCondenseBreak";
+
+/**
+ * Zero-width TEXT sentinel that marks a **condense boundary / payload** run. This is the condense
+ * marker signal — carried in the run's own `<w:t>` text, NOT in a style reference — because per
+ * Microsoft's OOXML guidance only the provided STYLE definition is applied at insert time; a net-new
+ * custom `<w:rStyle>` is not persisted into a populated doc's style table and is stripped on the
+ * `getOoxml` round-trip (see {@link CONDENSE_MARK_STYLE}). Run TEXT and direct run formatting DO
+ * survive `insertOoxml`, so Uncondense keys on the sentinel (`runTextRaw().includes(MARK_SENTINEL)`).
+ *
+ * U+2063 INVISIBLE SEPARATOR: Unicode category Cf (format), zero-width, and — critically — NOT a
+ * member of `\p{Zs}`/`\s`, so the whitespace-collapse pass never folds it and `isBlankParagraph`
+ * never misreads it. It is purpose-built to be invisible, so a glyph marker stays visually identical.
+ *
+ * IT IS A SINGLE NAMED CONSTANT ON PURPOSE: the one thing only a live wet-test can confirm is whether
+ * Word preserves this character through `insertOoxml`→`getOoxml`. If a wet-test ever shows it stripped,
+ * swap this constant (e.g. to a different invisible/private token) — no other code changes.
+ */
+export const MARK_SENTINEL = String.fromCodePoint(0x2063);
 
 /**
  * A paragraph is kept by the heading rule iff its canonical 0-based outline level

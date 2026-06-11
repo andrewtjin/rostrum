@@ -58,6 +58,9 @@ export function createRibbonRunner<C>(opts: {
   feature: string;
   build: () => Promise<C>;
   cancel?: (controller: C) => void;
+  /** Bounded ops with nothing to stream (e.g. Condense): suppress the progress pop-out on success;
+   *  it still surfaces an error/blocked outcome. See WithProgressOptions.quiet. */
+  quiet?: boolean;
 }): RibbonRunner<C> {
   let controllerPromise: Promise<C> | null = null;
   const getController = (): Promise<C> => {
@@ -81,6 +84,7 @@ export function createRibbonRunner<C>(opts: {
       try {
         const controller = await getController();
         return await withProgressDialog(label, {
+          quiet: opts.quiet,
           onCancel: () => opts.cancel?.(controller),
           // A ribbon op runs in its own runtime, invisible to the pane's diagnostics view — so on a
           // kept-open failure the pop-out is the only place the user can read WHY it failed.

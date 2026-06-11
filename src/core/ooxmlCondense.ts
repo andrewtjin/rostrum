@@ -14,7 +14,7 @@
 // Everything here is pure: string in, string out, via @xmldom/xmldom — no Office.js.
 
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
-import { CONDENSE_MARK_STYLE, CITE_STYLE_ID } from "./styles";
+import { MARK_SENTINEL, CITE_STYLE_ID } from "./styles";
 import { CondenseOptions, FragmentRunView } from "./types";
 
 // xmldom node types vary across versions; we keep public signatures fully typed (string in/out,
@@ -24,6 +24,29 @@ import { CondenseOptions, FragmentRunView } from "./types";
 
 const ELEMENT_NODE = 1;
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+/**
+ * The two visible boundary GLYPHS a merge-mode marker can carry: a plain space (full-merge) or a 6pt
+ * `¶` (pilcrow mode). Each is exactly ONE UTF-16 code unit, so the split tokenizer drops a boundary's
+ * glyph with a single `.slice(1)`. They double as a GUARD: a sentinel is only honored as a boundary
+ * when the char that follows it is one of these — so a stray sentinel in user text (astronomically
+ * unlikely for U+2063, but never zero) can never silently eat the following character.
+ */
+const BOUNDARY_GLYPHS = new Set<string>([" ", "¶"]);
+
+/**
+ * Namespace declarations for the standalone wrapper used to re-parse a stored `<w:pPr>`/`<w:rPr>`
+ * payload (see {@link importPPr}/{@link importRPr}). A payload is serialized out of the source document
+ * by xmldom, which does NOT re-emit namespace declarations the node merely inherited from the package
+ * root — so a mark that carried e.g. a `w14:` property would lose that prefix on a bare `xmlns:w`-only
+ * re-parse. Declaring the prefixes Word actually emits keeps the round-trip lossless.
+ */
+const WRAP_NS =
+  `xmlns:w="${W_NS}"` +
+  ` xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"` +
+  ` xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"` +
+  ` xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"` +
+  ` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`;
 
 /**
  * One-or-more of: ASCII control whitespace, or any Unicode Space_Separator (`\p{Zs}` — ASCII space,
@@ -175,7 +198,12 @@ function runTextRaw(runEl: any): string {
   return text;
 }
 
-/** Run text rendered for a view: `<w:t>` verbatim, `<w:tab>` -> \t, `<w:br>`/`<w:cr>` -> \n. */
+/**
+ * Run text rendered for a view: `<w:t>` verbatim, `<w:tab>` -> \t, `<w:br>`/`<w:cr>` -> \n. The marker
+ * SENTINEL is filtered OUT of the view: it is an internal boundary signal, never user-visible text, so
+ * a view (Shrink's per-run read, the whitespace-collapse rebuild, restored segment text) must never
+ * carry it. Detection/splitting use `runTextRaw` instead, which keeps sentinels intact.
+ */
 function runTextView(runEl: any): string {
   let text = "";
   const walk = (node: any): void => {
@@ -190,7 +218,7 @@ function runTextView(runEl: any): string {
     }
   };
   walk(runEl);
-  return text;
+  return text.split(MARK_SENTINEL).join("");
 }
 
 function runHighlight(runEl: any): string | null {
@@ -280,23 +308,37 @@ function runSizeHalfPts(runEl: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** A run carrying the condense break-marker character style. */
-function isMarkerRun(runEl: any): boolean {
-  return runRStyle(runEl) === CONDENSE_MARK_STYLE;
+/** True when a run carries the marker SENTINEL anywhere in its text — the intrinsic condense signal. */
+function containsSentinel(runEl: any): boolean {
+  return runTextRaw(runEl).includes(MARK_SENTINEL);
 }
 
-/** A marker run that stores a divergent following-paragraph `<w:pPr>` (vanished; text begins `<w:pPr`). */
-function isPPrDataRun(runEl: any): boolean {
-  return isMarkerRun(runEl) && vanishOn(runRPr(runEl)) && runTextRaw(runEl).trimStart().startsWith("<w:pPr");
+/** A condense MARKER run (glyph boundary OR data payload), identified by the intrinsic text sentinel. */
+function isMarkerRun(runEl: any): boolean {
+  return containsSentinel(runEl);
 }
 
 /**
- * A marker run that stores a retain-mode dropped blank's ORIGINAL mark `<w:rPr>` (vanished; text begins
- * `<w:rPr`). Parked when the dropped paragraph's mark carried a foreign character style we had to swap for
- * our break style, so Uncondense can restore the user's mark exactly.
+ * A marker run's payload text: its raw text with every sentinel stripped and edges trimmed. A data run
+ * stores serialized XML as `SENTINEL + "<w:pPr…/>"`; the sentinel must be removed before the XML is
+ * classified or re-parsed (a leading sentinel would make `<w:pPr` fail both `startsWith` and the parser).
+ */
+function payloadText(runEl: any): string {
+  return runTextRaw(runEl).split(MARK_SENTINEL).join("").trim();
+}
+
+/** A marker run that stores a divergent following-paragraph `<w:pPr>` (vanished; payload begins `<w:pPr`). */
+function isPPrDataRun(runEl: any): boolean {
+  return containsSentinel(runEl) && vanishOn(runRPr(runEl)) && payloadText(runEl).startsWith("<w:pPr");
+}
+
+/**
+ * A marker run that stores a retain-mode dropped blank's ORIGINAL mark `<w:rPr>` (vanished; payload
+ * begins `<w:rPr`), so Uncondense can restore the user's paragraph mark verbatim — see
+ * {@link dropBlankParagraphs}. (`<w:rPr/>` means the blank's mark had no own properties.)
  */
 function isMarkRPrDataRun(runEl: any): boolean {
-  return isMarkerRun(runEl) && vanishOn(runRPr(runEl)) && runTextRaw(runEl).trimStart().startsWith("<w:rPr");
+  return containsSentinel(runEl) && vanishOn(runRPr(runEl)) && payloadText(runEl).startsWith("<w:rPr");
 }
 
 /** A marker run carrying a serialized-XML payload (a stored pPr or mark rPr) rather than a visible glyph. */
@@ -304,7 +346,7 @@ function isDataRun(runEl: any): boolean {
   return isPPrDataRun(runEl) || isMarkRPrDataRun(runEl);
 }
 
-/** A marker run that is the VISIBLE boundary glyph (a space or `¶`) — the actual paragraph break. */
+/** A marker run that is a VISIBLE boundary glyph (a space or `¶`) — the actual paragraph break. */
 function isGlyphMarkerRun(runEl: any): boolean {
   return isMarkerRun(runEl) && !isDataRun(runEl);
 }
@@ -661,47 +703,47 @@ function rebuildSimpleRunText(doc: any, runEl: any, text: string): void {
 // Marker construction
 // ---------------------------------------------------------------------------
 
-/** Build a visible boundary glyph run (a space or `¶`), styled `CONDENSE_MARK_STYLE`. */
+/**
+ * Build a visible boundary glyph run whose text is `SENTINEL + glyph` (glyph = a space, or a 6pt `¶`).
+ * The intrinsic sentinel — NOT a style reference — is what makes it a marker, because run TEXT survives
+ * `insertOoxml` where a net-new custom `<w:rStyle>` does not (see {@link MARK_SENTINEL}). The pilcrow's
+ * 6pt size is direct formatting (`<w:sz>`/`<w:szCs>`), which also survives. A space marker needs no rPr.
+ */
 function makeGlyphMarker(doc: any, glyph: string, sizeHalfPts: number | null): any {
   const r = doc.createElement("w:r");
-  const rPr = doc.createElement("w:rPr");
-  const rStyle = doc.createElement("w:rStyle");
-  rStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
-  rPr.appendChild(rStyle);
   if (sizeHalfPts != null) {
+    const rPr = doc.createElement("w:rPr");
     const sz = doc.createElement("w:sz");
     sz.setAttribute("w:val", String(sizeHalfPts));
     rPr.appendChild(sz);
     const szCs = doc.createElement("w:szCs");
     szCs.setAttribute("w:val", String(sizeHalfPts));
     rPr.appendChild(szCs);
+    r.appendChild(rPr);
   }
-  r.appendChild(rPr);
   const t = doc.createElement("w:t");
   t.setAttribute("xml:space", "preserve");
-  t.appendChild(doc.createTextNode(glyph));
+  t.appendChild(doc.createTextNode(MARK_SENTINEL + glyph));
   r.appendChild(t);
   return r;
 }
 
 /**
- * Build a hidden, vanished, break-styled run whose `<w:t>` carries a serialized-XML payload — either a
- * divergent following paragraph's `<w:pPr>` (merge mode) or a dropped blank's original mark `<w:rPr>`
- * (retain mode). Stored as TEXT: the serializer escapes it (`<`->`&lt;`), Uncondense un-escapes and re-
- * parses. Self-describing (its own tag identifies it), so it travels with the paragraph (copy/paste-safe;
- * no global state).
+ * Build a hidden, vanished marker run whose `<w:t>` carries `SENTINEL + payloadXml` — either a divergent
+ * following paragraph's `<w:pPr>` (merge mode) or a dropped blank's original mark `<w:rPr>` (retain mode).
+ * Stored as TEXT: the serializer escapes it (`<`->`&lt;`), Uncondense strips the sentinel, un-escapes and
+ * re-parses. Self-describing (the sentinel + leading tag identify it), so it travels with the paragraph
+ * (copy/paste-safe; no global state, no style table). `<w:vanish/>` is direct formatting that both hides
+ * the payload AND keeps the run from coalescing into an adjacent VISIBLE glyph/body run on import.
  */
 function makeDataRun(doc: any, payloadXml: string): any {
   const r = doc.createElement("w:r");
   const rPr = doc.createElement("w:rPr");
-  const rStyle = doc.createElement("w:rStyle");
-  rStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
-  rPr.appendChild(rStyle);
   rPr.appendChild(doc.createElement("w:vanish"));
   r.appendChild(rPr);
   const t = doc.createElement("w:t");
   t.setAttribute("xml:space", "preserve");
-  t.appendChild(doc.createTextNode(payloadXml));
+  t.appendChild(doc.createTextNode(MARK_SENTINEL + payloadXml));
   r.appendChild(t);
   return r;
 }
@@ -742,6 +784,10 @@ export function condenseFragmentOoxml(fragmentXml: string, opts: CondenseOptions
   } else {
     boundariesMarked = mergeParagraphs(doc, paras, opts);
   }
+
+  // No styles-part injection: markers self-identify through the intrinsic text {@link MARK_SENTINEL}
+  // + direct run formatting, both of which survive `insertOoxml` into a populated doc — unlike the
+  // retired custom `<w:rStyle>`, which Word stripped on import (the 2026-06-09 irreversibility bug).
 
   const after = serialize(doc);
   return { xml: after, changed: before !== after, paragraphsScanned: paras.length, boundariesMarked };
@@ -827,30 +873,19 @@ function dropBlankParagraphs(doc: any, paras: any[], reversal: CondenseOptions["
     if (!isBlankParagraph(p)) continue;
     if (remaining <= 1) break; // keep at least one paragraph
     if (reversal === "marker") {
-      // Lossless removal stamps the paragraph mark with the break style + `<w:vanish/>`, so it collapses
-      // now and Uncondense (which keys on the break style) restores it. rPr allows only ONE `<w:rStyle>`,
-      // so when the mark already carries a FOREIGN character style — e.g. an underlined-but-empty newline
-      // styled `StyleUnderline` (real docs underline via a char style) — we can't simply add ours. We
-      // park the pristine original mark rPr in a hidden, self-describing payload run, THEN swap the live
-      // rStyle to our break style: the blank condenses like any other, and Uncondense restores the user's
-      // mark verbatim from the payload — lossless, where we previously had to skip such paragraphs.
+      // Lossless removal: PARK the pristine paragraph-mark rPr in a hidden, self-describing payload run,
+      // then add `<w:vanish/>` to the live mark so the blank line collapses now. Uncondense detects the
+      // dropped blank by the parked mark-rPr payload and restores the user's mark VERBATIM from it — one
+      // uniform path whether the mark had no rPr, a plain rPr, or a foreign character style (real docs
+      // underline an empty newline through a char STYLE). The mark carries no break-style reference at
+      // all, so nothing depends on a custom style surviving the host round-trip.
+      //
+      // Capture the original BEFORE mutating: serialize the existing mark rPr (or the empty sentinel
+      // `<w:rPr/>` when the mark had none) so the parked copy never includes the `<w:vanish/>` we add next.
       const existing = existingMarkRPr(p);
-      const existingRStyle = existing ? firstDirectChild(existing, "w:rStyle") : null;
-      const foreignStyle =
-        !!existingRStyle && (existingRStyle.getAttribute("w:val") || "") !== CONDENSE_MARK_STYLE;
-      if (foreignStyle) {
-        p.appendChild(makeDataRun(doc, serialize(existing))); // park the original (captured pre-mutation)
-        existingRStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
-        if (!firstDirectChild(existing, "w:vanish")) existing.appendChild(doc.createElement("w:vanish"));
-      } else {
-        const markRPr = ensureMarkRPr(doc, p);
-        if (!firstDirectChild(markRPr, "w:rStyle")) {
-          const rStyle = doc.createElement("w:rStyle");
-          rStyle.setAttribute("w:val", CONDENSE_MARK_STYLE);
-          markRPr.insertBefore(rStyle, markRPr.firstChild);
-        }
-        if (!firstDirectChild(markRPr, "w:vanish")) markRPr.appendChild(doc.createElement("w:vanish"));
-      }
+      p.appendChild(makeDataRun(doc, existing ? serialize(existing) : "<w:rPr/>"));
+      const markRPr = ensureMarkRPr(doc, p);
+      if (!firstDirectChild(markRPr, "w:vanish")) markRPr.appendChild(doc.createElement("w:vanish"));
       count++;
     } else if (p.parentNode) {
       p.parentNode.removeChild(p);
@@ -892,28 +927,27 @@ export function uncondenseFragmentOoxml(fragmentXml: string): UncondenseOoxmlRes
   const scope = bodyScope(doc);
   let breaks = 0;
 
-  // 1) Retain-mode: un-hide every paragraph mark stamped with the break style.
+  // 1) Retain-mode: restore every blank we dropped, detected by its parked mark-rPr payload run.
   for (const p of directParagraphs(scope)) {
+    const dataRun = paragraphRuns(p).find((r) => isMarkRPrDataRun(r));
+    if (!dataRun) continue;
+    // Restore the user's paragraph mark VERBATIM from the parked payload (sentinel already stripped by
+    // `payloadText`). An empty `<w:rPr/>` payload means the blank's mark had no own properties → drop the
+    // live mark rPr entirely (which also removes the `<w:vanish/>` we added to collapse it).
+    const original = importRPr(doc, payloadText(dataRun));
+    if (!original) continue; // payload unparseable (should never happen) — leave it parked, never lose it
+    if (dataRun.parentNode) dataRun.parentNode.removeChild(dataRun);
     const pPr = firstDirectChild(p, "w:pPr");
-    const markRPr = pPr ? firstDirectChild(pPr, "w:rPr") : null;
-    const rStyle = markRPr ? firstDirectChild(markRPr, "w:rStyle") : null;
-    if (rStyle && (rStyle.getAttribute("w:val") || "") === CONDENSE_MARK_STYLE) {
-      // If we parked a foreign mark rPr when dropping this blank (see dropBlankParagraphs), restore it
-      // verbatim from the payload run; otherwise just strip our break style + vanish back off the mark.
-      const dataRun = paragraphRuns(p).find((r) => isMarkRPrDataRun(r));
-      const original = dataRun ? importRPr(doc, runTextRaw(dataRun).trim()) : null;
-      if (dataRun && dataRun.parentNode) dataRun.parentNode.removeChild(dataRun);
-      if (original) {
-        pPr.replaceChild(original, markRPr);
-      } else {
-        for (const v of directChildren(markRPr, "w:vanish")) markRPr.removeChild(v);
-        markRPr.removeChild(rStyle);
-        removeIfEmpty(markRPr);
-      }
-      // Leave no empty `<w:rPr/>`/`<w:pPr/>` residue behind (keeps the retain round-trip clean).
-      removeIfEmpty(pPr);
-      breaks++;
+    const liveMarkRPr = pPr ? firstDirectChild(pPr, "w:rPr") : null;
+    if (original && hasElementChild(original)) {
+      if (liveMarkRPr) pPr.replaceChild(original, liveMarkRPr);
+      else if (pPr) pPr.appendChild(original);
+    } else if (liveMarkRPr && liveMarkRPr.parentNode) {
+      liveMarkRPr.parentNode.removeChild(liveMarkRPr);
     }
+    // Leave no empty `<w:pPr/>` residue behind (keeps the retain round-trip clean).
+    removeIfEmpty(pPr);
+    breaks++;
   }
 
   // 2) Merge-mode: split each paragraph that contains boundary glyph markers.
@@ -926,10 +960,28 @@ export function uncondenseFragmentOoxml(fragmentXml: string): UncondenseOoxmlRes
 }
 
 /**
- * Split a merged paragraph at its boundary glyph markers into the original paragraphs, in document
- * order. Segment 0 inherits the merged paragraph's own pPr; each later segment gets the pPr stored in
- * the boundary's payload run, or a clone of the merged pPr (the uniform-card-body common case). The
- * markers and payload runs are dropped. Returns the number of breaks restored (segments created − 1).
+ * Non-run paragraph children Word may interleave between a boundary glyph run and its pPr payload run
+ * on an import/export round-trip (proofing marks, bookmark edges). The payload scan steps over these —
+ * requiring strict adjacency would silently drop the stored pPr (a real-Word formatting-loss bug).
+ */
+const IGNORABLE_BETWEEN_MARKER_AND_PAYLOAD = new Set<string>(["w:proofErr", "w:bookmarkStart", "w:bookmarkEnd"]);
+
+/**
+ * Split a merged paragraph at its boundary markers into the original paragraphs, in document order.
+ * Segment 0 inherits the merged paragraph's own pPr; each later segment gets the pPr stored in the
+ * boundary's payload run, or a clone of the merged pPr (the uniform-card-body common case). The markers
+ * and payload runs are dropped. Returns the number of breaks restored (segments created − 1).
+ *
+ * CHARACTER-PRECISE on the SENTINEL, not whole-run-atomic, because the marker signal now lives IN run
+ * text and Word coalesces adjacent identically-formatted runs on `insertOoxml`. Two consequences this
+ * must survive: (a) two consecutive boundaries (an empty former paragraph between cards) merge into ONE
+ * run `SENTINEL glyph SENTINEL glyph` → still TWO breaks; (b) a glyph marker can merge with adjacent
+ * BODY text of identical formatting → the run text becomes `body SENTINEL glyph body`. Tokenizing on the
+ * sentinel (text before the first = body for the current segment; each sentinel = one boundary; the ONE
+ * glyph char after it is dropped; the remainder is body for the new segment, re-emitted with the marker
+ * run's own rPr — which equals the body's, since identical rPr is exactly what let them coalesce) makes
+ * the split lossless under ANY coalescing. A sentinel NOT followed by a boundary glyph is treated as
+ * literal text (kept verbatim), so a stray sentinel can never eat a character.
  */
 function splitParagraphAtMarkers(doc: any, pEl: any): number {
   const content = paragraphContentNodes(pEl);
@@ -941,17 +993,62 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
   const segments: any[][] = [[]];
   const segmentPPr: (string | null)[] = [null]; // serialized pPr per segment (null → clone basePPr)
 
+  /** Append a body run (cloning the marker run's rPr, so coalesced-in body keeps its formatting). */
+  const pushBody = (rPrNode: any, text: string): void => {
+    if (text === "") return;
+    const r = doc.createElement("w:r");
+    if (rPrNode) r.appendChild(rPrNode.cloneNode(true));
+    const t = doc.createElement("w:t");
+    t.setAttribute("xml:space", "preserve");
+    t.appendChild(doc.createTextNode(text));
+    r.appendChild(t);
+    segments[segments.length - 1].push(r);
+  };
+
   for (let i = 0; i < content.length; i++) {
     const node = content[i];
     if (node.nodeType === ELEMENT_NODE && node.nodeName === "w:r" && isGlyphMarkerRun(node)) {
-      let pPr: string | null = null;
-      const next = content[i + 1];
-      if (next && next.nodeType === ELEMENT_NODE && next.nodeName === "w:r" && isPPrDataRun(next)) {
-        pPr = runTextRaw(next).trim();
-        i++; // consume the payload run
+      const rPrNode = runRPr(node);
+      const parts = runTextRaw(node).split(MARK_SENTINEL);
+      pushBody(rPrNode, parts[0]); // text before the first sentinel stays in the current segment
+      let boundariesHere = 0;
+      for (let k = 1; k < parts.length; k++) {
+        const part = parts[k];
+        const glyph = part.length > 0 ? part[0] : "";
+        if (BOUNDARY_GLYPHS.has(glyph)) {
+          // Real boundary: open a new segment, drop the one glyph char, keep any trailing body.
+          segments.push([]);
+          segmentPPr.push(null);
+          boundariesHere++;
+          pushBody(rPrNode, part.slice(1));
+        } else {
+          // Sentinel not followed by a known glyph (collision / host re-split): keep it verbatim so no
+          // character is ever lost; do NOT open a boundary here.
+          pushBody(rPrNode, MARK_SENTINEL + part);
+        }
       }
-      segments.push([]);
-      segmentPPr.push(pPr);
+      if (boundariesHere === 0) continue; // nothing split off this run — no payload to consume
+      // The pPr payload follows its glyph run, possibly past Word-inserted noise. It belongs to the
+      // run's LAST boundary: merged glyphs never had a payload between them — a payload run's distinct
+      // (vanished) formatting would have prevented the adjacency that makes Word merge in the first place.
+      let j = i + 1;
+      const skipped: any[] = [];
+      while (
+        j < content.length &&
+        content[j].nodeType === ELEMENT_NODE &&
+        IGNORABLE_BETWEEN_MARKER_AND_PAYLOAD.has(content[j].nodeName)
+      ) {
+        skipped.push(content[j]);
+        j++;
+      }
+      const next = content[j];
+      if (next && next.nodeType === ELEMENT_NODE && next.nodeName === "w:r" && isPPrDataRun(next)) {
+        segmentPPr[segmentPPr.length - 1] = payloadText(next); // sentinel-stripped pPr XML
+        // Keep the stepped-over noise (bookmark edges matter); it lands in the boundary's new segment.
+        for (const s of skipped) segments[segments.length - 1].push(s);
+        i = j; // consume through the payload run
+      }
+      // No payload found: don't advance i — the scanned nodes re-enter the loop and are kept normally.
     } else if (node.nodeType === ELEMENT_NODE && node.nodeName === "w:r" && isPPrDataRun(node)) {
       continue; // stray payload run with no preceding glyph (shouldn't happen) — drop it
     } else {
@@ -982,10 +1079,15 @@ function splitParagraphAtMarkers(doc: any, pEl: any): number {
   return segments.length - 1;
 }
 
-/** Parse a stored `<w:pPr>` string and import it into `doc` (namespace-wrapped so `w:` resolves). */
+/** Strip any stray sentinel before re-parsing a payload (callers pass `payloadText`, but be defensive). */
+function stripSentinel(xml: string): string {
+  return xml.split(MARK_SENTINEL).join("");
+}
+
+/** Parse a stored `<w:pPr>` string and import it into `doc` (namespace-wrapped so every prefix resolves). */
 function importPPr(doc: any, pPrXml: string): any | null {
   try {
-    const wrapped = `<w:p xmlns:w="${W_NS}">${pPrXml}</w:p>`;
+    const wrapped = `<w:p ${WRAP_NS}>${stripSentinel(pPrXml)}</w:p>`;
     const frag = parse(wrapped);
     const pPr = frag.getElementsByTagName("w:pPr").item(0);
     return pPr ? doc.importNode(pPr, true) : null;
@@ -994,10 +1096,10 @@ function importPPr(doc: any, pPrXml: string): any | null {
   }
 }
 
-/** Parse a stored mark `<w:rPr>` string and import it into `doc` (namespace-wrapped so `w:` resolves). */
+/** Parse a stored mark `<w:rPr>` string and import it into `doc` (namespace-wrapped so every prefix resolves). */
 function importRPr(doc: any, rPrXml: string): any | null {
   try {
-    const wrapped = `<w:p xmlns:w="${W_NS}"><w:pPr>${rPrXml}</w:pPr></w:p>`;
+    const wrapped = `<w:p ${WRAP_NS}><w:pPr>${stripSentinel(rPrXml)}</w:pPr></w:p>`;
     const frag = parse(wrapped);
     const rPr = frag.getElementsByTagName("w:rPr").item(0);
     return rPr ? doc.importNode(rPr, true) : null;
