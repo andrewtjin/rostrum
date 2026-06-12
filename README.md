@@ -3,6 +3,29 @@
 A desktop Word add-in suite for collapsing, condensing, and formatting debate docs in
 prep or in-round.
 
+![Hide time vs document length across 807 real tournament documents — Rostrum stays near one second on speech docs and under a minute on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
+
+**807 real tournament documents** — a full season's speech docs plus giant backfiles —
+each hidden by all four tools on the market, engine-to-engine:
+
+| | **Rostrum** | Verbatim 6.0.0¹ |
+| --- | --- | --- |
+| Median hide, delivered speech docs | **~1 s** | ~21 s (**~37× slower** doc-for-doc) |
+| Worst speech doc | 11 s | 5 docs never finished (15-min cap) |
+| 0.9–1.3M-word backfiles | **36–59 s** | 1–3 **hours**; 6 more abandoned at 45 min; 1 crashed Word |
+| Completed the corpus | **807 / 807** | 787 / 807 (timeouts, a Word crash, 8 files its macro errors out on) |
+
+¹ Verbatim timed at its in-process *lab floor* — the most favorable condition it has;
+as actually experienced (ribbon click, foreground window) it measures 2–6× slower
+than these numbers.
+
+The destructive community "zap" macros match Rostrum's speed on small docs but fall
+~10× behind on backfiles — and they permanently delete what they hide, where Rostrum's
+hide is lossless and reversible. Full per-doc dataset, methodology, and the cards-vs-time
+chart: [how it compares](https://andrewtjin.github.io/rostrum/comparison.html).
+
+![Hide time vs number of cards in the document, same corpus](assets/bench-cards-vs-time.svg)
+
 > **Status — v0.3.0.1, live.** Two tools (Invisibility Mode and Condense & Shrink)
 > alongside a Settings pane and a ribbon-advertised roadmap (Format & Condense, Flow,
 > Cite & Paste). The production build is hosted on GitHub Pages — install instructions

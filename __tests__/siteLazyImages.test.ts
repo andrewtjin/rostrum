@@ -24,13 +24,18 @@ describe("comparison-page screenshot <img> tags stay lazy", () => {
   // `[^>]` matches newlines inside a character class, so the multi-line
   // formatted thumbnail tags are captured whole alongside the one-line ones.
   const imgTags = html.match(/<img\b[^>]*>/g) || [];
-  const screenshotTags = imgTags.filter((tag) => /assets\/hidden-[^"']*\.png/.test(tag));
+  // hidden-*.png = the lightboxed screenshots; bench-*.svg = the 2026-06-11
+  // benchmark scatter charts (~160KB raw each — text SVG, so Pages serves them
+  // gzipped, but an eager fetch would still beat the page's first paint).
+  const screenshotTags = imgTags.filter((tag) =>
+    /assets\/(?:hidden-[^"']*\.png|bench-[^"']*\.svg)/.test(tag),
+  );
 
   it("finds the screenshot tags (regex stays in sync with the markup)", () => {
-    // Two thumbnails + two lightbox copies today. If a markup restructure ever
-    // hid them from the regex, the lazy assertion below would pass vacuously —
-    // pinning the floor here keeps the guard genuine.
-    expect(screenshotTags.length).toBeGreaterThanOrEqual(4);
+    // Two thumbnails + two lightbox copies + two benchmark charts today. If a
+    // markup restructure ever hid them from the regex, the lazy assertion below
+    // would pass vacuously — pinning the floor here keeps the guard genuine.
+    expect(screenshotTags.length).toBeGreaterThanOrEqual(6);
   });
 
   it('every screenshot <img> carries loading="lazy"', () => {
