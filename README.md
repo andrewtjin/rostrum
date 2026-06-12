@@ -1,5 +1,10 @@
 # Rostrum — a Word add-in suite for debaters
 
+[![installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frostrum-downloads.rostrum.workers.dev%2Fcount&query=%24.downloads&label=installs&color=2f7d32)](https://andrewtjin.github.io/rostrum/)
+<!-- The badge reads an anonymous download counter (see worker/ and the site's
+     privacy page). "installs" is the promotional label; the privacy disclosure
+     describes the same number literally as "downloads". -->
+
 A desktop Word add-in suite for collapsing, condensing, and formatting debate docs in
 prep or in-round.
 

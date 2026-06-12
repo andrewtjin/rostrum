@@ -1,0 +1,105 @@
+<!doctype html>
+<!--
+  Rostrum privacy page. Served at the Pages site root as …/rostrum/privacy.html,
+  copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .), same as
+  index.html. PURE static HTML, no bundle — shares ./styles.css (one cached request).
+
+  This page is the public disclosure backing the download counter behind the
+  manifest.xml link: a single anonymous integer, and nothing else. Wording note:
+  the privacy copy says "downloads" (the literal, truthful event we count);
+  promotional copy elsewhere may say "installs" colloquially.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Rostrum — privacy</title>
+        <meta
+            name="description"
+            content="Rostrum's privacy disclosure: it counts anonymous downloads, and nothing else — no document content, no personal data."
+        />
+        <link rel="icon" href="./assets/icon-32.png" />
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body>
+        <main class="wrap">
+            <a class="back" href="./">‹ Back to install</a>
+            <header>
+                <img src="./assets/icon-80.png" alt="" width="56" height="56" />
+                <h1>Privacy</h1>
+            </header>
+
+            <p class="lede">
+                <strong>Rostrum counts anonymous downloads; and nothing else.</strong>
+            </p>
+
+            <p>
+                When you download <code>manifest.xml</code> from this site, a single
+                number on our end goes up by one. That counter is the
+                <em>entire</em> extent of what Rostrum collects.
+            </p>
+
+            <h2>What is collected</h2>
+            <ul>
+                <li>
+                    <strong>One anonymous number</strong> — a running total of how
+                    many times the manifest has been downloaded. It is not tied to
+                    you, your device, or anything you do afterward.
+                </li>
+            </ul>
+
+            <h2>What is <em>not</em> collected</h2>
+            <ul>
+                <li>
+                    <strong>Nothing from your documents.</strong> Rostrum never
+                    sends, stores, or sees the text of anything you write or format.
+                </li>
+                <li>
+                    <strong>No personal data.</strong> No names, emails, accounts,
+                    or sign-ins — there is no account to make.
+                </li>
+                <li>
+                    <strong
+                        >No IP addresses or device fingerprints are retained by
+                        Rostrum.</strong
+                    >
+                    The counter records only that a download happened, never who
+                    or from where — we keep no request logs of our own. (The file
+                    is delivered through Cloudflare, which may process requests in
+                    transit under its
+                    <a href="https://www.cloudflare.com/privacypolicy/"
+                        >own privacy policy</a
+                    >.)
+                </li>
+                <li>
+                    <strong>No tracking inside Word.</strong> The add-in itself sends
+                    nothing back as you use it — the count happens only at the moment
+                    you download the manifest file from this website.
+                </li>
+            </ul>
+
+            <h2>Why</h2>
+            <p>
+                It tells us roughly how many people are using Rostrum over a season —
+                enough to know the project is worth maintaining, and nothing more.
+                The number is approximate: re-downloading the manifest to pick up a
+                new version counts again too.
+            </p>
+
+            <footer>
+                <p>
+                    <a href="./">‹ Back to install</a> ·
+                    <a href="https://github.com/andrewtjin/rostrum">Source on GitHub</a>
+                    ·
+                    <a href="https://github.com/andrewtjin/rostrum/issues">Report an issue</a>
+                    ·
+                    <a href="./privacy.html">Privacy</a>
+                </p>
+                <p>
+                    Rostrum is open source · MIT-style use · built
+                    <em>for</em> debaters <em>by</em> debaters.
+                </p>
+            </footer>
+        </main>
+    </body>
+</html>

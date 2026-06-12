@@ -1,0 +1,28 @@
+# Rostrum download counter — a single anonymous integer behind the site's
+# manifest.xml download link. One-time deploy steps: see worker/README.md.
+#
+# PRIVACY (must stay true to site/privacy.html): no request metadata is ever
+# retained. Observability is explicitly DISABLED so Workers Logs never capture
+# IPs or headers; there is deliberately NO Analytics Engine binding; and you must
+# never run `wrangler tail` into a saved log. The only stored data is the counter.
+#
+# OPERATIONAL: the `enabled = false` flag below suppresses Workers Logs only. To
+# keep the "no request logs" promise you must ALSO ensure no account-level
+# Logpush job or Trace Events pipeline targets this Worker (Cloudflare dash →
+# Analytics & Logs → Logpush). No code can enforce that — it's an account control.
+name = "rostrum-downloads"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Off on purpose — see the privacy note above. Do not enable.
+[observability]
+enabled = false
+
+[vars]
+# The canonical manifest the Worker proxies. Matches the Pages deploy origin.
+MANIFEST_ORIGIN = "https://andrewtjin.github.io/rostrum/manifest.xml"
+
+# `wrangler kv namespace create COUNTER` prints an id — paste it below.
+[[kv_namespaces]]
+binding = "COUNTER"
+id = "f005a77819354ee99c3c2fc86fa0b145"

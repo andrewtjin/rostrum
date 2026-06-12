@@ -6,6 +6,10 @@
 // so the scaffold is complete and `npm run build` has a real target. Office
 // add-ins must be served over HTTPS, hence the dev-server https block.
 const path = require("path");
+// package.json.version is pinned to PRODUCT_VERSION by __tests__/version.test.ts,
+// so it's the single, drift-proof source for stamping the version into the static
+// site pages (the download page shows it) at build time.
+const pkg = require("./package.json");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
@@ -98,7 +102,19 @@ module.exports = async (env, argv) => {
           // The static landing/sideload page → dist root, so the Pages site serves it at
           // `…/rostrum/` (alongside the prod manifest written there post-build). It's plain
           // HTML with no bundle, so it isn't a webpack entry — just copied verbatim.
-          { from: "site", to: ".", noErrorOnMissing: true }
+          {
+            from: "site",
+            to: ".",
+            noErrorOnMissing: true,
+            // Stamp the product version into the static pages at build time so the
+            // download page shows it without a hand-maintained string (or any JS).
+            // Only .html is templated; the token is a harmless no-op where absent.
+            transform(content, absPath) {
+              return absPath.endsWith(".html")
+                ? content.toString().replace(/__ROSTRUM_VERSION__/g, pkg.version)
+                : content;
+            }
+          }
         ]
       })
     ],
