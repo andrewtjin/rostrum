@@ -8,17 +8,17 @@
 A desktop Word add-in suite for collapsing, condensing, and formatting debate docs in
 prep or in-round.
 
-![Hide time vs document length across 807 real tournament documents — Rostrum stays near one second on speech docs and under a minute on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
+![Hide time vs document length across 1,085 real tournament documents — Rostrum stays near one second on speech docs and under a minute on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
 
-**807 real tournament documents** — a full season's speech docs plus giant backfiles —
-each hidden by all four tools on the market, engine-to-engine:
+**1,085 real tournament documents** — two seasons' worth of speech docs plus giant
+backfiles — each hidden by all four tools on the market, engine-to-engine:
 
 | | **Rostrum** | Verbatim 6.0.0¹ |
 | --- | --- | --- |
-| Median hide, delivered speech docs | **~1 s** | ~21 s (**~37× slower** doc-for-doc) |
-| Worst speech doc | 11 s | 5 docs never finished (15-min cap) |
+| Median hide, delivered speech docs | **~1 s** | ~35 s (**~31× slower** doc-for-doc) |
+| Worst speech doc | 11 s | 6 docs never finished (15-min cap) |
 | 0.9–1.3M-word backfiles | **36–59 s** | 1–3 **hours**; 6 more abandoned at 45 min; 1 crashed Word |
-| Completed the corpus | **807 / 807** | 787 / 807 (timeouts, a Word crash, 8 files its macro errors out on) |
+| Completed the corpus | **1,085 / 1,085** | 1,055 / 1,085 (timeouts, a Word crash, 17 files its macro errors out on) |
 
 ¹ Verbatim timed at its in-process *lab floor* — the most favorable condition it has;
 as actually experienced (ribbon click, foreground window) it measures 2–6× slower

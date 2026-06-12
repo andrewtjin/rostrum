@@ -10,7 +10,7 @@
 
   The ids below are a CONTRACT with index.html's "How ›" links — keep them alive (they live on
   the advantage sub-headings inside the tool sections):
-    #speed                                 (the 807-doc benchmark)
+    #speed                                 (the 1,085-doc benchmark)
     #non-blocking · #cleaner · #portable   (Invisibility Mode)
     #lossless                              (Condense & Shrink)
   Deep-link landing context is preserved by `scroll-margin-top` on `[id]` headings in styles.css.
@@ -58,19 +58,19 @@
                 <tbody>
                     <tr>
                         <td>
-                            Hiding, across 807 real tournament documents
+                            Hiding, across 1,085 real tournament documents
                             <a href="#speed">(the benchmark)</a>
                         </td>
                         <td>
                             <strong>Median ~1 second</strong> per speech doc;
                             36–59 seconds even on 0.9–1.3-million-word
-                            backfiles; <strong>807 of 807</strong> completed
+                            backfiles; <strong>1,085 of 1,085</strong> completed
                         </td>
                         <td>
-                            Median ~21 seconds — ~37× slower doc-for-doc
+                            Median ~35 seconds — ~31× slower doc-for-doc
                             (Verbatim 6.0.0, at its most favorable lab
                             condition); 1–3 <em>hours</em> on big backfiles;
-                            11 documents never finished, 1 crashed Word, 8 it
+                            12 documents never finished, 1 crashed Word, 17 it
                             errors out on entirely
                         </td>
                     </tr>
@@ -121,9 +121,9 @@
                 </tbody>
             </table>
 
-            <h2 id="speed">The benchmark: 807 real tournament documents</h2>
+            <h2 id="speed">The benchmark: 1,085 real tournament documents</h2>
             <p>
-                A full season's worth of speech docs (623 delivered in real
+                Two seasons' worth of speech docs (889 delivered in real
                 rounds) plus million-word backfiles, each hidden by all four
                 tools on the market — engine-to-engine, with Verbatim 6.0.0
                 timed at its in-process <em>lab floor</em>, the most favorable
@@ -141,7 +141,7 @@
                 <a href="#zoom-bench-words" class="shot-zoom" aria-label="Zoom the hide-time versus document-length chart">
                     <img
                         src="./assets/bench-words-vs-time.svg"
-                        alt="Scatter chart: hide time versus document length for 807 documents and four tools, log-log scale. Rostrum clusters near one second on speech docs and stays under a minute even at 1.3 million words; Verbatim spreads from tens of seconds to multiple hours; the two community zap macros track Rostrum on small docs but trail roughly ten times on backfiles."
+                        alt="Scatter chart: hide time versus document length for 1,085 documents and four tools, log-log scale. Rostrum clusters near one second on speech docs and stays under a minute even at 1.3 million words; Verbatim spreads from tens of seconds to multiple hours; the two community zap macros track Rostrum on small docs but trail roughly ten times on backfiles."
                         width="960"
                         height="540"
                         loading="lazy"
@@ -162,10 +162,10 @@
             <ul>
                 <li>
                     <strong>Speech docs:</strong> Rostrum median
-                    <strong>~1 s</strong>, worst 11 s. Verbatim median ~21 s —
-                    <strong>~37× slower doc-for-doc</strong> — with 5 real
+                    <strong>~1 s</strong>, worst 11 s. Verbatim median ~35 s —
+                    <strong>~31× slower doc-for-doc</strong> — with 6 real
                     speech docs it could not finish inside 15 minutes (Rostrum
-                    did each of those five in under 3 s).
+                    did each of those six in under 4 s).
                 </li>
                 <li>
                     <strong>Backfiles:</strong> Rostrum hides 0.9–1.3-million-word
@@ -174,9 +174,10 @@
                 </li>
                 <li>
                     <strong>Reliability:</strong> Rostrum completed
-                    <strong>807 of 807</strong>. Verbatim completed 787 — and
-                    its macro errors out instantly on Google-Docs-exported
-                    files (8 in this corpus), which every other tool handled.
+                    <strong>1,085 of 1,085</strong>. Verbatim completed 1,055 —
+                    and its macro errors out instantly on certain
+                    exported/converted files (17 in this corpus), which every
+                    other tool handled.
                 </li>
                 <li>
                     <strong>The destructive macros:</strong> the community

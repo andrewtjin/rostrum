@@ -222,8 +222,9 @@
 
     var wordsFig = document.querySelector('figure[data-bench="words"]');
     var cardsFig = document.querySelector('figure[data-bench="cards"]');
+    // doc count derives from the dataset so the title can never drift from the data
     if (wordsFig) build(wordsFig, 0, "document length, words",
-        "Time to hide a document — 807 real tournament docs, four tools");
+        "Time to hide a document — " + DATA.rows.length.toLocaleString("en-US") + " real tournament docs, four tools");
     if (cardsFig) build(cardsFig, 1, "cards in the document (cite paragraphs)",
         "Time to hide vs number of cards — same corpus");
 })();
