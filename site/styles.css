@@ -327,3 +327,39 @@ td:first-child {
     margin: 0 0 8px;
     font-size: 0.9rem;
 }
+
+/* Interactive benchmark charts (comparison page, bench-chart.js enhancement).
+   The SVG is built client-side at the same 960x540 viewBox as the static
+   fallback images, so the swap causes no layout shift; the tooltip floats
+   inside the relatively-positioned host. Text classes mirror the static
+   charts' font sizes so static -> interactive is visually seamless. */
+.bench-host {
+    position: relative;
+    margin: 0;
+}
+.bench-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+.bench-title { font-size: 17px; font-weight: 600; fill: #1a1a1a; }
+.bench-sub   { font-size: 12px; fill: #666; }
+.bench-tick  { font-size: 11px; fill: #555; }
+.bench-axis  { font-size: 13px; fill: #333; }
+.bench-note  { font-size: 11.5px; fill: #888; }
+.bench-leg   { cursor: pointer; user-select: none; }
+.bench-leg-label { font-size: 13px; fill: #222; }
+.bench-leg:focus-visible { outline: 2px solid var(--accent); }
+.bench-tip {
+    position: absolute;
+    pointer-events: none; /* never steal the hover that opened it */
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(12, 16, 20, 0.18);
+    padding: 7px 10px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    max-width: 260px;
+    z-index: 3;
+}

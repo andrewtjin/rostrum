@@ -14,7 +14,11 @@
     #non-blocking · #cleaner · #portable   (Invisibility Mode)
     #lossless                              (Condense & Shrink)
   Deep-link landing context is preserved by `scroll-margin-top` on `[id]` headings in styles.css.
-  PURE static HTML, no bundle — shares ./styles.css with the landing page (one cached request).
+  Static-FIRST HTML, no bundle — shares ./styles.css with the landing page (one cached request).
+  The only JS is the optional progressive enhancement at the end of <body>: bench-chart.js
+  rebuilds the two benchmark charts as interactive SVGs (hover tooltips, legend toggles) from
+  bench-data.js. With JS off, the static SVG <img> charts and their CSS-only lightbox zooms
+  remain — every claim on the page is readable without a single script running.
 -->
 <html lang="en">
     <head>
@@ -126,24 +130,35 @@
                 condition it has (as actually experienced from the ribbon it
                 measures 2–6× slower than shown here).
             </p>
-            <!-- Static SVGs (no JS), generated from the per-doc dataset; only
-                 numbers are embedded, never document names. Same assets/ dir
-                 and lazy-loading pattern as the screenshots above. -->
-            <figure>
-                <img
-                    src="./assets/bench-words-vs-time.svg"
-                    alt="Scatter chart: hide time versus document length for 807 documents and four tools, log-log scale. Rostrum clusters near one second on speech docs and stays under a minute even at 1.3 million words; Verbatim spreads from tens of seconds to multiple hours; the two community zap macros track Rostrum on small docs but trail roughly ten times on backfiles."
-                    width="960"
-                    height="540"
-                    loading="lazy"
-                    style="max-width: 100%; height: auto"
-                />
+            <!-- The benchmark charts ship twice: a static SVG <img> here (the
+                 no-JS truth — zoomable via the same CSS-only :target lightbox
+                 pattern as the screenshots below), which bench-chart.js swaps
+                 for a live interactive rebuild (hover tooltips, legend
+                 toggles) when JS runs. Both are generated from the same
+                 per-doc dataset; only numbers are embedded, never document
+                 names. data-bench marks the figure for the script. -->
+            <figure data-bench="words">
+                <a href="#zoom-bench-words" class="shot-zoom" aria-label="Zoom the hide-time versus document-length chart">
+                    <img
+                        src="./assets/bench-words-vs-time.svg"
+                        alt="Scatter chart: hide time versus document length for 807 documents and four tools, log-log scale. Rostrum clusters near one second on speech docs and stays under a minute even at 1.3 million words; Verbatim spreads from tens of seconds to multiple hours; the two community zap macros track Rostrum on small docs but trail roughly ten times on backfiles."
+                        width="960"
+                        height="540"
+                        loading="lazy"
+                        style="max-width: 100%; height: auto"
+                    />
+                </a>
                 <figcaption>
                     Every dot is one document hidden by one tool. Not shown:
                     the 6 backfiles Verbatim never finished (abandoned past 45
                     minutes) and the 1.28-million-word file it crashed Word on.
                 </figcaption>
             </figure>
+            <div id="zoom-bench-words" class="lightbox" role="dialog" aria-label="Hide time versus document length chart, full size">
+                <a href="#speed" class="lightbox-bg" aria-label="Close"></a>
+                <img src="./assets/bench-words-vs-time.svg" alt="Hide time versus document length chart at full size" loading="lazy" />
+                <a href="#speed" class="lightbox-close" aria-label="Close">✕</a>
+            </div>
             <ul>
                 <li>
                     <strong>Speech docs:</strong> Rostrum median
@@ -170,20 +185,27 @@
                     hide. Rostrum's hide is lossless and reversible.
                 </li>
             </ul>
-            <figure>
-                <img
-                    src="./assets/bench-cards-vs-time.svg"
-                    alt="Scatter chart: hide time versus number of cards in the document, same corpus and tools, log-log scale, showing the same separation between Rostrum and Verbatim."
-                    width="960"
-                    height="540"
-                    loading="lazy"
-                    style="max-width: 100%; height: auto"
-                />
+            <figure data-bench="cards">
+                <a href="#zoom-bench-cards" class="shot-zoom" aria-label="Zoom the hide-time versus card-count chart">
+                    <img
+                        src="./assets/bench-cards-vs-time.svg"
+                        alt="Scatter chart: hide time versus number of cards in the document, same corpus and tools, log-log scale, showing the same separation between Rostrum and Verbatim."
+                        width="960"
+                        height="540"
+                        loading="lazy"
+                        style="max-width: 100%; height: auto"
+                    />
+                </a>
                 <figcaption>
                     The same corpus by card count (cite paragraphs per
                     document).
                 </figcaption>
             </figure>
+            <div id="zoom-bench-cards" class="lightbox" role="dialog" aria-label="Hide time versus card count chart, full size">
+                <a href="#speed" class="lightbox-bg" aria-label="Close"></a>
+                <img src="./assets/bench-cards-vs-time.svg" alt="Hide time versus card count chart at full size" loading="lazy" />
+                <a href="#speed" class="lightbox-close" aria-label="Close">✕</a>
+            </div>
 
             <p>
                 Below, each Rostrum ribbon tool against the Verbatim tool it
@@ -332,5 +354,10 @@
                 </p>
             </footer>
         </main>
+        <!-- Optional enhancement only — the page is complete without it (see
+             the header comment). defer keeps both scripts off the parse path;
+             data first so bench-chart.js finds window.ROSTRUM_BENCH set. -->
+        <script src="./bench-data.js" defer></script>
+        <script src="./bench-chart.js" defer></script>
     </body>
 </html>
