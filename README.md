@@ -32,9 +32,8 @@ chart: [how it compares](https://andrewtjin.github.io/rostrum/comparison.html).
 ![Hide time vs number of cards in the document, same corpus](assets/bench-cards-vs-time.svg)
 
 > **Status — v0.3.0.1, live.** Two tools (Invisibility Mode and Condense & Shrink)
-> alongside a Settings pane and a ribbon-advertised roadmap (Format & Condense, Flow,
-> Cite & Paste). The production build is hosted on GitHub Pages — install instructions
-> below.
+> alongside a Settings pane. The production build is hosted on GitHub Pages — install
+> instructions below.
 
 > **Desktop only.** Rostrum hides text with Word's *Hidden font* attribute
 > (`<w:vanish/>`), which is `WordApiDesktop 1.2` — present on Word for Windows and Mac,
@@ -108,13 +107,10 @@ deep-linked pane; the suite is generated from one feature registry, so adding a 
 | **Settings** | live | App-wide settings — an informational pane (gear icon, leftmost) covering how Rostrum loads on every document (the Trusted-Catalog install) and where to turn that off (the host's Trust Center). Contributes no document-mutating commands. |
 | **Invisibility** | live | Hide card bodies to a headings/cites/highlights-only view; natively reversible. |
 | **Condense** | live | Shrink card font size and condense paragraph spacing — losslessly reversible. |
-| **Format & Condense** | planned | One-click styles cleanup, condensing, and legacy-file migration. |
-| **Flow** | planned | Track arguments across a round in a speech-doc surface. |
-| **Cite & Paste** | planned | Generate citations and paste cards with clean formatting. |
 
-Planned tools already appear on the ribbon — each opens a "coming soon" surface — so the
-extension path works end-to-end. When a tool is built, its status flips and its real
-commands fill in; nothing else moves.
+More tools are on the roadmap (Format & Condense, Flow, Cite & Paste); they'll be added to
+the ribbon as they're built. Adding one is "register it + regenerate the manifest" — the
+registry-driven shell, ribbon, and dialog don't otherwise move.
 
 ---
 

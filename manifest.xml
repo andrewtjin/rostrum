@@ -232,77 +232,6 @@
                   </Action>
                 </Control>
               </Group>
-              <Group id="Rostrum.Group.format">
-                <Label resid="Grp3" />
-                <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
-                </Icon>
-                <Control xsi:type="Button" id="Rostrum.format.pane">
-                  <Label resid="Lbl10" />
-                  <Supertip>
-                    <Title resid="Lbl10" />
-                    <Description resid="Tip10" />
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Rostrum.Icon.16" />
-                    <bt:Image size="32" resid="Rostrum.Icon.32" />
-                    <bt:Image size="80" resid="Rostrum.Icon.80" />
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.format</TaskpaneId>
-                    <SourceLocation resid="Url3" />
-                  </Action>
-                </Control>
-              </Group>
-              <Group id="Rostrum.Group.flow">
-                <Label resid="Grp4" />
-                <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
-                </Icon>
-                <Control xsi:type="Button" id="Rostrum.flow.open_flow">
-                  <Label resid="Lbl11" />
-                  <Supertip>
-                    <Title resid="Lbl11" />
-                    <Description resid="Tip11" />
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Rostrum.Icon.16" />
-                    <bt:Image size="32" resid="Rostrum.Icon.32" />
-                    <bt:Image size="80" resid="Rostrum.Icon.80" />
-                  </Icon>
-                  <Action xsi:type="ExecuteFunction">
-                    <FunctionName>open_flow</FunctionName>
-                  </Action>
-                </Control>
-              </Group>
-              <Group id="Rostrum.Group.cite">
-                <Label resid="Grp5" />
-                <Icon>
-                  <bt:Image size="16" resid="Rostrum.Icon.16" />
-                  <bt:Image size="32" resid="Rostrum.Icon.32" />
-                  <bt:Image size="80" resid="Rostrum.Icon.80" />
-                </Icon>
-                <Control xsi:type="Button" id="Rostrum.cite.pane">
-                  <Label resid="Lbl12" />
-                  <Supertip>
-                    <Title resid="Lbl12" />
-                    <Description resid="Tip12" />
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Rostrum.Icon.16" />
-                    <bt:Image size="32" resid="Rostrum.Icon.32" />
-                    <bt:Image size="80" resid="Rostrum.Icon.80" />
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>Rostrum.Tp.cite</TaskpaneId>
-                    <SourceLocation resid="Url4" />
-                  </Action>
-                </Control>
-              </Group>
               <Label resid="Rostrum.Tab.Label" />
             </CustomTab>
           </ExtensionPoint>
@@ -325,8 +254,6 @@
         <bt:Url id="Url0" DefaultValue="https://localhost:3000/taskpane.html#settings" />
         <bt:Url id="Url1" DefaultValue="https://localhost:3000/taskpane.html#invisibility" />
         <bt:Url id="Url2" DefaultValue="https://localhost:3000/taskpane.html#condense" />
-        <bt:Url id="Url3" DefaultValue="https://localhost:3000/taskpane.html#format" />
-        <bt:Url id="Url4" DefaultValue="https://localhost:3000/taskpane.html#cite" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Rostrum.GetStarted.Title" DefaultValue="Rostrum is ready." />
@@ -344,12 +271,6 @@
         <bt:String id="Lbl7" DefaultValue="Uncondense" />
         <bt:String id="Lbl8" DefaultValue="Unshrink" />
         <bt:String id="Lbl9" DefaultValue="Options" />
-        <bt:String id="Grp3" DefaultValue="Format &amp; Condense" />
-        <bt:String id="Lbl10" DefaultValue="Open" />
-        <bt:String id="Grp4" DefaultValue="Flow" />
-        <bt:String id="Lbl11" DefaultValue="Open" />
-        <bt:String id="Grp5" DefaultValue="Cite &amp; Paste" />
-        <bt:String id="Lbl12" DefaultValue="Open" />
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Rostrum.GetStarted.Description" DefaultValue="Open a tool from the Rostrum tab — Invisibility hides card bodies (Show All reverses), Condense &amp; Shrink compress them. Every change is natively reversible." />
@@ -363,9 +284,6 @@
         <bt:String id="Tip7" DefaultValue="Reverse Condense — restore every paragraph break Rostrum marked." />
         <bt:String id="Tip8" DefaultValue="Reverse Shrink — reset the selected card&apos;s text back to its Normal size." />
         <bt:String id="Tip9" DefaultValue="Open Condense &amp; Shrink options — modes, the omission-marker editor, and one-click mode buttons. (App-wide settings live in the Settings group.)" />
-        <bt:String id="Tip10" DefaultValue="Planned — extends today&apos;s Apply-Styles + condense work." />
-        <bt:String id="Tip11" DefaultValue="Planned — the flowing / speech-doc surface." />
-        <bt:String id="Tip12" DefaultValue="Planned — citation + paste-with-formatting helpers." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

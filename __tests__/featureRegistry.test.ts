@@ -100,14 +100,11 @@ describe("default suite registry", () => {
     expect(invis.isAvailable(webCaps)).toBe(false);
   });
 
-  it("registers the planned suite tools as capability-gated slots", () => {
-    for (const id of ["format", "flow", "cite"]) {
-      const f = registry.get(id);
-      expect(f).toBeTruthy();
-      expect(f?.status).toBe("planned");
-      // Planned tools list everywhere but aren't yet actionable on any host.
-      expect(f?.isAvailable(desktopCaps)).toBe(false);
-    }
+  it("ships exactly the three built tools — Settings, Invisibility, Condense — with no planned roadmap slots", () => {
+    // The roadmap (Format & Condense, Flow, Cite & Paste) was removed to be re-added when built;
+    // until then the registry holds only shipped tools and advertises no planned slots.
+    expect(registry.all().map((f) => f.id)).toEqual(["settings", "invisibility", "condense"]);
+    expect(registry.all().every((f) => f.status !== "planned")).toBe(true);
   });
 
   it("registers Settings FIRST (leftmost) as a stable, always-available, command-less pane feature", () => {
