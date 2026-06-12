@@ -17,13 +17,15 @@
     var DATA = window.ROSTRUM_BENCH;
     if (!DATA || !Array.isArray(DATA.rows) || !DATA.rows.length) return;
 
-    // row layout: [words, cards, bytes, isSpeechDoc, rostrumS, verbatimS, ddS, jaimeS]
+    // row layout: [words, cards, bytes, isSpeechDoc, rostrumS, verbatimS, ddS, zapperS]
     var ROSTRUM_COL = 4;
+    // label = legend text (names the measurement boundary once); tip = tooltip
+    // name, kept clean — the chart subtitle already states the lab-floor condition
     var ENGINES = [
         { col: 4, color: "#1668b8", label: "Rostrum" },
-        { col: 5, color: "#c92a2a", label: "Verbatim 6.0.0 (its lab floor)" },
+        { col: 5, color: "#c92a2a", label: "Verbatim 6.0.0 (its lab floor)", tip: "Verbatim 6.0.0" },
         { col: 6, color: "#e8860c", label: "debate-decoded macro" },
-        { col: 7, color: "#7048a8", label: "jaime Zapper macro" },
+        { col: 7, color: "#7048a8", label: "Zapper macro" },
     ];
     var SVG_NS = "http://www.w3.org/2000/svg";
     // same plot box as the static charts
@@ -180,7 +182,7 @@
             var eng = ENGINES[best.ei];
             var row = best.row;
             var lines = [
-                '<strong style="color:' + eng.color + '">' + eng.label + "</strong> — " + fmtTime(best.s),
+                '<strong style="color:' + eng.color + '">' + (eng.tip || eng.label) + "</strong> — " + fmtTime(best.s),
                 fmtInt(row[0]) + " words · " + fmtInt(row[1]) + " cards · " + fmtBytes(row[2]),
                 row[3] ? "delivered speech doc" : "prep / backfile",
             ];

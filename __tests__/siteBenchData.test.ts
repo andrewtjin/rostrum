@@ -70,4 +70,19 @@ describe("comparison.html keeps the enhancement progressive", () => {
   it("bench-chart.js renders from the global the data file sets", () => {
     expect(chartJs).toContain("window.ROSTRUM_BENCH");
   });
+
+  it("benchmark surfaces carry no personal names (community macro = 'Zapper')", () => {
+    // the zap macro's author name stays off every shipped surface — chart
+    // script, dataset (column is zapperS), and both static SVG fallbacks
+    const svgDir = path.join(__dirname, "..", "assets");
+    for (const text of [
+      chartJs,
+      dataJs,
+      fs.readFileSync(path.join(svgDir, "bench-words-vs-time.svg"), "utf8"),
+      fs.readFileSync(path.join(svgDir, "bench-cards-vs-time.svg"), "utf8"),
+    ]) {
+      expect(text).not.toMatch(/jaime/i);
+    }
+    expect(chartJs).toContain("Zapper macro");
+  });
 });
