@@ -30,6 +30,13 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# Opt the GitHub-provided JavaScript action WRAPPERS (checkout / setup-node / upload-pages-artifact /
+# deploy-pages) onto Node 24 ahead of GitHub's 2026-06-16 forced migration. This only changes the
+# runtime those action wrappers execute on — NOT the project's build/test Node, which stays pinned to
+# 20 via setup-node below — so the bundle, prod manifest, and test results are unchanged.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
