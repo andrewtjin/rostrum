@@ -46,6 +46,16 @@ this Worker first, confirm `/count` returns `total` (see Verify), and only then 
 the site/README change** that points the badge at `$.total`. Because `downloads`
 keeps its key, the existing Word tally carries over untouched.
 
+The `/code.gs` route proxies `CODE_GS_ORIGIN` (the Pages copy at
+`…/rostrum/gdocs/Code.gs`), which exists only after the master push that
+publishes it. So the Google Docs download route is fully live only once that push
+completes. If you deploy the Worker first, a `GET /code.gs` in the gap falls back
+to a not-yet-published origin (a redirect to a 404) and records a few phantom
+`gdocs` counts. This is harmless (the gdocs install page is not advertised until
+that same push) and never affects the Word `/manifest.xml` route, whose origin is
+already live. To avoid the gap, confirm `curl -sI …/code.gs` redirects to a live
+200 before announcing the Google Docs surface.
+
 Then wire the site to the Worker (only if your Worker host differs from the
 `rostrum-downloads.rostrum.workers.dev` placeholder):
 
