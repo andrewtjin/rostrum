@@ -32,7 +32,9 @@ import {
   sidebarState,
   SMALL_DOC_DUMP_MAX_BYTES,
   STATE_FIELDS_MASK,
-  stylesDialog
+  stylesDialog,
+  sumApiUnits,
+  textPickOffsets
 } from "../gdocs/src/core/adapterPure";
 import { CITE_PT, GDOCS_VERSION } from "../gdocs/src/core/constants";
 import { errorMessage, markCiteReceipt, STRINGS } from "../gdocs/src/core/strings";
@@ -526,6 +528,67 @@ describe("planMarkCiteFromPicks", () => {
 // ---------------------------------------------------------------------------
 // Diagnostics interpretation.
 // ---------------------------------------------------------------------------
+
+describe("sumApiUnits + textPickOffsets — the host-selection lowering arithmetic", () => {
+  // The DocumentApp tree-walk that produces these inputs is host-only and
+  // untestable without a live Doc; this pins the index math it feeds, which is
+  // the one off-by-one that would silently mis-span a Mark-cite (review gap).
+  describe("sumApiUnits", () => {
+    it("is 0 when nothing precedes the element", () => {
+      expect(sumApiUnits([])).toBe(0);
+    });
+
+    it("sums preceding TEXT siblings by character length", () => {
+      expect(sumApiUnits([{ isText: true, textLength: 5 }, { isText: true, textLength: 3 }])).toBe(8);
+    });
+
+    it("counts every non-TEXT sibling (image, chip, break) as exactly one unit", () => {
+      expect(sumApiUnits([{ isText: false, textLength: 0 }, { isText: false, textLength: 999 }])).toBe(2);
+    });
+
+    it("mixes text-length and one-per-object correctly", () => {
+      // "ab" (2) + image (1) + "cde" (3) = 6 units before the target.
+      expect(
+        sumApiUnits([
+          { isText: true, textLength: 2 },
+          { isText: false, textLength: 0 },
+          { isText: true, textLength: 3 }
+        ])
+      ).toBe(6);
+    });
+  });
+
+  describe("textPickOffsets", () => {
+    it("spans the whole run from `before` when the element is wholly selected", () => {
+      expect(textPickOffsets(4, { partial: false, textLength: 7 })).toEqual({ startOffset: 4, endOffset: 11 });
+    });
+
+    it("converts a partial range's INCLUSIVE end to an EXCLUSIVE offset (the +1)", () => {
+      // chars [2..5] inclusive within the run, no preceding units -> [2, 6).
+      expect(textPickOffsets(0, { partial: true, startOffsetInText: 2, endOffsetInclusiveInText: 5 })).toEqual({
+        startOffset: 2,
+        endOffset: 6
+      });
+    });
+
+    it("adds the preceding-unit offset to both ends of a partial range", () => {
+      // 10 units precede; a single char [0..0] inclusive -> [10, 11).
+      expect(textPickOffsets(10, { partial: true, startOffsetInText: 0, endOffsetInclusiveInText: 0 })).toEqual({
+        startOffset: 10,
+        endOffset: 11
+      });
+    });
+
+    it("matches the whole-element path for a full-run partial selection", () => {
+      // A partial range covering [0..len-1] inclusive equals the whole-run span.
+      const before = 3;
+      const len = 7;
+      expect(
+        textPickOffsets(before, { partial: true, startOffsetInText: 0, endOffsetInclusiveInText: len - 1 })
+      ).toEqual(textPickOffsets(before, { partial: false, textLength: len }));
+    });
+  });
+});
 
 describe("interpretFontFloor", () => {
   it("interprets the three verdicts", () => {

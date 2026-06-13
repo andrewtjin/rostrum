@@ -279,6 +279,16 @@ describe("decodeRangeName — malformed inputs ALL decode to null, never throw",
     expect(isKnownRstmName(name)).toBe(false);
   });
 
+  it("rejects spacing values that overflow parseFloat to Infinity (codec guard)", () => {
+    // A pathologically long digit run still matches SPACING_RE, then parseFloat
+    // saturates to Infinity; the never-finite guards in decodeSpacing must
+    // reject it as not-ours rather than emit Infinity spacing.
+    const huge = "9".repeat(400);
+    expect(decodeRangeName(`rstm:v1:p:${huge}x1`)).toBeNull(); // spaceAbove overflows
+    expect(decodeRangeName(`rstm:v1:p:1x${huge}`)).toBeNull(); // spaceBelow overflows
+    expect(isKnownRstmName(`rstm:v1:p:${huge}x1`)).toBe(false);
+  });
+
   it("flags an unknown future version as ours-but-unknown (edge row 16)", () => {
     // The exact bucket Show All must warn about and leave untouched: owned by
     // the rstm family, but this engine cannot restore from it.

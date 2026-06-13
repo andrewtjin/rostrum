@@ -279,6 +279,48 @@ export interface SelectionPick {
   endOffset: number | null;
 }
 
+/**
+ * API-unit arithmetic for lowering a host text selection to a SelectionPick.
+ * The DocumentApp tree-walk that produces these inputs is host-only and lives
+ * in docsAdapter.ts (untestable without a live Doc); the index math it feeds is
+ * isolated here so the unit gate exercises it directly. A wrong sibling sum or
+ * a missed inclusive-to-exclusive conversion is the one off-by-one that would
+ * silently mis-span a cite, so both are pinned by tests.
+ */
+
+/** Docs-API index units occupied by the siblings PRECEDING a target element:
+ * each preceding TEXT sibling counts its character length; every other sibling
+ * (inline image, chip, break) occupies exactly one index unit. */
+export function sumApiUnits(precedingSiblings: ReadonlyArray<{ isText: boolean; textLength: number }>): number {
+  let units = 0;
+  for (const sibling of precedingSiblings) units += sibling.isText ? sibling.textLength : 1;
+  return units;
+}
+
+/** The shape of a host RangeElement within one paragraph: a PARTIAL range
+ * carries INCLUSIVE char offsets inside the Text run; a whole-element pick
+ * spans the entire run. */
+export type TextRangeShape =
+  | { partial: true; startOffsetInText: number; endOffsetInclusiveInText: number }
+  | { partial: false; textLength: number };
+
+/** Convert a host text RangeElement to paragraph-relative API-unit offsets.
+ * `before` is sumApiUnits(the element's preceding siblings). RangeElement end
+ * offsets are INCLUSIVE while the SelectionPick model is half-open, hence the
+ * +1 on the partial path. */
+export function textPickOffsets(
+  before: number,
+  shape: TextRangeShape
+): { startOffset: number; endOffset: number } {
+  if (shape.partial) {
+    return {
+      startOffset: before + shape.startOffsetInText,
+      endOffset: before + shape.endOffsetInclusiveInText + 1
+    };
+  }
+  return { startOffset: before, endOffset: before + shape.textLength };
+}
+
 export interface MarkCitePlan {
   /** The revision the one batchUpdate must be guarded with (plan D4). */
   revisionId: string;

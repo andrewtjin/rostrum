@@ -33,7 +33,9 @@ import {
   showAllDialog,
   sidebarState,
   STATE_FIELDS_MASK,
-  stylesDialog
+  stylesDialog,
+  sumApiUnits,
+  textPickOffsets
 } from "../core/adapterPure";
 import type { FontFloorReading, RoutedDialog, SelectionPick } from "../core/adapterPure";
 import { applyStyles, hide, markCite, showAll } from "../core/controller";
@@ -251,18 +253,22 @@ function apiUnitsBefore(textEl: DocTreeNode): number {
   const parent = textEl.getParent();
   if (parent === null) return 0;
   const index = parent.getChildIndex(textEl);
-  let units = 0;
+  // Walk the host siblings into a plain shape, then defer the unit sum to the
+  // tested pure helper (sumApiUnits) so the arithmetic sits under the gate.
+  const preceding: { isText: boolean; textLength: number }[] = [];
   for (let i = 0; i < index; i++) {
     const sibling = parent.getChild(i);
-    units += sibling.getType() === DocumentApp.ElementType.TEXT ? sibling.asText().getText().length : 1;
+    const isText = sibling.getType() === DocumentApp.ElementType.TEXT;
+    preceding.push({ isText, textLength: isText ? sibling.asText().getText().length : 0 });
   }
-  return units;
+  return sumApiUnits(preceding);
 }
 
 /**
  * Lower the host selection to SelectionPicks (paragraph ordinal + API-unit
- * offsets) — all the index math and the A9 whitelist split then happen in
- * adapterPure.planMarkCiteFromPicks where they are tested. Pieces that are
+ * offsets). The unit arithmetic is the pure sumApiUnits + textPickOffsets
+ * helpers; the A9 whitelist split happens in adapterPure.planMarkCiteFromPicks.
+ * All are unit-tested. Pieces that are
  * neither text nor a paragraph (an image-only selection) are skipped: never
  * markable, exactly the whitelist's stance.
  */
@@ -279,14 +285,20 @@ function extractPicks(selection: GoogleAppsScript.Document.Range, body: GoogleAp
       if (ordinal < 0) continue;
       const before = apiUnitsBefore(node);
       if (re.isPartial()) {
-        // RangeElement offsets are inclusive char positions within the Text.
-        picks.push({
-          paragraphOrdinal: ordinal,
-          startOffset: before + re.getStartOffset(),
-          endOffset: before + re.getEndOffsetInclusive() + 1
+        // RangeElement offsets are INCLUSIVE char positions within the Text;
+        // textPickOffsets applies `before` and the inclusive-to-exclusive +1.
+        const { startOffset, endOffset } = textPickOffsets(before, {
+          partial: true,
+          startOffsetInText: re.getStartOffset(),
+          endOffsetInclusiveInText: re.getEndOffsetInclusive()
         });
+        picks.push({ paragraphOrdinal: ordinal, startOffset, endOffset });
       } else {
-        picks.push({ paragraphOrdinal: ordinal, startOffset: before, endOffset: before + el.asText().getText().length });
+        const { startOffset, endOffset } = textPickOffsets(before, {
+          partial: false,
+          textLength: el.asText().getText().length
+        });
+        picks.push({ paragraphOrdinal: ordinal, startOffset, endOffset });
       }
     } else if (type === DocumentApp.ElementType.PARAGRAPH || type === DocumentApp.ElementType.LIST_ITEM) {
       const ordinal = paragraphOrdinalOf(el as unknown as DocTreeNode, body);
