@@ -4,7 +4,7 @@
 // op settled is a first-class case. These are exactly the ordering bugs a human can't eyeball, so we
 // drive it with a fake Office.Dialog + fake timers in Node (no host). Mirrors the fake-injection
 // discipline used elsewhere in the suite.
-import { withProgressDialog, GRACE_OPEN_MS, AUTO_CLOSE_OK_MS } from "../src/progress/host";
+import { withProgressDialog, GRACE_OPEN_MS, AUTO_CLOSE_OK_MS, MIN_SHOW_MS } from "../src/progress/host";
 import type { CommandResult } from "../src/features/types";
 import type { ProgressInfo } from "../src/core/officeWordPort";
 
@@ -206,10 +206,51 @@ describe("withProgressDialog (deferred open)", () => {
     fake.fire("ready");
     op.resolve({ status: "ok" });
     await p;
-    jest.advanceTimersByTime(AUTO_CLOSE_OK_MS); // clean auto-close
+    // The dialog JUST appeared, so the close honors the MIN_SHOW_MS floor, not the bare linger.
+    jest.advanceTimersByTime(MIN_SHOW_MS);
     expect(fake.openCount()).toBe(1);
     expect(fake.dialog.closeCount).toBe(1);
     expect(fake.dialog.sent).toContainEqual({ kind: "done", status: "ok" });
+  });
+
+  // ── The 2026-06-10 snappiness decision, made load-bearing ───────────────────────────────────────
+  // The whole suite asserts RELATIVE to these constants, so a silent revert (or a fat-fingered
+  // 25000) would pass every other test. Pinning the values turns the approved product tuning into
+  // a contract: grace ABOVE the typical Hide band (~2-3s engine) so common ops show no dialog;
+  // short success linger; a min-show floor so a dialog that did appear never blinks out.
+  it("pins the approved timing constants (product decision 2026-06-10)", () => {
+    expect(GRACE_OPEN_MS).toBe(3500);
+    expect(AUTO_CLOSE_OK_MS).toBe(300);
+    expect(MIN_SHOW_MS).toBe(1200);
+  });
+
+  it("a dialog that appears just before the op finishes stays up for MIN_SHOW_MS (no blink)", async () => {
+    const op = pendingRun();
+    const p = withProgressDialog("Hide", { run: op.run });
+    await flush();
+    jest.advanceTimersByTime(GRACE_OPEN_MS);
+    await flush();
+    fake.fire("ready");
+    op.resolve({ status: "ok" }); // finishes moments after the dialog appeared
+    await p;
+    jest.advanceTimersByTime(AUTO_CLOSE_OK_MS); // the bare linger alone must NOT close it…
+    expect(fake.dialog.closeCount).toBe(0);
+    jest.advanceTimersByTime(MIN_SHOW_MS - AUTO_CLOSE_OK_MS); // …the floor does
+    expect(fake.dialog.closeCount).toBe(1);
+  });
+
+  it("a dialog already visible past the floor closes after just the short linger", async () => {
+    const op = pendingRun();
+    const p = withProgressDialog("Hide", { run: op.run });
+    await flush();
+    jest.advanceTimersByTime(GRACE_OPEN_MS);
+    await flush();
+    fake.fire("ready");
+    jest.advanceTimersByTime(MIN_SHOW_MS * 2); // dialog has been up well past the floor
+    op.resolve({ status: "ok" });
+    await p;
+    jest.advanceTimersByTime(AUTO_CLOSE_OK_MS); // floor already satisfied → bare linger closes
+    expect(fake.dialog.closeCount).toBe(1);
   });
 
   it("replays the latest progress tick once the page reports ready (no lost first tick)", async () => {

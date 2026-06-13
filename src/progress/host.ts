@@ -5,11 +5,12 @@
 // is the real option — it floats over Word and never docks, so it costs zero persistent space.
 //
 // DEFERRED OPEN (perceived-latency fix): the op starts IMMEDIATELY and the pop-out is opened
-// ONLY if the op outlives a short grace period. So an instant op (Shrink/Condense, or Hide on a
-// short doc) shows NO dialog at all — no open latency, no end-linger — while a genuinely slow op
-// still gets a real bar. A fast op that ERRORS/blocks opens the pop-out at completion, because the
-// ribbon has no other channel to report a failure the user must act on. Only fast *successes* go
-// silent, and those have a visible document effect anyway.
+// ONLY if the op outlives a grace period sized so the COMMON case (Shrink/Condense, and a Hide on
+// a typical tournament doc) shows NO dialog at all — no open latency, no end-linger — while a
+// genuinely slow op (huge docs) still gets a real bar with a working Cancel. A fast op that
+// ERRORS/blocks opens the pop-out at completion, because the ribbon has no other channel to report
+// a failure the user must act on. Only fast *successes* go silent, and those have a visible
+// document effect anyway.
 //
 // React-free (the dialog PAGE is React; this driver is not) so it stays in the ribbon command
 // bundle. `Office`/`window` are touched only inside functions, so importing this in Node (the
@@ -21,14 +22,26 @@ import { appPageUrl } from "../core/appUrl";
 
 const log = logger("progress");
 
-/** How long an op may run before the pop-out is opened. Sub-grace ops never spawn a dialog —
- *  this is what makes instant ops (Shrink/Condense, short-doc Hide) feel instant instead of bloated. */
-export const GRACE_OPEN_MS = 300;
-/** Auto-close delay after a SUCCESSFUL op that DID show a dialog. 900ms (down from 1400) so the
- *  page's `polite` aria-live can announce "Done" before `dialog.close()` tears down its a11y tree
- *  (a shorter close races the screen-reader poll). Only slow ops ever reach this, so it costs no
- *  perceived speed on the fast path. */
-export const AUTO_CLOSE_OK_MS = 900;
+/** How long an op may run before the pop-out is opened. Sub-grace ops never spawn a dialog.
+ *  3500ms (up from 300) so a typical tournament-doc Hide (~2–3s engine, plus variance on slower
+ *  machines) shows NO dialog at all — the document visibly changing is the completion signal,
+ *  matching the felt speed of the zap macros debaters compare against. Sized ABOVE the typical
+ *  band's upper edge on purpose: a grace inside the band (e.g. 2500) makes its upper half blink a
+ *  dialog for under a second. Long ops (huge docs) still get the bar — on a 45s run Cancel goes
+ *  live ~4s in, ~90% of the run. */
+export const GRACE_OPEN_MS = 3500;
+/** Auto-close delay after a SUCCESSFUL op that DID show a dialog. 300ms (down from 900, originally
+ *  1400) — product decision 2026-06-10: snappier close wins over the guarantee that the `polite`
+ *  aria-live "Done" finishes announcing before `dialog.close()` tears down its a11y tree (it may be
+ *  cut short on some screen readers). Error/blocked outcomes are unaffected: those keep the dialog
+ *  open until dismissed, so every announcement a user must act on still lands. */
+export const AUTO_CLOSE_OK_MS = 300;
+/** Minimum on-screen time for a dialog that DID open before a clean finish may close it. Without a
+ *  floor, an op that finishes shortly after the grace fires produces an appear-then-vanish blink —
+ *  the exact artifact deferred-open exists to kill, just moved to the (grace, grace+~2s) band. The
+ *  close delay is max(AUTO_CLOSE_OK_MS, MIN_SHOW_MS − time-already-visible), so a dialog either
+ *  never appears or reads as deliberate. Error/blocked keep-open paths ignore this entirely. */
+export const MIN_SHOW_MS = 1200;
 /** Hard close for a pop-out whose page never initialized, so a broken dialog can't linger. */
 const WATCHDOG_MS = 4000;
 /** Office DialogEventReceived code for a normal user dismiss (anything else is a real problem). */
@@ -83,6 +96,7 @@ export async function withProgressDialog(label: string, opts: WithProgressOption
   let final: CommandResult = { status: "error", message: "Operation did not complete." };
   let settled = false; // the op has finished and `final` holds its real result
   let donePushed = false; // the "done" message has been shown (idempotency guard)
+  let openedAt = 0; // Date.now() when the dialog handle arrived — anchors the MIN_SHOW_MS floor
   let closed = false;
   let watchdog: number | null = null;
   let graceTimer: number | null = null;
@@ -149,7 +163,12 @@ export async function withProgressDialog(label: string, opts: WithProgressOption
       }
     }
     send({ kind: "done", status: final.status, message: final.message, diagnostics });
-    if (!keepOpen) window.setTimeout(close, AUTO_CLOSE_OK_MS);
+    // Clean finish: close after the linger, but never let total visible time dip under the
+    // MIN_SHOW_MS floor — a dialog that appeared moments ago must not blink out (see MIN_SHOW_MS).
+    if (!keepOpen) {
+      const visibleFor = Date.now() - openedAt;
+      window.setTimeout(close, Math.max(AUTO_CLOSE_OK_MS, MIN_SHOW_MS - visibleFor));
+    }
     // else: the page renders a Close button (posts "close" → close()).
   };
 
@@ -157,6 +176,7 @@ export async function withProgressDialog(label: string, opts: WithProgressOption
   // WHILE the dialog was opening. This is the single place all "the op already finished" logic lives.
   const wire = (d: Office.Dialog): void => {
     dialog = d;
+    openedAt = Date.now(); // the OS window is visible from here — the floor measures from this point
     d.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
       const message = (arg as { message?: string }).message;
       if (message === "ready") {
