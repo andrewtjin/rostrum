@@ -100,6 +100,17 @@ export interface RunView {
    * embedded objects). Conservative over-keep per decision #16.
    */
   eligible: boolean;
+  /**
+   * True when the run carries an embedded INTERNAL PART — a `<w:drawing>`, `<w:object>`, or
+   * `<w:pict>` anywhere in its subtree (an inline image, OLE object, or VML picture). This is a
+   * STRICT SUBSET of the ineligibility signal (`eligible` is additionally false for fields and
+   * footnote/endnote refs, which carry no part), surfaced separately so the node-direct hide path
+   * can recognize "this paragraph references a media part" WITHOUT the per-paragraph serialize the
+   * string path used (Loop 002 B1 rider): an internal-part paragraph must never be re-serialized,
+   * or it silently re-pays the cost P1 deletes. Read by the same fused traversal that fills the
+   * other fields, so it costs nothing extra; the legacy string path computes it identically.
+   */
+  hasInternalPart: boolean;
 }
 
 /**

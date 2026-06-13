@@ -301,6 +301,17 @@ function vanishOn(rPr: any): boolean {
 
 const INELIGIBLE_RUN_TAGS = ["w:fldChar", "w:instrText", "w:footnoteReference", "w:endnoteReference", "w:drawing", "w:object", "w:pict"];
 
+/** The internal-part tags: a `<w:drawing>`/`<w:object>`/`<w:pict>` is an embedded media/OLE part. */
+const INTERNAL_PART_TAGS = ["w:drawing", "w:object", "w:pict"];
+
+/** True when a run embeds an internal part (drawing/object/pict) anywhere in its subtree. */
+function runHasInternalPart(runEl: any): boolean {
+  for (const tag of INTERNAL_PART_TAGS) {
+    if (runEl.getElementsByTagName(tag).length > 0) return true;
+  }
+  return false;
+}
+
 /** Allowed element children of a "simple text" run (whitespace-normalizable shape). */
 const SIMPLE_TEXT_RUN_TAGS = new Set<string>(["w:rPr", "w:t", "w:tab", "w:br", "w:cr"]);
 
@@ -594,6 +605,7 @@ function readRun(runEl: any, index: number, styleMap: Map<string, StyleEmphasis>
     boxed: directBox !== undefined ? directBox : styleEmph ? styleEmph.boxed : false,
     hidden: vanishOn(runRPr(runEl)),
     eligible: runEligible(runEl),
+    hasInternalPart: runHasInternalPart(runEl),
     sizeHalfPts: runSizeHalfPts(runEl),
     breakMarker: isMarkerRun(runEl)
   };
