@@ -328,6 +328,66 @@ td:first-child {
     font-size: 0.9rem;
 }
 
+/* Brand-landing platform chooser (index.html): two equal cards side by side that
+   stack on narrow viewports. Each .choice is a whole-card link (the only action on
+   the page), so it gets a clear hover/focus lift and a navy CTA line. Tokens shared
+   with .card so it reads as the same surface family, just interactive. */
+.chooser {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 24px 0 8px;
+}
+.choice {
+    flex: 1 1 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px 16px;
+    text-decoration: none;
+    color: var(--ink);
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease,
+        transform 0.15s ease;
+}
+.choice:hover,
+.choice:focus-visible {
+    border-color: var(--accent);
+    box-shadow: 0 6px 22px rgba(12, 16, 20, 0.1);
+    transform: translateY(-1px);
+    outline: none;
+}
+.choice:focus-visible {
+    outline: 3px solid #88aadd;
+    outline-offset: 2px;
+}
+.choice-h {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+.choice-sub {
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.choice-note {
+    margin: 8px 0 12px;
+    font-size: 0.95rem;
+    color: var(--ink);
+}
+/* Pushed to the card bottom so the two CTAs align even when the notes differ in
+   length — keeps the chooser visually balanced. */
+.choice-cta {
+    margin-top: auto;
+    color: var(--accent);
+    font-weight: 600;
+}
+
 /* Interactive benchmark charts (comparison page, bench-chart.js enhancement).
    The SVG is built client-side at the same 960x540 viewBox as the static
    fallback images, so the swap causes no layout shift; the tooltip floats

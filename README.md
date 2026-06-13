@@ -1,12 +1,53 @@
-# Rostrum — a Word add-in suite for debaters
+# Rostrum — invisibility &amp; debate formatting for Word and Google Docs
 
-[![installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frostrum-downloads.rostrum.workers.dev%2Fcount&query=%24.downloads&label=installs&color=2f7d32)](https://andrewtjin.github.io/rostrum/)
-<!-- The badge reads an anonymous download counter (see worker/ and the site's
-     privacy page). "installs" is the promotional label; the privacy disclosure
-     describes the same number literally as "downloads". -->
+[![installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frostrum-downloads.rostrum.workers.dev%2Fcount&query=%24.total&label=installs&color=2f7d32)](https://andrewtjin.github.io/rostrum/)
+<!-- The badge reads an anonymous, CROSS-PLATFORM download counter: the Word
+     manifest.xml downloads + the Google Docs Code.gs downloads, summed (see
+     worker/ and the site's privacy page). "installs" is the promotional label;
+     the privacy disclosure describes the same numbers literally as "downloads"
+     and notes both biases (Word re-downloads over-count; Google Docs copies that
+     carry the bound script under-count), so it's a rough reach figure, not a
+     precise tally. /count also exposes the per-surface `downloads` and `gdocs`. -->
+
+Rostrum collapses a debate doc to a **headings + cites + highlights** view and formats
+cards — **reversibly** — in the two editors debaters actually use: **Microsoft Word**
+(desktop) and **Google Docs**. Same idea on both surfaces; two separate engines under
+the hood.
+
+## Get Rostrum
+
+| Your editor | Install | Status |
+|---|---|---|
+| **Microsoft Word** — Windows · Mac (Web *on the roadmap*) | **[Install for Word ›](docs/install-word.md)** — register one manifest file, once | live |
+| **Google Docs** | **[Install for Google Docs ›](gdocs/README.md)** — paste one script, ~2 min | early (MVP) |
+
+> Two install paths because they're two platforms: in Word you register a hosted
+> add-in manifest once and it rides every document; in Google Docs you paste a single
+> script into the doc's own Apps Script project. Pick your editor above.
+
+## What Rostrum does (both surfaces)
+
+- **Hide** collapses every body run except the keepers — **headings, cites, and
+  highlighted text** — to a dense, skimmable view; **Show All** brings every word back.
+- **Reversible without Rostrum.** In Word, hidden text is Word's own *Hidden font*
+  attribute (clear it from the Font dialog). In Google Docs, Hide is a font-size shrink
+  — **not secrecy** — that anyone undoes with Select All → font size 11.
+- **Apply debate styles** — Pocket / Hat / Block / Tag / Normal.
+- The keep-set and the "Show All restores everything" contract are identical on both.
+
+> **Two engines, not one.** The Word add-in (`src/`, Office.js over Word's OOXML) and
+> the Google Docs port (`gdocs/`, Apps Script over the Docs object model) share **no
+> engine code** — each is built for its platform's document model, and they version
+> independently. **Every benchmark and competitive claim below is Word-specific**; the
+> Google Docs port is an early MVP with no performance corpus of its own (yet).
+
+---
+
+## Microsoft Word add-in
 
 A desktop Word add-in suite for collapsing, condensing, and formatting debate docs in
-prep or in-round.
+prep or in-round. **The numbers and comparisons in this section are measured on the
+Word engine only.**
 
 ![Hide time vs document length across 1,085 real tournament documents — Rostrum stays near one second on speech docs and under a minute on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
 
@@ -42,57 +83,14 @@ chart: [how it compares](https://andrewtjin.github.io/rostrum/comparison.html).
 
 ---
 
-## Install
+### Install &amp; develop
 
-Two paths: debaters install the hosted build in one step; developers run it locally.
+Debaters install from the hosted page in one step (register one `manifest.xml` in Word,
+once); developers run it locally over the HTTPS dev server. The full Windows/Mac sideload,
+the developer flow, the requirements floor, and how the production manifest is generated
+all live in one place:
 
-**Debaters — install from the hosted page.** You host nothing and run no server: the
-add-in runs from the hosted bundle, and you register one manifest file in Word, once.
-Step-by-step instructions for **Windows and Mac** live at:
-
-> **https://andrewtjin.github.io/rostrum/**
-
-That page links the production `manifest.xml` and walks through the Trusted-Add-in
-Catalog (Windows) / `wef` folder (Mac) sideload. Live build: **v0.3.0.1**. (This is
-Stage A distribution — motivated early adopters; a future Stage B adds one-click
-AppSource install.)
-
-**Requirements.** Word for Windows or Mac (desktop). Manifest floor: `WordApiDesktop 1.2`
-+ `WordApi 1.4` (the hide mechanism + the manifest store + the Track-Changes gate). Apply
-Styles additionally needs Word 1.5+. Node ≥ 18 for development.
-
-### Developer sideload
-
-```bash
-npm install
-npm start          # builds, starts the HTTPS dev server on :3000, and sideloads
-```
-
-`npm start` (office-addin-debugging) trusts the dev certificate, serves the bundles over
-HTTPS (Office requires HTTPS), and sideloads `manifest.xml` into Word. Then use the
-Rostrum ribbon tab — the Hide / Show All / Apply Styles buttons directly, or Options on
-any group to open that tool's pane.
-
-To stop: `npm stop`. To rebuild without sideloading: `npm run build` (production) or
-`npm run build:dev`.
-
-### Producing the production manifest
-
-The committed `manifest.xml` is the **dev** manifest (`https://localhost:3000`). The
-production manifest is a build artifact, generated against the hosted origin — never
-committed, so the manifest drift test stays green:
-
-```bash
-npm run build                                                            # dist/ (hashed bundles, assets, landing page)
-npm run gen:manifest:prod -- --origin=https://andrewtjin.github.io/rostrum   # → dist/manifest.xml
-```
-
-`gen:manifest:prod` rebases every `SourceLocation` / icon / support URL onto the origin
-and stamps the production `<Id>` (distinct from dev, so both can be sideloaded on one
-machine). It errors if `--origin` is missing or not `https://`. CI
-(`.github/workflows/deploy-pages.yml`) runs exactly these steps on every push to `master`
-and publishes `dist/` to GitHub Pages, gated on green tests + a clean typecheck.
-(One-time: repo Settings ▸ Pages ▸ Source = GitHub Actions.)
+> **[Install for Word ›](docs/install-word.md)**
 
 ---
 
@@ -250,6 +248,27 @@ in pilcrow mode, which inserts literal `¶` characters; its default merges parag
 - **Apply Styles** reflows pagination and is **not** undone by Show All — use Ctrl+Z. The
   pocket box needs `Style.borders` (desktop); the per-paragraph `w:pBdr` fallback is
   documented but not auto-applied.
+
+---
+
+## Google Docs port
+
+Rostrum's **Invisibility Mode** and **debate styles** in a Google Doc — paste-in, no
+Marketplace. An early **v0.1.0 MVP**: Hide / Show All, Apply debate styles, and Mark cite,
+driven from a **Rostrum** menu. Full install + usage:
+**[Install for Google Docs ›](gdocs/README.md)**.
+
+- **Honest posture.** Hide here *shrinks* body text to a 1‑point size (the Docs object
+  model has no hidden-font attribute to borrow), so a long file reads like a speech doc
+  and the page count collapses. It is **not secrecy** — Select All → font size 11 reveals
+  everything. **Show All** brings every word back. This mirrors how Rostrum behaves in Word.
+- **No tracking inside Google Docs.** The pasted script only ever changes font size and
+  named‑style definitions; it sends nothing back as you use it. (The single anonymous count
+  is the one‑time `Code.gs` download from the site — see [Privacy](https://andrewtjin.github.io/rostrum/privacy.html).)
+- **Separate engine, separate code.** Lives in [`gdocs/`](gdocs/) (Apps Script over the
+  Docs object model), built into one pasteable `Code.gs` by `npm run build:gdocs`. It
+  imports nothing from the Word `src/` engine and versions independently. Its own
+  architecture and limits are documented in [`gdocs/README.md`](gdocs/README.md).
 
 ---
 

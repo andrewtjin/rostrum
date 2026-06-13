@@ -6,10 +6,31 @@
 // so the scaffold is complete and `npm run build` has a real target. Office
 // add-ins must be served over HTTPS, hence the dev-server https block.
 const path = require("path");
+const fs = require("fs");
 // package.json.version is pinned to PRODUCT_VERSION by __tests__/version.test.ts,
 // so it's the single, drift-proof source for stamping the version into the static
 // site pages (the download page shows it) at build time.
 const pkg = require("./package.json");
+
+// The Google Docs port ships on its OWN semver (GDOCS_VERSION in
+// gdocs/src/core/constants.ts), independent of pkg.version — the Word add-in is
+// 0.3.x while the Docs MVP is 0.1.x. We stamp it onto the gdocs install page via
+// a SEPARATE __GDOCS_VERSION__ token. Extract the literal by REGEX over the file
+// TEXT — never require()/import the .ts. CI runs Node 20, which cannot strip
+// TypeScript types, so requiring a file containing `export const X: T = ...`
+// throws "Missing initializer in const declaration" at parse time (it only
+// "works" on a newer local Node with strip-mode — a works-here/breaks-in-CI
+// trap). A regex is Node-version-agnostic; a missing match throws HERE so a
+// rename fails the build loudly instead of stamping "undefined" onto the page.
+const GDOCS_CONSTANTS = path.resolve(__dirname, "gdocs/src/core/constants.ts");
+const gdocsVersionMatch = fs
+  .readFileSync(GDOCS_CONSTANTS, "utf8")
+  .match(/GDOCS_VERSION\s*=\s*["']([^"']+)["']/);
+if (!gdocsVersionMatch) {
+  throw new Error(`webpack: GDOCS_VERSION not found in ${GDOCS_CONSTANTS} (renamed or moved?)`);
+}
+const gdocsVersion = gdocsVersionMatch[1];
+
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
@@ -106,15 +127,33 @@ module.exports = async (env, argv) => {
             from: "site",
             to: ".",
             noErrorOnMissing: true,
-            // Stamp the product version into the static pages at build time so the
-            // download page shows it without a hand-maintained string (or any JS).
-            // Only .html is templated; the token is a harmless no-op where absent.
+            // Stamp BOTH product versions into the static pages at build time so each
+            // install page shows its own version without a hand-maintained string (or
+            // any JS): __ROSTRUM_VERSION__ → the Word add-in (pkg.version) on the Word
+            // pages, __GDOCS_VERSION__ → the Google Docs port on google-docs.html. The
+            // two are version-independent; this single transform handles both so a page
+            // referencing the wrong token would just no-op, never cross-leak a value.
+            // Only .html is templated; the tokens are harmless no-ops where absent.
             transform(content, absPath) {
               return absPath.endsWith(".html")
-                ? content.toString().replace(/__ROSTRUM_VERSION__/g, pkg.version)
+                ? content
+                    .toString()
+                    .replace(/__ROSTRUM_VERSION__/g, pkg.version)
+                    .replace(/__GDOCS_VERSION__/g, gdocsVersion)
                 : content;
             }
-          }
+          },
+          // The Google Docs single-file deliverable (Code.gs + appsscript.json), built by
+          // `npm run build:gdocs` into gdocs/dist/ in a SEPARATE prior step (the deploy
+          // workflow runs build:gdocs BEFORE build). webpack's `clean` wipes the OUTPUT
+          // dir (dist/), NOT the copy SOURCE (gdocs/dist/), so this lands them at
+          // dist/gdocs/Code.gs + dist/gdocs/appsscript.json — where the site's gdocs
+          // install page links them and the download-counter Worker proxies Code.gs.
+          // noErrorOnMissing keeps a plain local `npm run build` (no prior build:gdocs)
+          // green. Deliberately NO transform: the .gs must stay BYTE-IDENTICAL to the
+          // built artifact (it embeds its own GDOCS_VERSION; a token pass could corrupt
+          // it and would break version-independence).
+          { from: "gdocs/dist", to: "gdocs", noErrorOnMissing: true }
         ]
       })
     ],

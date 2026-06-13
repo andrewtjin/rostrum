@@ -19,6 +19,22 @@ Current version: **v0.1.0** (shown in the panel footer as `Rostrum v0.1.0`).
 You install per‑doc, into the document's *container‑bound* script. Nothing is
 published anywhere; the script lives inside the doc.
 
+### Get the two files
+
+You paste in two small files — `Code.gs` (the script) and `appsscript.json` (the
+permissions manifest). The friendliest path is the install page, which has both as
+download buttons: **<https://andrewtjin.github.io/rostrum/google-docs.html>**.
+
+Or grab them directly:
+
+| File | Download | Direct copy (if the download doesn't start) |
+|---|---|---|
+| `Code.gs` | [Code.gs](https://rostrum-downloads.rostrum.workers.dev/code.gs) | [/gdocs/Code.gs](https://andrewtjin.github.io/rostrum/gdocs/Code.gs) |
+| `appsscript.json` | — | [/gdocs/appsscript.json](https://andrewtjin.github.io/rostrum/gdocs/appsscript.json) |
+
+(The first `Code.gs` link counts an anonymous download; the direct copy doesn't. Either
+works — see *Privacy* below.) Then:
+
 1. Open the Google Doc you want Rostrum in.
 2. **Extensions → Apps Script.** A new editor tab opens with an empty `Code.gs`.
 3. Select everything in `Code.gs` and delete it, then **paste the entire contents
@@ -43,6 +59,14 @@ published anywhere; the script lives inside the doc.
 Rostrum only ever changes **font size** (to hide/show) and **named‑style
 definitions** (to apply debate styles). It never inserts, deletes, or reorders any
 text character.
+
+### Privacy — no tracking inside Google Docs
+The pasted script **sends nothing back** as you use it: no document content, no
+personal data, no usage pings. It runs entirely inside your doc and only edits font
+sizes and style definitions. The *only* anonymous number Rostrum ever counts is the
+one‑time `Code.gs` download from the website (and only if you used the counted download
+link above, not the direct copy) — exactly mirroring the Word side. Full disclosure:
+the [privacy page](https://andrewtjin.github.io/rostrum/privacy.html).
 
 ---
 

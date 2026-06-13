@@ -1,0 +1,248 @@
+<!doctype html>
+<!--
+  Rostrum — Google Docs install page. One of the two per-platform install pages the brand
+  landing (index.html) routes to; the other is word.html. Served at …/rostrum/google-docs.html,
+  copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .). PURE static HTML —
+  no bundle — sharing ./styles.css.
+
+  The __GDOCS_VERSION__ token is stamped to the Google Docs port's OWN version (read from
+  gdocs/src/core/constants.ts at build time), NOT pkg.version — the two surfaces version
+  independently. The Code.gs + appsscript.json this page links live at /gdocs/, published by
+  the deploy workflow's `build:gdocs` step + the webpack copy of gdocs/dist -> dist/gdocs.
+
+  Primary Code.gs download goes through the counting Worker (/code.gs); a direct ./gdocs/Code.gs
+  fallback is offered so a Worker hiccup never strands an installer (mirrors the manifest pattern).
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Rostrum for Google Docs — install</title>
+        <meta
+            name="description"
+            content="Install Rostrum for Google Docs — Invisibility Mode and debate styles, pasted into your doc's Apps Script. No Marketplace, ~2 minutes, fully reversible."
+        />
+        <link rel="icon" href="./assets/icon-32.png" />
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body>
+        <main class="wrap">
+            <a class="back" href="./">‹ All platforms</a>
+            <header>
+                <img src="./assets/icon-80.png" alt="" width="56" height="56" />
+                <h1>Rostrum for Google Docs</h1>
+            </header>
+            <p class="tagline">
+                Invisibility Mode &amp; debate styles in a Google Doc — no
+                Marketplace install.
+            </p>
+            <p class="lede">
+                You paste one script into the doc's own Apps Script project; a
+                <strong>Rostrum</strong> menu appears after a reload. About two
+                minutes.
+            </p>
+            <p class="download-note">
+                Version <strong>v__GDOCS_VERSION__</strong> · this is an early
+                MVP (Hide / Show All, Apply debate styles, Mark cite). Full usage
+                guide:
+                <a href="https://github.com/andrewtjin/rostrum/blob/master/gdocs/README.md"
+                    >gdocs/README</a
+                >.
+            </p>
+
+            <div class="banner" role="note">
+                <strong>What "Hide" actually does (honest posture).</strong> Hide
+                <em>shrinks</em> every word of body text except headings, cites,
+                and highlighted text down to a 1‑point size, so a long file reads
+                like a speech doc and the page count collapses. It is
+                <strong>not secrecy</strong> — anyone can reveal it with Select
+                All → font size 11 (see the escape hatch below).
+                <strong>Show All brings every word back.</strong> This matches how
+                Rostrum behaves in Word.
+            </div>
+
+            <h2>1 · Get the two files</h2>
+            <p>
+                You paste in two small files —
+                <code>Code.gs</code> (the script) and
+                <code>appsscript.json</code> (the permissions manifest):
+            </p>
+            <div class="card">
+                <p>
+                    <a
+                        href="https://rostrum-downloads.rostrum.workers.dev/code.gs"
+                        download="Code.gs"
+                        class="button-link"
+                        >Code.gs</a
+                    >
+                    <span class="download-note"
+                        >Download didn't start? Use the
+                        <a href="./gdocs/Code.gs" download="Code.gs"
+                            >direct link</a
+                        >.</span
+                    >
+                </p>
+                <p>
+                    <a
+                        href="./gdocs/appsscript.json"
+                        download="appsscript.json"
+                        class="button-link"
+                        >appsscript.json</a
+                    >
+                    <span class="download-note"
+                        >the permissions manifest (the Docs service + two
+                        scopes).</span
+                    >
+                </p>
+            </div>
+
+            <h2>2 · Paste it in</h2>
+            <p>
+                You install per‑doc, into the document's
+                <em>container‑bound</em> script. Nothing is published anywhere;
+                the script lives inside the doc.
+            </p>
+            <ol>
+                <li>Open the Google Doc you want Rostrum in.</li>
+                <li>
+                    <strong>Extensions → Apps Script.</strong> A new editor tab
+                    opens with an empty <code>Code.gs</code>.
+                </li>
+                <li>
+                    Select everything in <code>Code.gs</code> and delete it, then
+                    <strong>paste the entire contents of the downloaded
+                    <code>Code.gs</code></strong> in its place.
+                </li>
+                <li>
+                    Tell the project which permissions it needs (one‑time manifest
+                    step): click <strong>Project Settings</strong> (the gear, left
+                    rail) and tick
+                    <strong>"Show 'appsscript.json' manifest file in editor."</strong>
+                    Back in the <strong>Editor</strong>, open
+                    <code>appsscript.json</code> and replace its contents with the
+                    downloaded one. <em>(Alternatively, just add the Docs API
+                    advanced service: <strong>Editor → Services (＋) → Google Docs
+                    API → Add</strong>.)</em>
+                </li>
+                <li><strong>Save</strong> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>).</li>
+                <li>
+                    <strong>Reload the Google Doc tab.</strong> After the reload a
+                    <strong>Rostrum</strong> menu appears in the menu bar (next to
+                    <em>Help</em>).
+                </li>
+            </ol>
+            <p class="ok">
+                ✓ A <strong>Rostrum</strong> menu now sits in the doc's menu bar.
+            </p>
+
+            <h2>3 · First run (the "click again" quirk)</h2>
+            <p>
+                The <strong>first</strong> time you pick a Rostrum action, Google
+                interrupts to ask for permission — your click is consumed by the
+                consent flow, not the action.
+            </p>
+            <ol>
+                <li>Pick <strong>Rostrum → Hide</strong> (or any verb). A Google authorization dialog appears.</li>
+                <li>Choose your account.</li>
+                <li>
+                    Because this is your own unverified script, Google shows a
+                    warning screen. Click <strong>Advanced</strong>, then
+                    <strong>"Go to <em>(your doc)</em> (unsafe)."</strong> (Expected
+                    for a personal script you pasted yourself — you're granting it
+                    to <em>your own</em> doc.)
+                </li>
+                <li>Review the permissions and click <strong>Allow.</strong></li>
+                <li>
+                    The dialog closes <strong>without running the action</strong> —
+                    this is normal. <strong>Click the same Rostrum action
+                    again</strong> and it runs.
+                </li>
+            </ol>
+            <p class="download-note">
+                Rostrum runs as the account you authorized — the one signed into
+                <strong>this Chrome profile</strong> when you click <em>Allow</em>.
+                On a managed / school (Workspace Education) account, admin policy
+                may block consent entirely; if so, install on a
+                <strong>personal Gmail</strong> account instead.
+            </p>
+
+            <details>
+                <summary>Escape hatch — reading a hidden doc without Rostrum</summary>
+                <p>
+                    If you (or anyone you send the doc to) ever need the text back
+                    <strong>without</strong> Rostrum:
+                </p>
+                <p>
+                    <strong>Select All</strong> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>A</kbd>),
+                    then set the <strong>font size to 11.</strong> Everything
+                    becomes visible again.
+                </p>
+            </details>
+
+            <details>
+                <summary>Sharing with teammates</summary>
+                <p>
+                    A Google Doc's bound script <strong>travels with a copy.</strong>
+                    To give a teammate the styled, Rostrum‑enabled doc:
+                    <strong>File → Make a copy</strong> (or share a copy). The copy
+                    carries the bound script, so they get the <strong>Rostrum</strong>
+                    menu after their own first‑run authorization. There is no central
+                    install to manage. <em>(These shared copies aren't counted as
+                    downloads — see Privacy.)</em>
+                </p>
+                <p class="download-note">
+                    <strong>Team norm:</strong> don't edit a doc while it's hidden —
+                    <strong>Show All first.</strong> Moving or copying hidden text can
+                    separate it from its saved sizes; Show All still brings it back
+                    (with a note), but editing un‑hidden is cleaner.
+                </p>
+            </details>
+
+            <details>
+                <summary>Limits in this version</summary>
+                <ul>
+                    <li>
+                        <strong>Single‑tab docs only.</strong> A doc using Google
+                        Docs <em>tabs</em> is refused cleanly.
+                    </li>
+                    <li>
+                        <strong>Suggesting mode:</strong> Hide and Apply debate
+                        styles refuse while there are unresolved suggestions; Show
+                        All always works.
+                    </li>
+                    <li>
+                        <strong>Cut/paste of hidden text</strong> can detach it from
+                        its saved sizes; Show All then normalizes it back to full
+                        size and tells you how many passages it reset.
+                    </li>
+                    <li>Condense/Shrink and Marketplace publication are <strong>not</strong> part of this version.</li>
+                </ul>
+            </details>
+
+            <div class="banner" role="note">
+                <strong>No tracking inside Google Docs.</strong> The pasted script
+                only ever changes font size and named‑style definitions; it sends
+                <strong>nothing</strong> back as you use it — no document content,
+                no personal data, no usage pings. The single anonymous number
+                Rostrum counts is the one‑time <code>Code.gs</code> download from
+                this site (and only via the counted link above, not the direct
+                copy). Full disclosure: <a href="./privacy.html">Privacy</a>.
+            </div>
+
+            <footer>
+                <p>
+                    Trouble installing or a bug to report?
+                    <a href="https://github.com/andrewtjin/rostrum/issues"
+                        >Open an issue on GitHub</a
+                    >.
+                </p>
+                <p>
+                    Rostrum is open source · MIT-style use · built
+                    <em>for</em> debaters <em>by</em> debaters ·
+                    <a href="./">All platforms</a> ·
+                    <a href="./privacy.html">Privacy</a>
+                </p>
+            </footer>
+        </main>
+    </body>
+</html>

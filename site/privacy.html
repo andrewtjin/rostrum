@@ -4,10 +4,12 @@
   copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .), same as
   index.html. PURE static HTML, no bundle — shares ./styles.css (one cached request).
 
-  This page is the public disclosure backing the download counter behind the
-  manifest.xml link: a single anonymous integer, and nothing else. Wording note:
-  the privacy copy says "downloads" (the literal, truthful event we count);
-  promotional copy elsewhere may say "installs" colloquially.
+  This page is the public disclosure backing the download counters behind the two
+  install deliverables: the Word manifest.xml and the Google Docs Code.gs. Two
+  anonymous integers, plus their sum, and nothing else. Wording note: the privacy
+  copy says "downloads" (the literal, truthful event we count); promotional copy
+  elsewhere (the README badge) says "installs". It also discloses both biases so
+  the combined number is never read as a precise install tally.
 -->
 <html lang="en">
     <head>
@@ -16,7 +18,7 @@
         <title>Rostrum — privacy</title>
         <meta
             name="description"
-            content="Rostrum's privacy disclosure: it counts anonymous downloads, and nothing else — no document content, no personal data."
+            content="Rostrum's privacy disclosure: it counts anonymous downloads of its two install files (Word and Google Docs), and nothing else — no document content, no personal data."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -34,17 +36,22 @@
             </p>
 
             <p>
-                When you download <code>manifest.xml</code> from this site, a single
-                number on our end goes up by one. That counter is the
+                Rostrum ships on two platforms, each with one install file: the
+                <strong>Word</strong> add-in's <code>manifest.xml</code> and the
+                <strong>Google Docs</strong> port's <code>Code.gs</code>. When you
+                download either from this site, the matching anonymous counter on our
+                end goes up by one. Those two counters — and their sum — are the
                 <em>entire</em> extent of what Rostrum collects.
             </p>
 
             <h2>What is collected</h2>
             <ul>
                 <li>
-                    <strong>One anonymous number</strong> — a running total of how
-                    many times the manifest has been downloaded. It is not tied to
-                    you, your device, or anything you do afterward.
+                    <strong>Two anonymous numbers</strong> — running totals of how
+                    many times the Word <code>manifest.xml</code> and the Google Docs
+                    <code>Code.gs</code> have each been downloaded. We also publish
+                    their <strong>sum</strong> (a rough cross-platform total). None of
+                    these is tied to you, your device, or anything you do afterward.
                 </li>
             </ul>
 
@@ -52,7 +59,8 @@
             <ul>
                 <li>
                     <strong>Nothing from your documents.</strong> Rostrum never
-                    sends, stores, or sees the text of anything you write or format.
+                    sends, stores, or sees the text of anything you write or format,
+                    in Word or in Google Docs.
                 </li>
                 <li>
                     <strong>No personal data.</strong> No names, emails, accounts,
@@ -63,9 +71,9 @@
                         >No IP addresses or device fingerprints are retained by
                         Rostrum.</strong
                     >
-                    The counter records only that a download happened, never who
-                    or from where — we keep no request logs of our own. (The file
-                    is delivered through Cloudflare, which may process requests in
+                    The counters record only that a download happened, never who
+                    or from where — we keep no request logs of our own. (Files are
+                    delivered through Cloudflare, which may process requests in
                     transit under its
                     <a href="https://www.cloudflare.com/privacypolicy/"
                         >own privacy policy</a
@@ -74,7 +82,15 @@
                 <li>
                     <strong>No tracking inside Word.</strong> The add-in itself sends
                     nothing back as you use it — the count happens only at the moment
-                    you download the manifest file from this website.
+                    you download <code>manifest.xml</code> from this website.
+                </li>
+                <li>
+                    <strong>No tracking inside Google Docs.</strong> The pasted
+                    <code>Code.gs</code> only ever changes font size and named-style
+                    definitions; it sends nothing back as you use it — no usage pings,
+                    no document content. The only count is the one-time
+                    <code>Code.gs</code> download from this website (and only if you
+                    used the counted download link, not the direct copy).
                 </li>
             </ul>
 
@@ -82,8 +98,25 @@
             <p>
                 It tells us roughly how many people are using Rostrum over a season —
                 enough to know the project is worth maintaining, and nothing more.
-                The number is approximate: re-downloading the manifest to pick up a
-                new version counts again too.
+            </p>
+            <p>
+                The number is <strong>deliberately approximate</strong>, and it leans
+                in both directions depending on the platform:
+            </p>
+            <ul>
+                <li>
+                    <strong>Word over-counts a little:</strong> re-downloading
+                    <code>manifest.xml</code> to pick up a new version counts again.
+                </li>
+                <li>
+                    <strong>Google Docs under-counts a little:</strong> a teammate who
+                    gets the script by receiving a <em>copy</em> of an enabled doc
+                    never downloads <code>Code.gs</code>, so that install isn't counted.
+                </li>
+            </ul>
+            <p>
+                So treat the combined total as a rough order-of-magnitude sense of
+                reach, not a precise install tally.
             </p>
 
             <footer>

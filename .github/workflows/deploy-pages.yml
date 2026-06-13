@@ -51,6 +51,11 @@ jobs:
       # executes — deploys block on core-engine coverage regressions, not just red tests.
       - run: npm run test:coverage
       - run: npm run typecheck
+      # Build the Google Docs single-file deliverable FIRST (typecheck:gdocs + esbuild
+      # → gdocs/dist/Code.gs + appsscript.json). Must run BEFORE `build` so webpack's
+      # CopyWebpackPlugin can pick up gdocs/dist/ and publish it at dist/gdocs/ — the
+      # path the site's gdocs install page links and the download-counter Worker proxies.
+      - run: npm run build:gdocs
       - run: npm run build
       # Prod manifest is written AFTER build (build's `clean` wipes dist first); --origin must
       # match the deployed Pages base path exactly or the manifest's URLs 404.
