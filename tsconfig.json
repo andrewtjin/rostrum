@@ -20,6 +20,6 @@
     "outDir": "dist",
     "types": ["office-js", "jest", "node"]
   },
-  "include": ["src/**/*", "__tests__/**/*", "tools/**/*"],
+  "include": ["src/**/*", "__tests__/**/*", "tools/**/*", "gdocs/src/core/**/*"],
   "exclude": ["node_modules", "dist"]
 }

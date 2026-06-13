@@ -18,6 +18,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "typecheck": "tsc --noEmit",
+    "typecheck:gdocs": "tsc -p gdocs --noEmit",
+    "build:gdocs": "npm run typecheck:gdocs && node tools/build-gdocs.mjs",
     "gen:manifest": "tsx tools/gen-manifest.ts",
     "gen:manifest:prod": "tsx tools/gen-manifest.ts --out=dist/manifest.xml",
     "gen:icons": "node scripts/gen-icons.mjs",
@@ -30,7 +32,9 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/google-apps-script": "^1.0.83",
     "@types/jest": "^29.5.12",
+    "esbuild": "^0.24.0",
     "@types/node": "^25.9.1",
     "@types/office-js": "^1.0.377",
     "@types/react": "^18.3.3",

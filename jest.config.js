@@ -23,10 +23,19 @@ module.exports = {
     "src/core/**/*.ts",
     // The Office.js adapter (officeWordPort.ts) cannot run without a Word host,
     // so it is excluded from unit coverage and validated by Stage 2 integration.
-    "!src/core/officeWordPort.ts"
+    "!src/core/officeWordPort.ts",
+    // The gdocs pure engine is held to the same bar. Its host adapter
+    // (gdocs/src/adapter/) is outside this glob for the same reason as
+    // officeWordPort.ts — it cannot run without the Apps Script host.
+    "gdocs/src/core/**/*.ts"
   ],
   coverageThreshold: {
-    global: { branches: 80, functions: 90, lines: 90, statements: 90 }
+    // NOTE: a path-scoped entry REMOVES its matched files from the global
+    // group (Jest semantics), so adding the gdocs floor leaves the Word
+    // engine's global gate numerically identical — the deploy gate is
+    // unchanged (case 001-F7, amended).
+    global: { branches: 80, functions: 90, lines: 90, statements: 90 },
+    "gdocs/src/core/": { branches: 80, functions: 90, lines: 90, statements: 90 }
   },
   clearMocks: true
 };

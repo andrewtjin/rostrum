@@ -22,3 +22,8 @@ Thumbs.db
 .claude/
 graphify-out/
 .graphify_python
+
+# Local-only synthetic Docs-JSON scale fixtures + measurements derived from
+# personal debate docs (tools/gdocs-synth-fixture.mjs writes them; the
+# gdocsRealDocs suite is skip-when-absent, so CI never needs them)
+samples/

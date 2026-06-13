@@ -1,0 +1,27 @@
+{
+  // The repo's first sub-project tsconfig (deviation from the worker/ precedent,
+  // pre-authorized by the gdocs plan review): the adapter layer references Apps
+  // Script ambient globals (DocumentApp, Docs, PropertiesService, HtmlService),
+  // and the ROOT tsconfig's `types` array is deliberately closed — adding
+  // google-apps-script there would leak its globals across the whole Word
+  // add-in. This config typechecks the WHOLE gdocs tree (core + adapter) with
+  // those globals visible; the pure core is ALSO checked by the root tsconfig
+  // (it is in the root include) to prove it never needs a Google type.
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": ["ES2019"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["google-apps-script"]
+  },
+  "include": ["src/**/*"]
+}

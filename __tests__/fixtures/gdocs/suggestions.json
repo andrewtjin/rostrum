@@ -1,0 +1,100 @@
+{
+  "revisionId": "fixture-rev-suggestions",
+  "body": {
+    "content": [
+      {
+        "endIndex": 1
+      },
+      {
+        "startIndex": 1,
+        "endIndex": 54,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 1,
+              "endIndex": 15,
+              "textRun": {
+                "content": "Baseline text ",
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 15,
+              "endIndex": 33,
+              "textRun": {
+                "content": "suggested addition",
+                "textStyle": {},
+                "suggestedInsertionIds": [
+                  "suggest.abc123"
+                ],
+                "suggestedTextStyleChanges": {
+                  "suggest.abc123": {
+                    "textStyle": {
+                      "bold": true
+                    },
+                    "textStyleSuggestionState": {
+                      "boldSuggested": true
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "startIndex": 33,
+              "endIndex": 54,
+              "textRun": {
+                "content": " continues after it.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 54,
+        "endIndex": 95,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 54,
+              "endIndex": 95,
+              "textRun": {
+                "content": "Paragraph with a suggested style change.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          },
+          "suggestedParagraphStyleChanges": {
+            "suggest.def456": {
+              "paragraphStyle": {
+                "namedStyleType": "HEADING_2"
+              },
+              "paragraphStyleSuggestionState": {
+                "namedStyleTypeSuggested": true
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "namedStyles": {
+    "styles": [
+      {
+        "namedStyleType": "NORMAL_TEXT",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "revisionId": "fixture-rev-headings",
+  "body": {
+    "content": [
+      {
+        "endIndex": 1
+      },
+      {
+        "startIndex": 1,
+        "endIndex": 24,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 1,
+              "endIndex": 24,
+              "textRun": {
+                "content": "Tournament Round 3 Aff\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "TITLE"
+          }
+        }
+      },
+      {
+        "startIndex": 24,
+        "endIndex": 28,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 24,
+              "endIndex": 28,
+              "textRun": {
+                "content": "1AC\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "HEADING_1"
+          }
+        }
+      },
+      {
+        "startIndex": 28,
+        "endIndex": 50,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 28,
+              "endIndex": 50,
+              "textRun": {
+                "content": "Advantage One Warming\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "HEADING_2"
+          }
+        }
+      },
+      {
+        "startIndex": 50,
+        "endIndex": 61,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 50,
+              "endIndex": 61,
+              "textRun": {
+                "content": "Uniqueness\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "HEADING_3"
+          }
+        }
+      },
+      {
+        "startIndex": 61,
+        "endIndex": 86,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 61,
+              "endIndex": 86,
+              "textRun": {
+                "content": "Warming irreversible now\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "HEADING_4"
+          }
+        }
+      },
+      {
+        "startIndex": 86,
+        "endIndex": 121,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 86,
+              "endIndex": 121,
+              "textRun": {
+                "content": "Card body text sits under the tag.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 121,
+        "endIndex": 150,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 121,
+              "endIndex": 150,
+              "textRun": {
+                "content": "Heading five behaves as body\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "HEADING_5"
+          }
+        }
+      }
+    ]
+  },
+  "namedStyles": {
+    "styles": [
+      {
+        "namedStyleType": "NORMAL_TEXT",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "TITLE",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 26,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "SUBTITLE",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 15,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_1",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 20,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_2",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 16,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_3",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 14,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_4",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 12,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_5",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_6",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      }
+    ]
+  }
+}

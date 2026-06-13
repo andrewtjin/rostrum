@@ -1,0 +1,107 @@
+{
+  "revisionId": "fixture-rev-named-ranges",
+  "body": {
+    "content": [
+      {
+        "endIndex": 1
+      },
+      {
+        "startIndex": 1,
+        "endIndex": 41,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 1,
+              "endIndex": 41,
+              "textRun": {
+                "content": "This paragraph anchors the split range.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 41,
+        "endIndex": 82,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 41,
+              "endIndex": 82,
+              "textRun": {
+                "content": "More body text to cover all the anchors.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      }
+    ]
+  },
+  "namedRanges": {
+    "rstm:v1:7x11,10x14": {
+      "name": "rstm:v1:7x11,10x14",
+      "namedRanges": [
+        {
+          "namedRangeId": "kix.nr1",
+          "name": "rstm:v1:7x11,10x14",
+          "ranges": [
+            {
+              "startIndex": 5,
+              "endIndex": 12
+            },
+            {
+              "startIndex": 20,
+              "endIndex": 30
+            }
+          ]
+        }
+      ]
+    },
+    "docs-anchor": {
+      "name": "docs-anchor",
+      "namedRanges": [
+        {
+          "namedRangeId": "kix.nr2",
+          "name": "docs-anchor",
+          "ranges": [
+            {
+              "startIndex": 41,
+              "endIndex": 46
+            }
+          ]
+        },
+        {
+          "namedRangeId": "kix.nr3",
+          "name": "docs-anchor",
+          "ranges": [
+            {
+              "startIndex": 47,
+              "endIndex": 52
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "namedStyles": {
+    "styles": [
+      {
+        "namedStyleType": "NORMAL_TEXT",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      }
+    ]
+  }
+}

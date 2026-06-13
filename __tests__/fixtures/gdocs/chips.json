@@ -1,0 +1,163 @@
+{
+  "revisionId": "fixture-rev-chips",
+  "body": {
+    "content": [
+      {
+        "endIndex": 1
+      },
+      {
+        "startIndex": 1,
+        "endIndex": 22,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 1,
+              "endIndex": 5,
+              "textRun": {
+                "content": "Ask ",
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 5,
+              "endIndex": 6,
+              "person": {
+                "personId": "kix.person1",
+                "personProperties": {
+                  "name": "Jane Smith",
+                  "email": "jane@example.com"
+                },
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 6,
+              "endIndex": 22,
+              "textRun": {
+                "content": " about the aff.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 22,
+        "endIndex": 43,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 22,
+              "endIndex": 26,
+              "textRun": {
+                "content": "See ",
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 26,
+              "endIndex": 27,
+              "richLink": {
+                "richLinkId": "kix.rl1",
+                "richLinkProperties": {
+                  "title": "1AC Warming",
+                  "uri": "https://docs.google.com/document/d/abc123",
+                  "mimeType": "application/vnd.google-apps.document"
+                },
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 27,
+              "endIndex": 43,
+              "textRun": {
+                "content": " for the cards.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 43,
+        "endIndex": 45,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 43,
+              "endIndex": 44,
+              "pageBreak": {
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 44,
+              "endIndex": 45,
+              "textRun": {
+                "content": "\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 45,
+        "endIndex": 56,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 45,
+              "endIndex": 54,
+              "textRun": {
+                "content": "Diagram: ",
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 54,
+              "endIndex": 55,
+              "inlineObjectElement": {
+                "inlineObjectId": "kix.img1",
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 55,
+              "endIndex": 56,
+              "textRun": {
+                "content": "\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      }
+    ]
+  },
+  "namedStyles": {
+    "styles": [
+      {
+        "namedStyleType": "NORMAL_TEXT",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      }
+    ]
+  }
+}

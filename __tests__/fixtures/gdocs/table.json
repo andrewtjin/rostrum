@@ -1,0 +1,119 @@
+{
+  "revisionId": "fixture-rev-table",
+  "body": {
+    "content": [
+      {
+        "endIndex": 1
+      },
+      {
+        "startIndex": 1,
+        "endIndex": 26,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 1,
+              "endIndex": 26,
+              "textRun": {
+                "content": "Source comparison table:\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 26,
+        "endIndex": 74,
+        "table": {
+          "tableRows": [
+            {
+              "tableCells": [
+                {
+                  "content": [
+                    {
+                      "startIndex": 29,
+                      "endIndex": 55,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 29,
+                            "endIndex": 55,
+                            "textRun": {
+                              "content": "Aff ev quality is higher.\n",
+                              "textStyle": {}
+                            }
+                          }
+                        ],
+                        "paragraphStyle": {
+                          "namedStyleType": "NORMAL_TEXT"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "content": [
+                    {
+                      "startIndex": 56,
+                      "endIndex": 73,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 56,
+                            "endIndex": 73,
+                            "textRun": {
+                              "content": "Neg ev is older.\n",
+                              "textStyle": {}
+                            }
+                          }
+                        ],
+                        "paragraphStyle": {
+                          "namedStyleType": "NORMAL_TEXT"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "startIndex": 74,
+        "endIndex": 108,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 74,
+              "endIndex": 108,
+              "textRun": {
+                "content": "After the table the body resumes.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      }
+    ]
+  },
+  "namedStyles": {
+    "styles": [
+      {
+        "namedStyleType": "NORMAL_TEXT",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      }
+    ]
+  }
+}

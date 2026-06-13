@@ -1,0 +1,157 @@
+{
+  "revisionId": "fixture-rev-plain-card",
+  "body": {
+    "content": [
+      {
+        "endIndex": 1
+      },
+      {
+        "startIndex": 1,
+        "endIndex": 27,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 1,
+              "endIndex": 27,
+              "textRun": {
+                "content": "Warming causes extinction\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "HEADING_4"
+          }
+        }
+      },
+      {
+        "startIndex": 27,
+        "endIndex": 95,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 27,
+              "endIndex": 36,
+              "textRun": {
+                "content": "Smith 23 ",
+                "textStyle": {
+                  "bold": true,
+                  "fontSize": {
+                    "magnitude": 14,
+                    "unit": "PT"
+                  }
+                }
+              }
+            },
+            {
+              "startIndex": 36,
+              "endIndex": 95,
+              "textRun": {
+                "content": "(Jane Smith, climate professor at MIT, Journal of Climate)\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT",
+            "spaceAbove": {
+              "magnitude": 12,
+              "unit": "PT"
+            }
+          }
+        }
+      },
+      {
+        "startIndex": 95,
+        "endIndex": 195,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 95,
+              "endIndex": 138,
+              "textRun": {
+                "content": "Global temperatures are rising faster than ",
+                "textStyle": {}
+              }
+            },
+            {
+              "startIndex": 138,
+              "endIndex": 159,
+              "textRun": {
+                "content": "every model predicted",
+                "textStyle": {
+                  "backgroundColor": {
+                    "color": {
+                      "rgbColor": {
+                        "red": 1,
+                        "green": 1
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "startIndex": 159,
+              "endIndex": 195,
+              "textRun": {
+                "content": " and feedback loops are locking in.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT"
+          }
+        }
+      },
+      {
+        "startIndex": 195,
+        "endIndex": 250,
+        "paragraph": {
+          "elements": [
+            {
+              "startIndex": 195,
+              "endIndex": 250,
+              "textRun": {
+                "content": "Card text continues with another sentence of evidence.\n",
+                "textStyle": {}
+              }
+            }
+          ],
+          "paragraphStyle": {
+            "namedStyleType": "NORMAL_TEXT",
+            "spaceAbove": {
+              "unit": "PT"
+            },
+            "spaceBelow": {
+              "unit": "PT"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "namedStyles": {
+    "styles": [
+      {
+        "namedStyleType": "NORMAL_TEXT",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 11,
+            "unit": "PT"
+          }
+        }
+      },
+      {
+        "namedStyleType": "HEADING_4",
+        "textStyle": {
+          "fontSize": {
+            "magnitude": 12,
+            "unit": "PT"
+          }
+        }
+      }
+    ]
+  }
+}
