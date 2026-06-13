@@ -39,6 +39,17 @@ export interface RawParagraph {
   inTable: boolean;
   /** OOXML for this paragraph (flat-OPC package or bare `<w:p>` fragment). */
   ooxml: string;
+  /**
+   * Opaque handle for the P1 node-direct path (Loop 002): a paragraph already parsed into
+   * a live, attached DOM node so the hide pass can read + mutate it WITHOUT the
+   * per-paragraph serialize→parse the string `ooxml` forces. Optional and ADDITIVE — the
+   * compat shim is `p.parsed ?? new ParsedParagraph(p.ooxml)`, so every existing caller
+   * (which never sets it) keeps the exact string-parse behavior and `parseCount.test.ts`
+   * keeps its meaning. Typed `unknown` to avoid a premature circular import
+   * (`ParsedParagraph` lives in ooxml.ts, which imports this module); the P1 implementer
+   * narrows it at the one site that consumes it. No behavior depends on it until then.
+   */
+  parsed?: unknown;
 }
 
 /**
