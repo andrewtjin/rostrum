@@ -162,12 +162,16 @@ export const STRINGS = {
       showMac: "Show Mac shortcuts",
       showWindows: "Show Windows shortcuts",
       rows: {
-        pocket: { name: "Pocket", verbatim: "F2", windows: "Ctrl+Alt+1", mac: "Cmd+Option+1" },
-        hat: { name: "Hat", verbatim: "F3", windows: "Ctrl+Alt+2", mac: "Cmd+Option+2" },
-        block: { name: "Block", verbatim: "F4", windows: "Ctrl+Alt+3", mac: "Cmd+Option+3" },
-        tag: { name: "Tag", verbatim: "F5", windows: "Ctrl+Alt+4", mac: "Cmd+Option+4" },
-        /** Normal has no Verbatim F-key; an em dash marks the empty cell. */
-        normal: { name: "Normal", verbatim: "—", windows: "Ctrl+Alt+0", mac: "Cmd+Option+0" }
+        // Verbatim F-keys verified against the live Verbatim template (wet round
+        // 2026-06-12): Pocket F4 / Hat F5 / Block F6 / Tag F7 / Normal-clear F12.
+        // (Cite is Verbatim F8 but is not a heading chord — it rides the
+        // "Mark cite" action, so it is documented in prose, not in this card,
+        // whose Windows/Mac columns are native Docs heading chords only.)
+        pocket: { name: "Pocket", verbatim: "F4", windows: "Ctrl+Alt+1", mac: "Cmd+Option+1" },
+        hat: { name: "Hat", verbatim: "F5", windows: "Ctrl+Alt+2", mac: "Cmd+Option+2" },
+        block: { name: "Block", verbatim: "F6", windows: "Ctrl+Alt+3", mac: "Cmd+Option+3" },
+        tag: { name: "Tag", verbatim: "F7", windows: "Ctrl+Alt+4", mac: "Cmd+Option+4" },
+        normal: { name: "Normal", verbatim: "F12", windows: "Ctrl+Alt+0", mac: "Cmd+Option+0" }
       },
       /** AT users get a documented non-keystroke path (frontendDraft Step 10e). */
       screenReaderNote:

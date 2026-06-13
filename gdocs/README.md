@@ -63,6 +63,15 @@ permission — your click is consumed by the consent flow, not the action.
    same thing: *"First time? Google uses your first click to ask permission — just
    click again."*)
 
+> **Which Google account does Rostrum use?** It runs as the account that
+> authorized it — which is the account you are signed into **in this Chrome
+> profile** when you click *Allow*. If you are signed into several Google
+> accounts in the same browser, open and run the doc under that **same** account,
+> or the menu actions fail to authorize. The simplest setup is a Chrome profile
+> signed into exactly the one account you want Rostrum to act as. (During testing,
+> authorization succeeded only for the account Chrome was logged in with — this is
+> that behavior, not a bug.)
+
 > On a **managed / school (Workspace Education)** account, admin policy may block
 > the consent screen entirely. If you hit a hard block, install on a **personal
 > Gmail** account instead.
@@ -100,6 +109,11 @@ After applying, style a line with the **native Docs heading shortcuts** —
 Rostrum rides the native ones; the panel's cheat sheet maps them to your Verbatim
 F‑keys.) If a shortcut doesn't take, the **Rostrum menu and panel do everything
 the shortcuts do.**
+
+For Verbatim muscle memory, the F‑keys map across as: **Pocket F4 · Hat F5 ·
+Block F6 · Tag F7 · Normal/clear F12.** **Cite is Verbatim F8** — it isn't a
+heading, so use **Rostrum → Mark cite** (there's no native Docs chord for it,
+which is why it isn't in the heading cheat sheet).
 
 ### Keep colors
 Hide keeps highlighted text visible. By default it keeps the standard highlight

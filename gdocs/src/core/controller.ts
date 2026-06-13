@@ -43,6 +43,8 @@
 // the flagship suite drives these verbs against an in-memory fake
 // (__tests__/fakeDocs.ts) end to end.
 
+import { planMarkCiteFromPicks } from "./adapterPure";
+import type { SelectionPick } from "./adapterPure";
 import { MAX_REPLAN_ATTEMPTS } from "./constants";
 import { assertNoSuggestions, assertNotHidden, assertSingleTab, chunkGroups } from "./guards";
 import { parseDocument } from "./parse";
@@ -260,4 +262,44 @@ export async function applyStyles(port: DocsPort): Promise<GStylesResult> {
       };
     }
   );
+}
+
+/**
+ * Mark cite — the same silent reconcile the other verbs get (plan D5), so a
+ * second Mark cite fired before the first commits (or a teammate's edit
+ * mid-flight) no longer rejects with the revision-conflict dialog. Re-marking
+ * is IDEMPOTENT: planMarkCiteFromPicks emits the same cite-style writes for the
+ * same picks, and applying a cite style that is already present is a no-op — so
+ * unlike Hide a conflict here is safe to retry WHOLESALE (no PartialApply
+ * distinction). The picks' paragraph ordinals/offsets are stable under the
+ * style-only edits cites and Hide make, so re-planning from a FRESH fetch lands
+ * the same marks on the new revision.
+ *
+ * Mark cite lives here (not via runVerb) because its plan comes from a HOST
+ * fact — the selection, lowered to picks by the adapter — instead of the parsed
+ * doc alone; the gates and the A9 whitelist still live inside
+ * planMarkCiteFromPicks. Returns the cited-paragraph count for the receipt.
+ *
+ * On exhausting MAX_REPLAN_ATTEMPTS the raw RevisionMismatchError stands (the
+ * "doc changed — nothing applied — try again" copy): a single-chunk mark is
+ * atomic so that is truthful, and a multi-chunk mark's idempotent re-run makes
+ * "try again" the correct recovery regardless.
+ */
+export async function markCite(port: DocsPort, picks: readonly SelectionPick[]): Promise<number> {
+  for (let attempt = 0; ; attempt++) {
+    const plan = planMarkCiteFromPicks(await port.fetchDocument(), picks);
+    // Each cite write is independent: one group per request lets chunkGroups
+    // pack them into <=CHUNK_MAX batches with safe boundaries, revision-chained
+    // across chunks (the Mark-cite shape the adapter used before, now retried).
+    let revisionId = plan.revisionId;
+    try {
+      for (const requests of chunkGroups(plan.requests.map((r) => ({ requests: [r] })))) {
+        ({ revisionId } = await port.applyBatch(requests, revisionId));
+      }
+      return plan.citedParagraphs;
+    } catch (e) {
+      if (!(e instanceof RevisionMismatchError) || attempt >= MAX_REPLAN_ATTEMPTS) throw e;
+      // Nothing to lose: re-read the fresh revision and re-mark (idempotent).
+    }
+  }
 }

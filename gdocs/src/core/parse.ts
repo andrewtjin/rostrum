@@ -56,23 +56,32 @@ const PARAGRAPH_FIELDS =
 const STRUCTURAL_FIELDS =
   `startIndex,endIndex,paragraph(${PARAGRAPH_FIELDS}),table(tableRows(tableCells(content)))`;
 
-/** Everything the engine reads out of one content segment. Shared verbatim
- * between the legacy top-level fields and tabs[].documentTab so the two read
- * paths can never drift apart. namedRanges is a name-keyed map (arbitrary
- * keys), which a field mask cannot reach into — selected whole. */
+/** Everything the engine reads out of one content segment, carried under
+ * tabs[].documentTab in the verb read (see DOC_FIELDS_MASK). namedRanges is a
+ * name-keyed map (arbitrary keys), which a field mask cannot reach into —
+ * selected whole. */
 const SEGMENT_FIELDS =
   `body(content(${STRUCTURAL_FIELDS})),namedRanges,` +
   "namedStyles(styles(namedStyleType,textStyle(fontSize)))";
 
 /**
- * The fields mask every documents.get carries (plan A13 — ONE masked get per
- * verb). `childTabs` is selected whole because leaf-tab counting (plan A3)
- * needs the recursive tab tree and field masks cannot recurse; single-tab docs
- * have no child tabs so this costs nothing, and multi-tab docs refuse outright
- * right after the count, so the over-fetch never reaches a hot path.
+ * NOT WIRED — the tested record of a constraint, not a live mask. The verb read
+ * (docsAdapter.fetchVerbDocument) is maskless because EVERY tabs-aware field
+ * mask is rejected by the live Apps Script Advanced Docs Service: "Field mask
+ * cannot retrieve document.tabs and legacy text-level fields from the Document
+ * resource in the same request." This lean `tabs(documentTab(...))` + revisionId
+ * shape — which Google's own field-mask guide documents as valid — was wet-tested
+ * live (2026-06-13) via a temporary fallback and STILL rejected, so masking is a
+ * confirmed dead end on this host. The constant + its tests remain as the record
+ * of the rule (revisionId is document-level not text-level; the segment fields
+ * ride inside documentTab; sibling tab-level tokens are excluded because bare
+ * `tabs(childTabs)`/`tabs(documentTab)` 400 independently). If a future host or
+ * API revision accepts a tabs mask, this is the shape to re-attempt. (The sidebar
+ * STATE read uses the legacy top-level shape with its OWN mask and no
+ * includeTabsContent, so the two shapes never mix in one request.)
  */
 export const DOC_FIELDS_MASK: string =
-  `revisionId,${SEGMENT_FIELDS},tabs(tabProperties(tabId),childTabs,documentTab(${SEGMENT_FIELDS}))`;
+  `revisionId,tabs(documentTab(${SEGMENT_FIELDS}))`;
 
 // ---------------------------------------------------------------------------
 // Narrowing primitives — every raw access funnels through these so "malformed

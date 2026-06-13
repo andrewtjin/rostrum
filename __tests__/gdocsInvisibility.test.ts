@@ -27,8 +27,9 @@
 // promises the user is that every character reads back with its original
 // size/emphasis/highlight, not that Google's internal run layout survived.
 
+import type { SelectionPick } from "../gdocs/src/core/adapterPure";
 import { MAX_REPLAN_ATTEMPTS, SENTINELS } from "../gdocs/src/core/constants";
-import { applyStyles, hide, showAll } from "../gdocs/src/core/controller";
+import { applyStyles, hide, markCite, showAll } from "../gdocs/src/core/controller";
 import { parseDocument } from "../gdocs/src/core/parse";
 import { isRstmName } from "../gdocs/src/core/rangeNames";
 import {
@@ -38,6 +39,7 @@ import {
   MultiTabError,
   PartialApplyError,
   RevisionConflictError,
+  RevisionMismatchError,
   SuggestionsActiveError
 } from "../gdocs/src/core/types";
 import { FakeDocs, FakeDocsOptions } from "./fakeDocs";
@@ -336,6 +338,58 @@ describe("revision races on the first chunk", () => {
     const after = await view(fake);
     expect(charView(after)).toBe(original);
     expect(rstmCount(after)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mark cite — the same silent reconcile, so concurrent marks don't reject
+// ---------------------------------------------------------------------------
+
+describe("markCite concurrent reconcile", () => {
+  // A plain single-tab, suggestion-free, unarmed doc: every Mark-cite gate passes.
+  const markFake = (): FakeDocs => new FakeDocs([{ elements: [{ text: "Smith 2020 says the thing" }] }]);
+  const wholeParagraph = (ordinal: number): SelectionPick => ({
+    paragraphOrdinal: ordinal,
+    startOffset: 0,
+    endOffset: null
+  });
+
+  it("marks a cite on a clean doc (happy path, one fetch)", async () => {
+    const fake = markFake();
+    const before = fake.fetchCount;
+    const cited = await markCite(fake, [wholeParagraph(0)]);
+    expect(cited).toBe(1);
+    expect(fake.fetchCount - before).toBe(1);
+    expect(fake.appliedBatches.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("nothing markable (empty selection) applies nothing and teaches a zero count", async () => {
+    const fake = markFake();
+    const cited = await markCite(fake, []);
+    expect(cited).toBe(0);
+    expect(fake.appliedBatches).toHaveLength(0);
+  });
+
+  it("a concurrent edit before the write RECONCILES silently — the cite still lands, no throw (2 fetches)", async () => {
+    const fake = markFake();
+    // A second Mark cite (or a teammate) commits between our fetch and our write, once.
+    fake.beforeApply = (call) => {
+      if (call === 0) fake.injectForeignEdit();
+    };
+    const before = fake.fetchCount;
+    const cited = await markCite(fake, [wholeParagraph(0)]);
+    expect(cited).toBe(1); // reconciled, not the revision-conflict dialog
+    expect(fake.fetchCount - before).toBe(2); // initial + ONE re-plan from a fresh fetch
+    expect(fake.appliedBatches).toHaveLength(1); // the retry's chunk landed
+  });
+
+  it("retries exhausted -> RevisionMismatchError (the honest refusal), nothing applied", async () => {
+    const fake = markFake();
+    fake.beforeApply = () => fake.injectForeignEdit(); // every attempt loses the race
+    const before = fake.fetchCount;
+    await expectRejects(markCite(fake, [wholeParagraph(0)]), RevisionMismatchError);
+    expect(fake.fetchCount - before).toBe(1 + MAX_REPLAN_ATTEMPTS);
+    expect(fake.appliedBatches).toHaveLength(0);
   });
 });
 

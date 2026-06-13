@@ -684,19 +684,36 @@ describe("DOC_FIELDS_MASK", () => {
     "namedRanges",
     "namedStyles(styles(namedStyleType,textStyle(fontSize)))",
     "table(tableRows(tableCells(content)))",
-    "childTabs",
     "documentTab"
   ])("selects %s", (piece) => {
     expect(DOC_FIELDS_MASK).toContain(piece);
   });
 
-  it("selects the IDENTICAL segment fields for the legacy and tab read paths", () => {
-    // The legacy top-level fields and tabs[].documentTab must never drift:
-    // each piece of the shared segment selection appears exactly twice.
+  it("selects NO sibling tab-level fields beside documentTab (they tripped the live API reject)", () => {
+    // tabProperties/childTabs next to documentTab pushed the mask back into the
+    // "tabs and legacy text-level fields in the same request" reject across two
+    // wet rounds. The mask must stay at the documented-valid tabs(documentTab(...))
+    // shape — the only token inside tabs(...) is documentTab.
+    expect(DOC_FIELDS_MASK).not.toContain("tabProperties");
+    expect(DOC_FIELDS_MASK).not.toContain("childTabs");
+    expect(DOC_FIELDS_MASK).toContain("tabs(documentTab(");
+  });
+
+  it("never combines `tabs` with legacy top-level text fields in one mask (the wet-round API reject)", () => {
+    // The Docs API refuses a get whose mask asks for BOTH document.tabs and
+    // legacy text-level fields: "Field mask cannot retrieve document.tabs and
+    // legacy text-level fields from the Document resource in the same request."
+    // The verb read pairs this mask with includeTabsContent:true, so the segment
+    // selection must live ONLY under tabs[].documentTab — exactly once each, and
+    // NEVER at the top level (the portion before `tabs(`).
     const count = (piece: string): number => DOC_FIELDS_MASK.split(piece).length - 1;
-    expect(count("body(content(")).toBe(2);
-    expect(count(",namedRanges,")).toBe(2);
-    expect(count("namedStyles(styles(")).toBe(2);
+    expect(count("body(content(")).toBe(1);
+    expect(count(",namedRanges,")).toBe(1);
+    expect(count("namedStyles(styles(")).toBe(1);
+
+    const topLevel = DOC_FIELDS_MASK.split("tabs(")[0];
+    expect(topLevel).not.toMatch(/body\(|namedRanges|namedStyles/);
+    expect(DOC_FIELDS_MASK).toContain("documentTab(body(content(");
   });
 
   it("whitelists every non-text element type so chip suggestions stay visible to the gate", () => {

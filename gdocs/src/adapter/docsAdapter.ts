@@ -26,7 +26,6 @@ import {
   FONT_FLOOR_TRY_SIZES_PT,
   hideDialog,
   markCiteDialog,
-  planMarkCiteFromPicks,
   probeReadbackSizePt,
   renderDiagnosticsText,
   routeError,
@@ -37,9 +36,7 @@ import {
   stylesDialog
 } from "../core/adapterPure";
 import type { FontFloorReading, RoutedDialog, SelectionPick } from "../core/adapterPure";
-import { applyStyles, hide, showAll } from "../core/controller";
-import { chunkGroups } from "../core/guards";
-import { DOC_FIELDS_MASK } from "../core/parse";
+import { applyStyles, hide, markCite, showAll } from "../core/controller";
 import { resolveSettings, serializeSettings } from "../core/settings";
 import { consentPrompt, docStateLine, STRINGS, stylesConfirm } from "../core/strings";
 import { RevisionMismatchError } from "../core/types";
@@ -73,10 +70,29 @@ function rawBatchUpdate(requests: ReadonlyArray<object>, requiredRevisionId: str
   }
 }
 
-/** The verb read: ONE masked documents.get (plan A13; the mask lives in
- * parse.ts — the single place that knows what the engine reads). */
+/**
+ * The verb read: ONE maskless documents.get with includeTabsContent, so content
+ * arrives under tabs[].documentTab (parse reads tabs[0].documentTab).
+ *
+ * Maskless by necessity — masking is a confirmed dead end on this host. Every
+ * tabs-aware field mask was REJECTED live by the Apps Script Advanced Docs
+ * Service across the 2026-06-12/13 wet rounds: combined top+tabs, sibling-token,
+ * AND the lean `tabs(documentTab(...))` shape Google's own guide documents as
+ * valid (that last one was wet-tested via a now-removed fallback — the live
+ * service still returned "Field mask cannot retrieve document.tabs and legacy
+ * text-level fields ... in the same request"). A maskless get has no field mask
+ * to validate, so it always succeeds; the heavier payload is the accepted cost
+ * (parse ignores the fields it does not read). parse.DOC_FIELDS_MASK is kept
+ * only as the tested record of that constraint.
+ *
+ * The build stamp lands in the execution log on every read, so a stale paste can
+ * never look like a fix that "did not work": if this line is absent from the
+ * Executions log, the running bundle is not this build.
+ */
+const VERB_READ_BUILD_STAMP = "Rostrum verb read build wet-2026-06-13d: maskless (mask wet-disproven) + mark-cite reconcile";
 function fetchVerbDocument(): unknown {
-  return Docs.Documents.get(activeDocId(), { includeTabsContent: true, fields: DOC_FIELDS_MASK });
+  console.log(VERB_READ_BUILD_STAMP);
+  return Docs.Documents.get(activeDocId(), { includeTabsContent: true });
 }
 
 /**
@@ -111,6 +127,21 @@ function showRouted(d: RoutedDialog): void {
   DocumentApp.getUi().showModalDialog(HtmlService.createHtmlOutput(dialogHtml(d)).setWidth(360).setHeight(220), d.title);
 }
 
+/**
+ * Surface the true exception to Stackdriver BEFORE it is folded into a
+ * deliberately-vague user dialog. routeError() maps an unrecognized throw to the
+ * "unknown" copy, which (correctly) hides mechanics from debaters — but that same
+ * opacity blinds us: a caught throw leaves the execution marked "Completed" with
+ * no stack, so a real bug looks like a clean run. Logging here keeps the friendly
+ * dialog AND leaves a diagnosable trail; console.* lands in the execution log
+ * under the manifest's exceptionLogging:STACKDRIVER. `context` names the verb so
+ * a triaged log says which entry point failed.
+ */
+function logError(context: string, e: unknown): void {
+  const err = e instanceof Error ? e : new Error(String(e));
+  console.error(`Rostrum ${context} failed: ${err.name}: ${err.message}\n${err.stack ?? "(no stack)"}`);
+}
+
 /** The menu-verb shell: run, route, show — the whole failure model is
  * try/catch -> routeError (plan S11's "zero branching" rule). `run` may
  * resolve null to mean "show nothing" (a cancelled confirm). */
@@ -119,6 +150,7 @@ async function menuVerb(run: () => Promise<RoutedDialog | null>): Promise<void> 
   try {
     routed = await run();
   } catch (e) {
+    logError("menu verb", e);
     routed = routeError(e);
   }
   if (routed !== null) showRouted(routed);
@@ -296,21 +328,14 @@ export async function rostrumApplyStyles(): Promise<void> {
 
 export async function rostrumMarkCite(): Promise<void> {
   await menuVerb(async () => {
+    // The selection is the one host fact pure code cannot reach: lower it to
+    // picks here, then core markCite runs the revision-guarded apply WITH the
+    // same silent reconcile the other verbs have — so a second Mark cite fired
+    // before the first commits reconciles instead of rejecting (controller.markCite).
     const docApp = DocumentApp.getActiveDocument();
     const selection = docApp.getSelection() as GoogleAppsScript.Document.Range | null;
     const picks = selection === null ? [] : extractPicks(selection, docApp.getBody());
-    const plan = planMarkCiteFromPicks(await PORT.fetchDocument(), picks);
-    // Apply through the soft chunk cap like every other verb (plan A11.viii):
-    // each cite write is independent, so one group per request lets chunkGroups
-    // pack them into <=CHUNK_MAX batches with safe boundaries, revision-chained
-    // across chunks. The common (small) selection is a single chunk = one apply;
-    // zero requests (nothing markable) yields zero chunks — apply nothing and
-    // teach via the receipt.
-    let revisionId = plan.revisionId;
-    for (const chunk of chunkGroups(plan.requests.map((r) => ({ requests: [r] })))) {
-      ({ revisionId } = await PORT.applyBatch(chunk, revisionId));
-    }
-    return markCiteDialog(plan.citedParagraphs);
+    return markCiteDialog(await markCite(PORT, picks));
   });
 }
 
@@ -434,6 +459,7 @@ export async function rostrumDiagnostics(): Promise<void> {
       STRINGS.menu.diagnostics
     );
   } catch (e) {
+    logError("diagnostics", e);
     showRouted(routeError(e));
   }
 }
@@ -449,6 +475,7 @@ export async function rostrumHideFromSidebar(): Promise<RoutedDialog> {
   try {
     return hideDialog(await hide(PORT));
   } catch (e) {
+    logError("sidebar hide", e);
     return routeError(e);
   }
 }
@@ -457,6 +484,7 @@ export async function rostrumShowAllFromSidebar(): Promise<RoutedDialog> {
   try {
     return showAllDialog(await runShowAll());
   } catch (e) {
+    logError("sidebar showAll", e);
     return routeError(e);
   }
 }
