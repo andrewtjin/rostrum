@@ -195,39 +195,39 @@ describe("download-counter Worker", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    expect(await res.json()).toEqual({ downloads: 42, google_docs: 8, total: 50 });
+    expect(await res.json()).toEqual({ word: 42, google_docs: 8, total: 50 });
   });
 
   test("GET /count is all-zero when never set", async () => {
     const res = await handleRequest(GET("/count"), makeEnv());
-    expect(await res.json()).toEqual({ downloads: 0, google_docs: 0, total: 0 });
+    expect(await res.json()).toEqual({ word: 0, google_docs: 0, total: 0 });
   });
 
-  test("total == downloads + google_docs for arbitrary values", async () => {
+  test("total == word + google_docs for arbitrary values", async () => {
     const env = makeEnv();
     env._store.set(COUNTER_KEY, "1000");
     env._store.set(GOOGLE_DOCS_KEY, "337");
     const body = (await (await handleRequest(GET("/count"), env)).json()) as {
-      downloads: number;
+      word: number;
       google_docs: number;
       total: number;
     };
-    expect(body.total).toBe(body.downloads + body.google_docs);
+    expect(body.total).toBe(body.word + body.google_docs);
   });
 
   test("KV get failure on /count degrades BOTH counters to 0, never throws", async () => {
     const res = await handleRequest(GET("/count"), makeEnv({ failGet: true }));
-    expect(await res.json()).toEqual({ downloads: 0, google_docs: 0, total: 0 });
+    expect(await res.json()).toEqual({ word: 0, google_docs: 0, total: 0 });
   });
 
   test("/count degrades PER KEY — one counter readable, the other down → total never NaN", async () => {
-    const env = makeEnv({ failGetKey: GOOGLE_DOCS_KEY }); // google_docs read throws, downloads read fine
+    const env = makeEnv({ failGetKey: GOOGLE_DOCS_KEY }); // google_docs read throws, word read fine
     env._store.set(COUNTER_KEY, "5");
 
     const res = await handleRequest(GET("/count"), env);
-    const body = (await res.json()) as { downloads: number; google_docs: number; total: number };
+    const body = (await res.json()) as { word: number; google_docs: number; total: number };
 
-    expect(body.downloads).toBe(5);
+    expect(body.word).toBe(5);
     expect(body.google_docs).toBe(0); // degraded independently
     expect(body.total).toBe(5); // 5 + 0, deterministic — not NaN
     expect(Number.isNaN(body.total)).toBe(false);
@@ -241,10 +241,10 @@ describe("download-counter Worker", () => {
     env._store.set(COUNTER_KEY, "abc");
 
     const body = (await (await handleRequest(GET("/count"), env)).json()) as {
-      downloads: number;
+      word: number;
       total: number;
     };
-    expect(body.downloads).toBe(0);
+    expect(body.word).toBe(0);
     expect(Number.isNaN(body.total)).toBe(false);
 
     // A subsequent download recomputes from 0 → writes a clean "1", not "NaN"/"abc1".

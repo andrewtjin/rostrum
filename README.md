@@ -7,7 +7,7 @@
      the privacy disclosure describes the same numbers literally as "downloads"
      and notes both biases (Word re-downloads over-count; Google Docs copies that
      carry the bound script under-count), so it's a rough reach figure, not a
-     precise tally. /count also exposes the per-surface `downloads` and `google_docs`. -->
+     precise tally. /count also exposes the per-surface `word` and `google_docs`. -->
 
 Rostrum collapses a debate doc to a **headings + cites + highlights** view and formats
 cards (**reversibly**) in the two editors debaters actually use: **Microsoft Word**

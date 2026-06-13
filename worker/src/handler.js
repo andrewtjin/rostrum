@@ -17,10 +17,11 @@ const DEFAULT_MANIFEST_ORIGIN = "https://andrewtjin.github.io/rostrum/manifest.x
 const DEFAULT_CODE_GS_ORIGIN = "https://andrewtjin.github.io/rostrum/google-docs/Code.gs";
 
 // The two KV keys — one anonymous counter per install surface. The Word key
-// keeps its original name ("downloads") so the historical tally is preserved
-// across this change; the Google Docs key ("google_docs_downloads") is new and
-// starts at 0. The whole datastore is these two integers.
-const COUNTER_KEY = "downloads"; // Microsoft Word — manifest.xml downloads
+// keeps its original KV name ("downloads") so the historical tally is preserved
+// across renames; /count surfaces it under the clearer field name "word". The
+// Google Docs key ("google_docs_downloads") is new and starts at 0. The whole
+// datastore is these two integers.
+const COUNTER_KEY = "downloads"; // Microsoft Word manifest.xml tally (KV key; /count field = "word")
 const GOOGLE_DOCS_KEY = "google_docs_downloads"; // Google Docs — Code.gs downloads
 
 // CORS for the public /count read only: the README badge and any internal
@@ -125,12 +126,14 @@ async function handleRequest(request, env) {
   // Internal / badge read — the per-surface tallies plus the unified
   // cross-platform total (what the public README badge shows).
   if (url.pathname === "/count") {
-    const downloads = await readCount(env, COUNTER_KEY);
+    const word = await readCount(env, COUNTER_KEY);
     const googleDocs = await readCount(env, GOOGLE_DOCS_KEY);
     return new Response(
-      // `downloads` retained for back-compat (the pre-bifurcation badge query);
-      // `google_docs` is the new surface; `total` is the unified cross-platform number.
-      JSON.stringify({ downloads, google_docs: googleDocs, total: downloads + googleDocs }),
+      // `word` = the Microsoft Word (manifest.xml) tally; `google_docs` = the Google
+      // Docs (Code.gs) tally; `total` is the unified cross-platform number the README
+      // badge reads ($.total). `word`'s KV key is still "downloads" (COUNTER_KEY), so the
+      // historical count survived this rename — only the output field name got clearer.
+      JSON.stringify({ word, google_docs: googleDocs, total: word + googleDocs }),
       {
         headers: {
           "Content-Type": "application/json",

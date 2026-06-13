@@ -10,11 +10,12 @@ metadata is ever read or stored. The entire datastore is two integers.
   302-redirects to the canonical Pages copy, so an install is **never blocked**.
 - `GET /code.gs` → `google_docs_downloads++`, then serve the Google Docs `Code.gs` the
   same way (attachment; 302-fallback to `CODE_GS_ORIGIN` if unreachable).
-- `GET /count` → `{ "downloads": N, "google_docs": M, "total": N+M }` (CORS-open) for
-  internal checks + the README badge. `downloads` is the Word tally (its key name
-  is unchanged so the historical count is preserved); `google_docs` is the Google Docs
-  tally; `total` is the unified cross-platform number the badge displays. Each is
-  read independently and degrades to 0 on a KV hiccup, so `total` is never `NaN`.
+- `GET /count` → `{ "word": N, "google_docs": M, "total": N+M }` (CORS-open) for
+  internal checks + the README badge. `word` is the Word tally (its KV key is still
+  `downloads`, so the historical count is preserved; only the output field was renamed
+  for clarity); `google_docs` is the Google Docs tally; `total` is the unified
+  cross-platform number the badge displays. Each is read independently and degrades to
+  0 on a KV hiccup, so `total` is never `NaN`.
 - `HEAD` on either download path returns the attachment headers but is **not**
   counted and does not pull the upstream body (link prefetchers / health checks).
 
@@ -40,11 +41,10 @@ at `…/rostrum/google-docs/Code.gs`, which the deploy workflow publishes via it
 
 ### Deploy ordering (important)
 
-The README badge reads `$.total`. A live Worker that predates this change returns
-only `{downloads}`, so the badge would render "no data" until redeploy. **Deploy
-this Worker first, confirm `/count` returns `total` (see Verify), and only then push
-the site/README change** that points the badge at `$.total`. Because `downloads`
-keeps its key, the existing Word tally carries over untouched.
+The README badge reads `$.total`, which every current Worker build returns, so the
+`downloads` → `word` field rename does not affect it — there is no deploy-order
+constraint for the badge. The Word tally itself carries over untouched because its
+KV key is still `downloads` (only the `/count` output field was renamed).
 
 The `/code.gs` route proxies `CODE_GS_ORIGIN` (the Pages copy at
 `…/rostrum/google-docs/Code.gs`), which exists only after the master push that
@@ -75,13 +75,13 @@ Then wire the site to the Worker (only if your Worker host differs from the
 
 ```sh
 curl -s https://rostrum-downloads.rostrum.workers.dev/count
-#   → {"downloads":0,"google_docs":0,"total":0}
+#   → {"word":0,"google_docs":0,"total":0}
 curl -sI https://rostrum-downloads.rostrum.workers.dev/manifest.xml | grep -i content-disposition
 #   → content-disposition: attachment; filename="manifest.xml"
 curl -sI https://rostrum-downloads.rostrum.workers.dev/code.gs | grep -i content-disposition
 #   → content-disposition: attachment; filename="Code.gs"
 curl -s https://rostrum-downloads.rostrum.workers.dev/count
-#   → {"downloads":1,"google_docs":1,"total":2}
+#   → {"word":1,"google_docs":1,"total":2}
 ```
 
 ## Tests
