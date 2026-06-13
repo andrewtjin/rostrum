@@ -158,6 +158,38 @@ describe("ParsedParagraph.fromNode — A3 six-field (+hasInternalPart) different
       expect(runs[1].text).toBe("lone\uD800surrogate");
     }
   });
+
+  it("paragraph-level hasInternalPart catches a <w:drawing> OUTSIDE every <w:r> (Review A asymmetry fix)", () => {
+    // The Review A divergence: a <w:drawing>/<w:object>/<w:pict> that sits BARE under <w:p> (outside
+    // any <w:r>) is invisible to the PER-RUN `RunView.hasInternalPart` (which scans only WITHIN each
+    // <w:r> subtree), yet the string path's WHOLE-PARAGRAPH probe (`HAS_INTERNAL_PART.test(p.ooxml)`)
+    // catches it. The paragraph-level `ParsedParagraph.hasInternalPart` accessor closes that gap by
+    // scanning the whole <w:p>. We craft exactly that shape — a drawing bare under <w:p>, plus a
+    // plainly-hideable text run — and assert: per-run flags miss it, the accessor catches it, and the
+    // accessor agrees with the string probe the string path uses (node ≡ string on the decision input).
+    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+    // <w:drawing> is a DIRECT child of <w:p> here — NOT wrapped in a <w:r> — the schema-unreachable
+    // (per CT_R) but structurally-real shape the Review flagged.
+    const xml =
+      `<w:document xmlns:w="${W}" xmlns:wp="${WP}"><w:body><w:p>` +
+      `<w:drawing><wp:inline><wp:extent cx="100" cy="100"/></wp:inline></w:drawing>` +
+      `<w:r><w:t xml:space="preserve">a hideable body card</w:t></w:r>` +
+      `</w:p>` +
+      `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>` +
+      `</w:body></w:document>`;
+    const doc = parsePkg(xml);
+    const pp = ParsedParagraph.fromNode(doc, storyParagraphs(doc)[0]);
+
+    // The text run is plainly hideable on its own merits (no per-run internal part, eligible to hide).
+    expect(pp.runs.some((r) => r.hasInternalPart)).toBe(false); // the OLD node signal MISSED the drawing
+    // The new paragraph-level accessor CATCHES the bare drawing — the decision input the node path now reads.
+    expect(pp.hasInternalPart).toBe(true);
+
+    // node ≡ string: the accessor matches what the string path's whole-paragraph probe sees on this OOXML.
+    const HAS_INTERNAL_PART = /<w:(?:drawing|object|pict)[\s>/]/;
+    expect(pp.hasInternalPart).toBe(HAS_INTERNAL_PART.test(xml));
+  });
 });
 
 describe("applyVisibilityInPlace — losslessness, idempotence, and mutation correctness (002-S1/F1)", () => {

@@ -40,7 +40,8 @@ jest.mock("@xmldom/xmldom", () => {
 });
 
 import { createOfficeWordPort } from "../src/core/officeWordPort";
-import { hide } from "../src/core/invisibility";
+import { classifyParagraph, hide } from "../src/core/invisibility";
+import { CancelledError } from "../src/core/cancel";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
 import { ALL_FIXTURES } from "./fixtures/engine";
 import { assertVanishBridgeOnlyDelta } from "./semanticDiff";
@@ -141,6 +142,47 @@ describe("node-direct Hide is whole-body oracle-clean over the engine fixtures (
     assertVanishBridgeOnlyDelta(ALL_FIXTURES.multiHeading, secondCommit); // and still vs the original
     expect(res2.paragraphsChanged).toBe(0);
   });
+
+  it("node ≡ string: a <w:drawing> OUTSIDE every <w:r> keeps the paragraph WHOLE on BOTH paths (Review A fix)", async () => {
+    // The Review A asymmetry: a drawing/object/pict bare under <w:p> (outside any run) is missed by the
+    // per-run `RunView.hasInternalPart` the node path USED to read, so the node path could HIDE a
+    // paragraph the string path keeps whole. With the paragraph-level `hasInternalPart` accessor the two
+    // paths CONVERGE. We prove it end to end: the LIVE node-direct Hide keeps this paragraph whole (its
+    // text run gains NO vanish, nothing is committed), and the STRING path (`classifyParagraph`) reaches
+    // the SAME keepWhole on the identical OOXML — node ≡ string on the drawing-outside-run shape.
+    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const PKG = "http://schemas.microsoft.com/office/2006/xmlPackage";
+    const WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+    // ONE body paragraph: a <w:drawing> as a DIRECT child of <w:p> (no enclosing <w:r>) + a hideable run.
+    const paraInner =
+      `<w:p>` +
+      `<w:drawing><wp:inline><wp:extent cx="100" cy="100"/></wp:inline></w:drawing>` +
+      `<w:r><w:t xml:space="preserve">a hideable body card</w:t></w:r>` +
+      `</w:p>`;
+    const pkg =
+      `<pkg:package xmlns:pkg="${PKG}"><pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
+      `<w:document xmlns:w="${W}" xmlns:wp="${WP}"><w:body>` +
+      paraInner +
+      `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>` +
+      `</w:body></w:document></pkg:xmlData></pkg:part></pkg:package>`;
+
+    // ── NODE PATH (the live node-direct Hide). KEEP set hides ordinary body text, so a divergent node
+    // path WOULD hide this run (its per-run flag is false) — proving the gate. The fixed path keeps it
+    // whole: nothing is committed (`committed()` null) and the paragraph is unchanged.
+    const { port, committed } = purePortOverFixture(pkg);
+    const res = await hide(port, KEEP);
+    assertVanishBridgeOnlyDelta(pkg, committed() ?? pkg); // trivially clean — nothing hidden
+    expect(res.paragraphsChanged).toBe(0); // kept whole: the body run was NOT hidden
+
+    // ── STRING PATH (`classifyParagraph`) on the SAME paragraph OOXML — must reach the same keepWhole.
+    // A bare <w:p> fragment is what the string path consumes; `inTable:false`, body outline level.
+    const stringPlan = classifyParagraph(
+      { index: 0, headingLevel: null, inTable: false, ooxml: `<w:document xmlns:w="${W}" xmlns:wp="${WP}"><w:body>${paraInner}</w:body></w:document>` },
+      KEEP
+    );
+    expect(stringPlan.action).toBe("keepWhole"); // string path ALSO keeps it whole (its probe caught the drawing)
+    expect(stringPlan.changed).toBe(false); // and hides nothing — node ≡ string
+  });
 });
 
 describe("node-direct WHOLE-BODY Hide parses the package ONCE, per paragraph ZERO times (002-S1 sub-gate)", () => {
@@ -229,6 +271,76 @@ describe("F4 — a throwing Phase-B apply aborts the whole op before any host wr
     // manifest op must NOT serialize the half-mutated package. We assert by reaching into the
     // private state via the discard side effect: a subsequent clearManifest is a clean no-op
     // (no body.insertOoxml), proving no stale pkg is committed.
+    h.ctx.commitLog.length = 0;
+    await port.clearManifest();
+    expect(h.ctx.commitLog.some((c) => c.op === "body.insertOoxml")).toBe(false);
+  });
+
+  it("a CancelledError thrown by the pacer DURING Phase B (mid-apply) aborts the whole op, by name (002-F4)", async () => {
+    // The F4 test above proves abort for a THROWN Error; this proves the SAME abort for a CANCEL landing
+    // mid-Phase-B (a `CancelledError` from the pacer's `tick()`), and that it happens AFTER at least one
+    // paragraph was mutated in place — the exact "Cancel clicked while applying a big doc" user story.
+    // Three hideable body paragraphs so Phase B mutates ≥1 before the cancel lands on a later tick.
+    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const PKG = "http://schemas.microsoft.com/office/2006/xmlPackage";
+    const frozen =
+      `<pkg:package xmlns:pkg="${PKG}"><pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
+      `<w:document xmlns:w="${W}"><w:body>` +
+      `<w:p><w:r><w:t xml:space="preserve">first body card</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:t xml:space="preserve">second body card</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:t xml:space="preserve">third body card</w:t></w:r></w:p>` +
+      `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>` +
+      `</w:body></w:document></pkg:xmlData></pkg:part></pkg:package>`;
+    // Backing doc count matches the package's story-paragraph count (so the fake's write-back is honest).
+    const count = new WholeBodyPackage(frozen).count; // 3
+    const doc = mkDoc(Array.from({ length: count }, () => para(run("placeholder body"))), "Off");
+    const h = harness(doc, frozen);
+    const port: any = createOfficeWordPort({ runner: h.runner, pureWholeBody: true, logger: h.tracer.logger("adapter") });
+
+    const before = doc.paragraphs.map((p) => p.xml);
+
+    // Confirm Phase B actually mutated ≥1 paragraph IN PLACE before the cancel: wrap the FIRST
+    // paragraph's in-place apply to record that its real mutation ran (then delegate to the real one).
+    let mutatedBeforeCancel = 0;
+    const realRead = port.readParagraphs.bind(port);
+    port.readParagraphs = async () => {
+      const paras = await realRead();
+      const first: any = paras[0].parsed;
+      const realApply = first.applyVisibilityInPlace.bind(first);
+      first.applyVisibilityInPlace = (plan: any) => {
+        const r = realApply(plan); // really mutates the cached package's live node
+        if (r.changed) mutatedBeforeCancel++;
+        return r;
+      };
+      return paras;
+    };
+
+    // A pacer that throws CancelledError only DURING Phase B. Phase A ticks once per paragraph (count
+    // ticks); Phase B ticks once per paragraph BEFORE each apply. Throwing on the 2nd Phase-B tick
+    // (tick number count+2) lands AFTER item 0's apply already mutated the package, before item 1.
+    let ticks = 0;
+    const PHASE_B_SECOND_TICK = count + 2;
+    const pacing = {
+      async tick(): Promise<void> {
+        ticks++;
+        if (ticks === PHASE_B_SECOND_TICK) throw new CancelledError();
+      }
+    };
+
+    await expect(hide(port, settings([]), { pacing })).rejects.toBeInstanceOf(CancelledError);
+
+    // At least one paragraph was mutated in place before the cancel landed — a genuine MID-apply abort.
+    expect(mutatedBeforeCancel).toBeGreaterThanOrEqual(1);
+    // ZERO host writes: no whole-body insertOoxml, no manifest add/set.
+    expect(h.ctx.commitLog.some((c) => c.op === "body.insertOoxml")).toBe(false);
+    expect(h.ctx.commitLog.some((c) => c.op === "xmlParts.add")).toBe(false);
+    expect(h.ctx.commitLog.some((c) => c.op === "part.setXml")).toBe(false);
+    // On-disk doc byte-unchanged and the manifest never armed.
+    expect(doc.paragraphs.map((p) => p.xml)).toEqual(before);
+    expect(doc.manifest).toBeNull();
+
+    // The port's prepared read state was discarded (lastRead/pending nulled): a follow-up op must NOT
+    // serialize the half-mutated package — a subsequent clearManifest is a clean no-op (no insertOoxml).
     h.ctx.commitLog.length = 0;
     await port.clearManifest();
     expect(h.ctx.commitLog.some((c) => c.op === "body.insertOoxml")).toBe(false);

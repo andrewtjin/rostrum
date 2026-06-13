@@ -70,10 +70,12 @@ const HAS_INTERNAL_PART = /<w:(?:drawing|object|pict)[\s>/]/;
  *   * `plan` — a `VisibilityPlan` (hideFlags + hideParaMark + splits). The apply side calls
  *     `applyVisibility` (string) or `applyVisibilityInPlace` (node).
  *
- * `hasInternalPart` is read from the already-built `RunView[]` (the fused node read fills it for
- * free) so the node path never re-serializes to run the `HAS_INTERNAL_PART` string probe — the
- * P1 rider. The string path passes the cheap string-probe result (computed by the caller, which
- * already holds `p.ooxml`) so its behavior is byte-for-byte unchanged.
+ * `hasInternalPart` on the node path is the paragraph-level `ParsedParagraph.hasInternalPart` accessor
+ * (a whole-`<w:p>` subtree scan, computed off the live node) so the node path never re-serializes to run
+ * the `HAS_INTERNAL_PART` string probe — the P1 rider — while still matching that whole-paragraph probe
+ * byte-for-byte (it catches a drawing/object/pict outside every `<w:r>`, which the per-run
+ * `RunView.hasInternalPart` would miss). The string path passes the cheap string-probe result (computed
+ * by the caller, which already holds `p.ooxml`) so its behavior is byte-for-byte unchanged.
  */
 type ParagraphDecision =
   | { kind: "reveal"; action: "keepWhole" }
@@ -89,8 +91,9 @@ function decideParagraph(
   const runs = parsed.runs;
 
   // Tables/images/equations are kept untouched (decision #16). Forcing visible is a no-op on a
-  // normal one and self-heals one wrongly hidden before. Internal-part detection comes from the
-  // run views on the node path (whole-subtree scan, byte-identical to the string probe).
+  // normal one and self-heals one wrongly hidden before. Internal-part detection on the node path is
+  // the paragraph-level `ParsedParagraph.hasInternalPart` accessor (a whole-`<w:p>` subtree scan,
+  // byte-identical to the string probe — it catches a drawing/object/pict even outside every `<w:r>`).
   if (inTable || hasInternalPart) return { kind: "reveal", action: "keepWhole" };
 
   // Heading rule (#7) or cite rule (#6b): keep the whole paragraph visible.
@@ -193,9 +196,11 @@ export async function hide(
           parsed,
           p.headingLevel,
           p.inTable,
-          // Node path reads `hasInternalPart` from the run views (free, whole-subtree scan); the
-          // string/compat path uses the cheap string probe — byte-for-byte the legacy behavior.
-          p.parsed ? parsed.runs.some((r) => r.hasInternalPart) : HAS_INTERNAL_PART.test(p.ooxml),
+          // Node path reads the PARAGRAPH-LEVEL `hasInternalPart` accessor (a whole-`<w:p>` subtree scan,
+          // matching the string probe byte-for-byte — including a drawing/object/pict that sits OUTSIDE
+          // any `<w:r>`, which the per-run `RunView.hasInternalPart` would miss). The string/compat path
+          // uses the cheap whole-paragraph string probe — byte-for-byte the legacy behavior.
+          p.parsed ? parsed.hasInternalPart : HAS_INTERNAL_PART.test(p.ooxml),
           settings
         );
         items.push({ index: p.index, parsed, decision });

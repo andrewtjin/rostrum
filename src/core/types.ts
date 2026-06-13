@@ -108,7 +108,14 @@ export interface RunView {
    * can recognize "this paragraph references a media part" WITHOUT the per-paragraph serialize the
    * string path used (Loop 002 B1 rider): an internal-part paragraph must never be re-serialized,
    * or it silently re-pays the cost P1 deletes. Read by the same fused traversal that fills the
-   * other fields, so it costs nothing extra; the legacy string path computes it identically.
+   * other fields, so it costs nothing extra.
+   *
+   * SCOPE (read before relying on this for the keep-whole decision): this flag is PER-RUN — it is true
+   * only when the part sits inside THIS `<w:r>`'s subtree. The paragraph-level keep-whole decision uses
+   * `ParsedParagraph.hasInternalPart` instead, a WHOLE-`<w:p>` scan that matches the string path's
+   * whole-paragraph probe (`HAS_INTERNAL_PART.test(p.ooxml)`) byte-for-byte — including a drawing/object/
+   * pict that sits OUTSIDE every run (bare under `<w:p>` or in `<w:pPr>`/`<w:rPr>`), which this per-run
+   * flag necessarily misses. Use this field for per-run logic; use the accessor for the paragraph keep.
    */
   hasInternalPart: boolean;
 }

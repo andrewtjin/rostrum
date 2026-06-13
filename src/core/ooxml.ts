@@ -513,6 +513,33 @@ export class ParsedParagraph {
   }
 
   /**
+   * True when an embedded INTERNAL PART — a `<w:drawing>`, `<w:object>`, or `<w:pict>` — sits ANYWHERE
+   * in the WHOLE `<w:p>` subtree, NOT just inside a `<w:r>`. This is the paragraph-level keep-whole probe
+   * the hide decision consumes (an internal-part paragraph is kept whole — decision #16 — because a
+   * per-paragraph OOXML write would dangle the part's `r:embed` and the live host rejects it).
+   *
+   * WHY WHOLE-PARAGRAPH, NOT per-run (the Review A asymmetry fix). The string path classifies with a
+   * WHOLE-PARAGRAPH probe (`HAS_INTERNAL_PART.test(p.ooxml)`), so the node path must match it byte-for-
+   * byte to converge. The per-run `RunView.hasInternalPart` (still kept, correct per-run) only scans
+   * WITHIN each `<w:r>` subtree, so it MISSES a drawing/object/pict that sits bare under `<w:p>` or inside
+   * `<w:pPr>`/`<w:rPr>` — outside every run. Scanning the whole `<w:p>` here (`getElementsByTagName` over
+   * the same `INTERNAL_PART_TAGS`) closes that divergence: the node decision now matches the string probe
+   * on every shape, including the (schema-unreachable from real Word, but real) drawing-outside-run case.
+   *
+   * Works for both modes: `fromNode` and the string ctor each hold `pEl`, so the scan is identical. A
+   * node-less instance (no `<w:p>`) reports false. This is a pure read (no mutation, no serialize), so it
+   * is safe on a node-backed instance and in a parseCount===0 assertion.
+   */
+  get hasInternalPart(): boolean {
+    if (!this.pEl) return false;
+    for (const tag of INTERNAL_PART_TAGS) {
+      const hits = this.pEl.getElementsByTagName(tag);
+      if (hits && hits.length > 0) return true;
+    }
+    return false;
+  }
+
+  /**
    * String mode (the legacy path, byte-for-byte unchanged): parse the package ONCE and read +
    * mutate through that tree. `readRuns`/`applyRunVisibility`/`makeAllVisible` and every existing
    * caller use this; `parseCount.test.ts`'s "exactly one parse" meaning is preserved because this is
