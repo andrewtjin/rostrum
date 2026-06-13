@@ -10,7 +10,7 @@
 // and the box prefers `Style.borders` (WordApiDesktop 1.1 = canStyleBorders) with the
 // hand-authored `w:pBdr` OOXML as the documented fallback.
 
-import { STYLE_MAP } from "./styles";
+import { STYLE_MAP, POCKET_BORDER } from "./styles";
 import { FeatureSupport } from "./types";
 import { WordRunner, defaultWordRunner } from "./officeWordPort";
 import { Logger, logger as rootLogger } from "./debug";
@@ -152,15 +152,17 @@ export async function ensureRostrumStyles(options: EnsureStylesOptions): Promise
   return { applied, skipped, unsupported: false };
 }
 
-/** Set a thin single box on all four sides of a style via the Border collection. */
+/** Set a single 3pt box on all four sides of a style via the Border collection. Width, color,
+ *  and style all come from POCKET_BORDER so the live box matches the OOXML fragment and Verbatim's
+ *  pocket (3pt). */
 function applyBoxBorder(style: any): void {
   for (const side of ["Top", "Left", "Bottom", "Right"]) {
     const border = style.borders.getByLocation(side);
     border.type = "Single";
-    // `Word.Border.width` is a BorderWidth STRING enum, not a number — assigning a
-    // number is rejected at `ctx.sync()`. "Pt100" is a 1pt rule (WordApiDesktop 1.1).
-    border.width = "Pt100";
-    border.color = "#000000";
+    // `Word.Border.width` is a BorderWidth STRING enum, not a number — assigning a number is
+    // rejected at `ctx.sync()`. "Pt300" is the 3pt member (WordApiDesktop 1.1), matching Verbatim.
+    border.width = POCKET_BORDER.borderWidthToken;
+    border.color = `#${POCKET_BORDER.color}`;
   }
 }
 

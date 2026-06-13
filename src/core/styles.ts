@@ -150,12 +150,22 @@ export function ptToHalfPoints(pt: number): number {
   return Math.round(pt * 2);
 }
 
-/** Pocket box appearance — single thin border on all four sides. */
-const POCKET_BORDER = {
+/**
+ * Pocket box appearance — single 3pt border on all four sides. This is the SINGLE source of
+ * truth for the pocket box: both the live `Style.borders` path (officeStyles.ts) and the OOXML
+ * fragment below read it, so the two representations can never drift (they previously diverged
+ * to 1pt vs 0.5pt). 3pt matches Verbatim's pocket (Heading 1) style, whose `w:pBdr` is
+ * `w:sz="24"` on every side — and OOXML border `w:sz` is in EIGHTHS of a point, so 24/8 = 3.0pt.
+ */
+export const POCKET_BORDER = {
   /** OOXML border style token. */
   val: "single",
-  /** Eighths of a point: 4 = 0.5pt. */
-  sizeEighths: 4,
+  /** Eighths of a point: 24 = 3.0pt (Verbatim's `w:sz="24"`). */
+  sizeEighths: 24,
+  /** The equivalent `Word.BorderWidth` enum token for the live `Style.borders` path. The API
+   *  takes a string token, NOT a number, and "Pt300" is the 3.0pt member — same width as
+   *  `sizeEighths: 24`, kept here so both paths derive the pocket box from one constant. */
+  borderWidthToken: "Pt300",
   /** Space between border and text, in points. */
   spacePt: 1,
   /** Border color (hex, no leading #). */

@@ -4,7 +4,7 @@ import {
   computeRunKeepFlags,
   planCrossGapSeparators
 } from "../src/core/keepers";
-import { ptToHalfPoints, buildPocketBorderOoxml, STYLE_MAP } from "../src/core/styles";
+import { ptToHalfPoints, buildPocketBorderOoxml, STYLE_MAP, POCKET_BORDER } from "../src/core/styles";
 import { RunView } from "../src/core/types";
 
 /** Build a RunView with sensible defaults for the field under test. */
@@ -393,6 +393,18 @@ describe("styles constants (decisions #8, #9)", () => {
     expect(ooxml).toContain("</w:pBdr>");
     for (const side of ["top", "left", "bottom", "right"]) {
       expect(ooxml).toContain(`<w:${side} `);
+    }
+  });
+
+  it("draws the pocket box at 3pt on all four sides (matches Verbatim's w:sz=24)", () => {
+    // Contract: the pocket box is 3pt to match Verbatim's pocket (Heading 1) style. OOXML border
+    // `w:sz` is in eighths of a point, so 3pt = 24. This guards against the two border
+    // representations silently drifting (they previously diverged to 1pt / 0.5pt).
+    expect(POCKET_BORDER.sizeEighths).toBe(24);
+    expect(POCKET_BORDER.borderWidthToken).toBe("Pt300"); // the live Style.borders enum equivalent
+    const ooxml = buildPocketBorderOoxml();
+    for (const side of ["top", "left", "bottom", "right"]) {
+      expect(ooxml).toContain(`<w:${side} w:val="single" w:sz="24"`);
     }
   });
 });
