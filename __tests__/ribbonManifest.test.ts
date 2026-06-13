@@ -150,8 +150,8 @@ describe("plain TaskPaneApp (Always-On / shared runtime REMOVED, 0.3.0.1)", () =
     expect(xml).not.toContain("Rostrum.Commands.Url");
   });
 
-  it("reset to 0.3.0.1 (.1 = always-on stripped → plain TaskPaneApp; .2–.5 shared-runtime spike dropped)", () => {
-    expect(manifestConfig.version).toBe("0.3.0.1");
+  it("is 0.3.1.0 (PATCH bump: snappy progress + 3pt pocket box; revision resets to .0 on a product bump)", () => {
+    expect(manifestConfig.version).toBe("0.3.1.0");
   });
 });
 

@@ -7,14 +7,16 @@
 // revamp, MINOR = a new tool wired, PATCH = in-feature changes + bugfixes (never a suffix).
 
 /** The product semver (mirrors package.json; the first three digits of the Office <Version>). */
-export const PRODUCT_VERSION = "0.3.0";
+export const PRODUCT_VERSION = "0.3.1";
 
 /**
  * The Office manifest's 4th ("revision") digit: bumped ONLY to force Office to re-read ribbon
  * STRUCTURE within the same product version — Office caches the registered ribbon by Id+Version,
  * so removed/renamed groups linger until the Version string changes. NOT a bugfix digit.
+ * Resets to 0 on every PRODUCT_VERSION bump — a new product version already changes the
+ * <Version> string, so Office re-reads the ribbon without needing the revision counter.
  */
-export const RIBBON_REVISION = 1;
+export const RIBBON_REVISION = 0;
 
 /** The full 4-part Office manifest <Version>. */
 export const MANIFEST_VERSION = `${PRODUCT_VERSION}.${RIBBON_REVISION}`;

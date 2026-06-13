@@ -17,7 +17,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>16270306-fc6b-47f5-809b-e15b151475e6</Id>
-  <Version>0.3.0.1</Version>
+  <Version>0.3.1.0</Version>
   <ProviderName>Rostrum</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Rostrum" />
