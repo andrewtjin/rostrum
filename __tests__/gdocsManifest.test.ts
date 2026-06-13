@@ -10,9 +10,9 @@ import {
   decodeRangeName,
   isRstmName,
   isKnownRstmName
-} from "../gdocs/src/core/rangeNames";
-import { NAME_MAX } from "../gdocs/src/core/constants";
-import { RleEntry } from "../gdocs/src/core/types";
+} from "../google-docs/src/core/rangeNames";
+import { NAME_MAX } from "../google-docs/src/core/constants";
+import { RleEntry } from "../google-docs/src/core/types";
 
 /** Shorthand: one RLE entry (null size = inherited, encoded "i"). */
 function rle(count: number, sizePt: number | null = null): RleEntry {

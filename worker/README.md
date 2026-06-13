@@ -36,7 +36,7 @@ wrangler deploy                        # prints the live URL, e.g.
 The two proxied origins are set in `wrangler.toml` (`MANIFEST_ORIGIN`,
 `CODE_GS_ORIGIN`); both default to the Pages site if unset. `CODE_GS_ORIGIN` points
 at `…/rostrum/gdocs/Code.gs`, which the deploy workflow publishes via its
-`build:gdocs` step + the webpack copy of `gdocs/dist` → `dist/gdocs`.
+`build:gdocs` step + the webpack copy of `google-docs/dist` → `dist/gdocs`.
 
 ### Deploy ordering (important)
 

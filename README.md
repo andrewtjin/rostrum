@@ -19,7 +19,7 @@ the hood.
 | Your editor | Install | Status |
 |---|---|---|
 | **Microsoft Word** (Windows, Mac; Web *on the roadmap*) | **[Install for Word ›](docs/install-word.md)**: register one manifest file, once | live |
-| **Google Docs** | **[Install for Google Docs ›](gdocs/README.md)**: paste one script, ~2 min | early (MVP) |
+| **Google Docs** | **[Install for Google Docs ›](google-docs/README.md)**: paste one script, ~2 min | early (MVP) |
 
 > Two install paths because they're two platforms: in Word you register a hosted
 > add-in manifest once and it rides every document; in Google Docs you paste a single
@@ -36,7 +36,7 @@ the hood.
 - The keep-set and the "Show All restores everything" contract are identical on both.
 
 > **Two engines, not one.** The Word add-in (`src/`, Office.js over Word's OOXML) and
-> the Google Docs port (`gdocs/`, Apps Script over the Docs object model) share **no
+> the Google Docs port (`google-docs/`, Apps Script over the Docs object model) share **no
 > engine code**; each is built for its platform's document model, and they version
 > independently. **Every benchmark and competitive claim below is Word-specific**; the
 > Google Docs port is an early MVP with no performance corpus of its own (yet).
@@ -256,7 +256,7 @@ in pilcrow mode, which inserts literal `¶` characters; its default merges parag
 Rostrum's **Invisibility Mode** and **debate styles** in a Google Doc, paste-in, no
 Marketplace. An early **v0.1.0 MVP**: Hide / Show All, Apply debate styles, and Mark cite,
 driven from a **Rostrum** menu. Full install + usage:
-**[Install for Google Docs ›](gdocs/README.md)**.
+**[Install for Google Docs ›](google-docs/README.md)**.
 
 - **What Hide does.** Hide here reduces body text to a 1‑point size (the Docs object
   model has no hidden-font attribute to borrow), so a long file reads like a speech doc
@@ -265,10 +265,10 @@ driven from a **Rostrum** menu. Full install + usage:
 - **No tracking inside Google Docs.** The pasted script only ever changes font size and
   named‑style definitions; it sends nothing back as you use it. (The single anonymous count
   is the one‑time `Code.gs` download from the site; see [Privacy](https://andrewtjin.github.io/rostrum/privacy.html).)
-- **Separate engine, separate code.** Lives in [`gdocs/`](gdocs/) (Apps Script over the
+- **Separate engine, separate code.** Lives in [`google-docs/`](google-docs/) (Apps Script over the
   Docs object model), built into one pasteable `Code.gs` by `npm run build:gdocs`. It
   imports nothing from the Word `src/` engine and versions independently. Its own
-  architecture and limits are documented in [`gdocs/README.md`](gdocs/README.md).
+  architecture and limits are documented in [`google-docs/README.md`](google-docs/README.md).
 
 ---
 

@@ -35,7 +35,7 @@ import {
   GNamedStyleType,
   RevisionMismatchError,
   UpdateNamedStyleRequest
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 import { GeSpec, GpSpec } from "./gdocsBuilders";
 
 // ---------------------------------------------------------------------------

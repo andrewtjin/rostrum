@@ -5,7 +5,7 @@
 //     (emitGlobalShims / assertNoModuleTokens / makeBanner / call-map
 //     extraction) behave on happy AND failure paths;
 //   * buildTo(dir) — run programmatically into a TEMP dir, never against the
-//     gitignored gdocs/dist/ (plan A11.vii: committed-state tests must not
+//     gitignored google-docs/dist/ (plan A11.vii: committed-state tests must not
 //     depend on uncommitted artifacts) — produces a non-empty Code.gs with
 //     zero module tokens, the version banner, no tool attribution, one
 //     top-level shim per core/adapterPure.ts call-map entry, the STRINGS menu
@@ -27,8 +27,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { pathToFileURL } from "url";
-import { GDOCS_VERSION } from "../gdocs/src/core/constants";
-import { STRINGS } from "../gdocs/src/core/strings";
+import { GDOCS_VERSION } from "../google-docs/src/core/constants";
+import { STRINGS } from "../google-docs/src/core/strings";
 
 // ---------------------------------------------------------------------------
 // Child-process driver for tools/build-gdocs.mjs (see header comment).
@@ -112,13 +112,13 @@ function callBuild(fnName: string, ...args: unknown[]): unknown {
  * (ts-jest downlevels this import() to require(), which is exactly right for
  * a .ts module inside jest's transform pipeline.)
  */
-const ADAPTER_PURE_SPECIFIER = "../gdocs/src/core/adapterPure";
+const ADAPTER_PURE_SPECIFIER = "../google-docs/src/core/adapterPure";
 async function loadAdapterPureNamespace(): Promise<Record<string, unknown>> {
   try {
     return (await import(ADAPTER_PURE_SPECIFIER)) as Record<string, unknown>;
   } catch (e) {
     throw new Error(
-      "gdocs/src/core/adapterPure.ts is not loadable yet (plan S11 — Wave D adapter module): " +
+      "google-docs/src/core/adapterPure.ts is not loadable yet (plan S11 — Wave D adapter module): " +
         "the call-map/shim cross-check cannot run until it lands. Original error: " +
         String(e)
     );
@@ -166,7 +166,7 @@ describe("build-gdocs.mjs module surface", () => {
 
   it("importing the module never triggers a build as a side effect", () => {
     // The CLI block is guarded by an invoked-directly check; if that guard
-    // broke, the import above would have written gdocs/dist as a side effect
+    // broke, the import above would have written google-docs/dist as a side effect
     // of every test run. Assert the import alone created nothing new in tmp.
     callBuild("makeBanner", "1.2.3");
     expect(fs.existsSync(path.join(tmpRoot, "Code.gs"))).toBe(false);
@@ -374,7 +374,7 @@ describe("assertEntriesPresentInBundle", () => {
 
 // ---------------------------------------------------------------------------
 // The build itself — programmatic, into the suite temp dir (plan A11.vii).
-// Requires the Wave D adapter module (gdocs/src/adapter/docsAdapter.ts +
+// Requires the Wave D adapter module (google-docs/src/adapter/docsAdapter.ts +
 // core/adapterPure.ts); until it lands these fail with the build's own
 // actionable plan-S11 message, then go green untouched.
 // ---------------------------------------------------------------------------
@@ -398,7 +398,7 @@ describe("buildTo(dir) artifact", () => {
 
   it("ships a byte-exact appsscript.json next to Code.gs (one-folder packet)", () => {
     const shipped = fs.readFileSync(result.appsscriptJsonPath);
-    const source = fs.readFileSync(path.resolve(__dirname, "../gdocs/appsscript.json"));
+    const source = fs.readFileSync(path.resolve(__dirname, "../google-docs/appsscript.json"));
     expect(shipped.equals(source)).toBe(true);
   });
 

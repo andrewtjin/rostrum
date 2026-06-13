@@ -6,7 +6,7 @@
 // `fetch`, asserting both the happy path and every failure path that must NOT
 // break a user's download.
 //
-// NOTE: worker/ is outside jest.config.js's coverage globs (src/core + gdocs/src/
+// NOTE: worker/ is outside jest.config.js's coverage globs (src/core + google-docs/src/
 // core only), so these tests are the SOLE correctness gate for the handler — a
 // branch left untested ships silently green. Every route/path is enumerated.
 

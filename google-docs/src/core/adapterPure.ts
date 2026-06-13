@@ -1,6 +1,6 @@
 // Pure adapter-side decision logic (plan A4/A11.i, step S11).
 //
-// WHY THIS MODULE EXISTS: the host adapter (gdocs/src/adapter/docsAdapter.ts)
+// WHY THIS MODULE EXISTS: the host adapter (google-docs/src/adapter/docsAdapter.ts)
 // is excluded from unit coverage because it cannot run without the Apps Script
 // host — so EVERY decision the adapter would otherwise make lives HERE, in
 // core, where root tsc and the gdocs coverage floor both see it. The adapter

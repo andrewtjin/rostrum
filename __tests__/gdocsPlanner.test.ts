@@ -1,4 +1,4 @@
-// Planner suite for gdocs/src/core/planner.ts (plan S7 + A1/A2/A12; edge rows
+// Planner suite for google-docs/src/core/planner.ts (plan S7 + A1/A2/A12; edge rows
 // 6-8 and 12). Hide is a RECONCILE: the suite's flagship cases are therefore
 // round trips — plan a hide, APPLY it to the view with a request simulator,
 // mutate the "document" the way a user would (highlight inside a hidden
@@ -9,10 +9,10 @@
 // names-always-decode, anchors-before-style-writes, the segment-final-newline
 // clamp — are asserted on EVERY plan, not just the test that aims at them.
 
-import { planHide } from "../gdocs/src/core/planner";
-import { decodeRangeName } from "../gdocs/src/core/rangeNames";
-import { DEFAULT_CITE_MIN_PT, SENTINEL_PT } from "../gdocs/src/core/constants";
-import { DEFAULT_KEEP_HEXES } from "../gdocs/src/core/settings";
+import { planHide } from "../google-docs/src/core/planner";
+import { decodeRangeName } from "../google-docs/src/core/rangeNames";
+import { DEFAULT_CITE_MIN_PT, SENTINEL_PT } from "../google-docs/src/core/constants";
+import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
 import {
   DocsRequest,
   GDoc,
@@ -20,7 +20,7 @@ import {
   GElement,
   RequestGroup,
   RleEntry
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 import { buildDoc, GeSpec, para, range as namedRange } from "./gdocsBuilders";
 
 // ---------------------------------------------------------------------------

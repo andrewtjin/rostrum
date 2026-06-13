@@ -35,9 +35,9 @@ import {
   stylesDialog,
   sumApiUnits,
   textPickOffsets
-} from "../gdocs/src/core/adapterPure";
-import { CITE_PT, GDOCS_VERSION } from "../gdocs/src/core/constants";
-import { errorMessage, markCiteReceipt, STRINGS } from "../gdocs/src/core/strings";
+} from "../google-docs/src/core/adapterPure";
+import { CITE_PT, GDOCS_VERSION } from "../google-docs/src/core/constants";
+import { errorMessage, markCiteReceipt, STRINGS } from "../google-docs/src/core/strings";
 import {
   DocsApiError,
   GHideResult,
@@ -49,7 +49,7 @@ import {
   RevisionMismatchError,
   SuggestionsActiveError,
   UpdateTextStyleRequest
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 
 // ---------------------------------------------------------------------------
 // Wire-shaped raw builders (the documents.get JSON parse.ts decodes). Index

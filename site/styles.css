@@ -369,6 +369,17 @@ td:first-child {
     font-size: 1.2rem;
     font-weight: 600;
 }
+/* The platform name reads bold; the version sits beside it unbolded and muted so
+   it's clearly a version tag, not part of the name (e.g. "Microsoft Word (0.3.1)").
+   The two version numbers are stamped at build time from the __ROSTRUM_VERSION__ /
+   __GDOCS_VERSION__ tokens, so they never drift from the shipped products. */
+.choice-h strong {
+    font-weight: 700;
+}
+.choice-ver {
+    font-weight: 400;
+    color: var(--muted);
+}
 .choice-sub {
     color: var(--muted);
     font-size: 0.85rem;

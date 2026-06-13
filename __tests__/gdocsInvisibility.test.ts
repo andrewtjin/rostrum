@@ -27,11 +27,11 @@
 // promises the user is that every character reads back with its original
 // size/emphasis/highlight, not that Google's internal run layout survived.
 
-import type { SelectionPick } from "../gdocs/src/core/adapterPure";
-import { MAX_REPLAN_ATTEMPTS, SENTINELS } from "../gdocs/src/core/constants";
-import { applyStyles, hide, markCite, showAll } from "../gdocs/src/core/controller";
-import { parseDocument } from "../gdocs/src/core/parse";
-import { isRstmName } from "../gdocs/src/core/rangeNames";
+import type { SelectionPick } from "../google-docs/src/core/adapterPure";
+import { MAX_REPLAN_ATTEMPTS, SENTINELS } from "../google-docs/src/core/constants";
+import { applyStyles, hide, markCite, showAll } from "../google-docs/src/core/controller";
+import { parseDocument } from "../google-docs/src/core/parse";
+import { isRstmName } from "../google-docs/src/core/rangeNames";
 import {
   DocsApiError,
   GDoc,
@@ -41,7 +41,7 @@ import {
   RevisionConflictError,
   RevisionMismatchError,
   SuggestionsActiveError
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 import { FakeDocs, FakeDocsOptions } from "./fakeDocs";
 import { GpSpec } from "./gdocsBuilders";
 

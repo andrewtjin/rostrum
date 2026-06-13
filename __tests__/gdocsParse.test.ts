@@ -8,8 +8,8 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { parseDocument, DOC_FIELDS_MASK } from "../gdocs/src/core/parse";
-import { GDoc } from "../gdocs/src/core/types";
+import { parseDocument, DOC_FIELDS_MASK } from "../google-docs/src/core/parse";
+import { GDoc } from "../google-docs/src/core/types";
 
 const FIXTURE_DIR = path.join(__dirname, "fixtures", "gdocs");
 

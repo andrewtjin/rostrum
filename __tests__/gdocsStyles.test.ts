@@ -1,4 +1,4 @@
-// Styles-lane suite for gdocs/src/core/styles.ts (plan S10; A5/A10/A12/D13).
+// Styles-lane suite for google-docs/src/core/styles.ts (plan S10; A5/A10/A12/D13).
 // The lane's two leak directions drive the suite:
 //   * a TORN or PARTIAL emission (incomplete border object, named-style and
 //     retro writes in one batch, a half-styled paragraph across a chunk
@@ -9,10 +9,10 @@
 // No jest snapshots (house gdocs culture — a snapshot would bless a wrong
 // emission); the canary is a hand-pinned numeric summary instead.
 
-import { CITE_PT, DEFAULT_CITE_MIN_PT, STYLE_SIZES_PT } from "../gdocs/src/core/constants";
-import { detectCiteLeads } from "../gdocs/src/core/keepers";
-import { DEFAULT_KEEP_HEXES } from "../gdocs/src/core/settings";
-import { planApplyStyles, planMarkCite } from "../gdocs/src/core/styles";
+import { CITE_PT, DEFAULT_CITE_MIN_PT, STYLE_SIZES_PT } from "../google-docs/src/core/constants";
+import { detectCiteLeads } from "../google-docs/src/core/keepers";
+import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
+import { planApplyStyles, planMarkCite } from "../google-docs/src/core/styles";
 import {
   DocsRequest,
   GDoc,
@@ -21,7 +21,7 @@ import {
   UpdateNamedStyleRequest,
   UpdateParagraphStyleRequest,
   UpdateTextStyleRequest
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 import { buildDoc, GpSpec, para, r } from "./gdocsBuilders";
 
 // ---------------------------------------------------------------------------

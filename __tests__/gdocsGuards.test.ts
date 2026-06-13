@@ -1,4 +1,4 @@
-// Gate + chunker suite for gdocs/src/core/guards.ts (plan S6; edge rows 13,
+// Gate + chunker suite for google-docs/src/core/guards.ts (plan S6; edge rows 13,
 // 16, 18; chunker invariant A11.viii). Gates are the engine's refusal surface,
 // so every test here is a failure-path test by design; the chunker tests
 // assert by REQUEST IDENTITY (===) because the invariant is "the planner's
@@ -10,8 +10,8 @@ import {
   assertSingleTab,
   chunkGroups,
   hasRstmState
-} from "../gdocs/src/core/guards";
-import { CHUNK_MAX, SENTINEL_PT } from "../gdocs/src/core/constants";
+} from "../google-docs/src/core/guards";
+import { CHUNK_MAX, SENTINEL_PT } from "../google-docs/src/core/constants";
 import {
   CreateNamedRangeRequest,
   DocsRequest,
@@ -20,7 +20,7 @@ import {
   RequestGroup,
   SuggestionsActiveError,
   UpdateTextStyleRequest
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 import { buildDoc, para, range } from "./gdocsBuilders";
 
 // ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ MANIFEST_ORIGIN = "https://andrewtjin.github.io/rostrum/manifest.xml"
 
 # The canonical Google Docs single-file deliverable the Worker proxies + counts.
 # Published to Pages at /gdocs/Code.gs by the deploy workflow's `build:gdocs`
-# step + the webpack copy of gdocs/dist → dist/gdocs.
+# step + the webpack copy of google-docs/dist → dist/gdocs.
 CODE_GS_ORIGIN = "https://andrewtjin.github.io/rostrum/gdocs/Code.gs"
 
 # `wrangler kv namespace create COUNTER` prints an id — paste it below.

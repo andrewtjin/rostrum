@@ -1,4 +1,4 @@
-// Show All + convergence sweep suite for gdocs/src/core/restore.ts (plan S8;
+// Show All + convergence sweep suite for google-docs/src/core/restore.ts (plan S8;
 // D3/A2/A6/A14; edge rows 9-11, 16). Fixtures are built AS THE PLANNER WOULD
 // LEAVE THEM — sentinel-size text anchored by rstm ranges whose names encode
 // the original sizes — using the shared builders plus the real rangeNames
@@ -7,10 +7,10 @@
 // get the same weight as the happy round-trip, because Show All's whole job
 // is converging from damage.
 
-import { planShowAll, pureSweepConsentNeeded, ShowAllPlan } from "../gdocs/src/core/restore";
-import { SENTINEL_PT } from "../gdocs/src/core/constants";
-import { encodeSizeEntries, isKnownRstmName } from "../gdocs/src/core/rangeNames";
-import { DocsRequest, GDoc, GRange, GShowAllResult } from "../gdocs/src/core/types";
+import { planShowAll, pureSweepConsentNeeded, ShowAllPlan } from "../google-docs/src/core/restore";
+import { SENTINEL_PT } from "../google-docs/src/core/constants";
+import { encodeSizeEntries, isKnownRstmName } from "../google-docs/src/core/rangeNames";
+import { DocsRequest, GDoc, GRange, GShowAllResult } from "../google-docs/src/core/types";
 import { buildDoc, para, r, range } from "./gdocsBuilders";
 
 // ---------------------------------------------------------------------------

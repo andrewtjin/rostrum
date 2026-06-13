@@ -1,4 +1,4 @@
-// Keeper-policy suite for gdocs/src/core/keepers.ts (plan S5; edge rows 3-5;
+// Keeper-policy suite for google-docs/src/core/keepers.ts (plan S5; edge rows 3-5;
 // A8 closed keep-set, A9 whitelist, A10 structural cite). The policy is the
 // heart of invisibility, so the suite leans on the two leak directions:
 //   * keeping too little hides a cite/highlight the debater needs (the
@@ -8,10 +8,10 @@
 // Every negative here is therefore a failure-path test by design, ported from
 // the Word citeRepair suite's leak-prevention cases where one exists.
 
-import { detectCiteLeads, isHighlightKept, planKeeps } from "../gdocs/src/core/keepers";
-import { DEFAULT_CITE_MIN_PT, NEAR_WHITE_MIN_CHANNEL } from "../gdocs/src/core/constants";
-import { DEFAULT_KEEP_HEXES } from "../gdocs/src/core/settings";
-import { GdocsSettings } from "../gdocs/src/core/types";
+import { detectCiteLeads, isHighlightKept, planKeeps } from "../google-docs/src/core/keepers";
+import { DEFAULT_CITE_MIN_PT, NEAR_WHITE_MIN_CHANNEL } from "../google-docs/src/core/constants";
+import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
+import { GdocsSettings } from "../google-docs/src/core/types";
 import { buildDoc, GpSpec, para } from "./gdocsBuilders";
 
 // ---------------------------------------------------------------------------

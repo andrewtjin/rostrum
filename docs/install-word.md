@@ -3,7 +3,7 @@
 Rostrum for Word is a desktop **Office.js add-in**. You install it by registering one
 manifest file in Word, **once**. The add-in itself runs from the hosted bundle, so you
 host nothing and run no server. (Looking for the Google Docs version instead? See
-[`gdocs/README.md`](../gdocs/README.md). Back to the project overview:
+[`google-docs/README.md`](../google-docs/README.md). Back to the project overview:
 [README](../README.md).)
 
 > **Desktop Word only.** Rostrum hides text with Word's *Hidden font* attribute

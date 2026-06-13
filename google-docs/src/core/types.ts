@@ -3,7 +3,7 @@
 // Everything here is host-agnostic: no Apps Script globals, no DOM. The engine
 // reasons about a parsed view of a `documents.get` response and emits plain
 // Docs API batchUpdate request JSON; the only thing that ever touches Google is
-// a `DocsPort` implementation (gdocs/src/adapter/). This mirrors the Word
+// a `DocsPort` implementation (google-docs/src/adapter/). This mirrors the Word
 // engine's WordPort seam (src/core/types.ts) but is a PARALLEL port shaped for
 // Docs' JSON reality, never a contortion of WordPort (repo lesson #48).
 //

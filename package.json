@@ -18,7 +18,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "typecheck": "tsc --noEmit",
-    "typecheck:gdocs": "tsc -p gdocs --noEmit",
+    "typecheck:gdocs": "tsc -p google-docs --noEmit",
     "build:gdocs": "npm run typecheck:gdocs && node tools/build-gdocs.mjs",
     "gen:manifest": "tsx tools/gen-manifest.ts",
     "gen:manifest:prod": "tsx tools/gen-manifest.ts --out=dist/manifest.xml",

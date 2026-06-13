@@ -31,7 +31,7 @@
 //     Title/Subtitle map to TITLE/SUBTITLE; everything else is NORMAL_TEXT —
 //     mirroring how a Docs import assigns named styles.
 //   * <w:highlight> names map to the SAME classic hexes the engine's default
-//     keep set pins (gdocs/src/core/settings.ts WORD_HIGHLIGHT_HEXES — that
+//     keep set pins (google-docs/src/core/settings.ts WORD_HIGHLIGHT_HEXES — that
 //     table IS the engine's model of what a .docx import materializes, so the
 //     fixture must speak the same dialect or keeper statistics lie).
 //   * Adjacent runs with identical (size, bold, background) merge into one
@@ -77,7 +77,7 @@ const DOCX_DIR = path.resolve(REPO_ROOT, "..", "samples");
 
 /**
  * ECMA-376 ST_HighlightColor name -> classic hex. Values are aligned 1:1 with
- * the engine's WORD_HIGHLIGHT_HEXES (gdocs/src/core/settings.ts) — the keep
+ * the engine's WORD_HIGHLIGHT_HEXES (google-docs/src/core/settings.ts) — the keep
  * set those hexes seed is the whole point of emitting them: a fixture
  * highlight must be RECOGNIZED as a keeper exactly when the engine's default
  * settings would keep the real import. "white"/"black" stay mapped (the

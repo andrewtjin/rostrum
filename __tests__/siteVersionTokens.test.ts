@@ -27,10 +27,20 @@ describe("site version-token discipline (version independence)", () => {
     expect(html).not.toContain("__ROSTRUM_VERSION__");
   });
 
-  test("the brand landing, comparison, and privacy pages carry no version token", () => {
+  test("the brand landing carries BOTH version tokens (it lists both surfaces)", () => {
+    // The platform chooser shows each surface's own version next to its name, so the
+    // landing legitimately carries both tokens — webpack stamps each to its product's
+    // version. This is the one page where both appearing is correct (the per-surface
+    // pages above must still carry ONLY their own token).
+    const html = read("index.html");
+    expect(html).toContain("__ROSTRUM_VERSION__");
+    expect(html).toContain("__GDOCS_VERSION__");
+  });
+
+  test("the comparison and privacy pages carry no version token", () => {
     // These pages make no per-surface version claim, so neither token should appear
     // (a stray token here would render literally on the deployed page).
-    for (const f of ["index.html", "comparison.html", "privacy.html"]) {
+    for (const f of ["comparison.html", "privacy.html"]) {
       const html = read(f);
       expect(html).not.toContain("__ROSTRUM_VERSION__");
       expect(html).not.toContain("__GDOCS_VERSION__");

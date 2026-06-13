@@ -6,9 +6,9 @@
   no bundle, sharing ./styles.css.
 
   The __GDOCS_VERSION__ token is stamped to the Google Docs port's own version (read from
-  gdocs/src/core/constants.ts at build time), NOT pkg.version; the two surfaces version
+  google-docs/src/core/constants.ts at build time), NOT pkg.version; the two surfaces version
   independently. The Code.gs + appsscript.json this page links live at /gdocs/, published by
-  the deploy workflow's build:gdocs step plus the webpack copy of gdocs/dist -> dist/gdocs.
+  the deploy workflow's build:gdocs step plus the webpack copy of google-docs/dist -> dist/gdocs.
 
   Primary Code.gs download goes through the counting Worker (/code.gs); a direct ./gdocs/Code.gs
   fallback is offered so a Worker outage never blocks an install (mirrors the manifest pattern).
@@ -45,8 +45,8 @@
                 Version <strong>v__GDOCS_VERSION__</strong>. This early release
                 covers Hide, Show All, Apply debate styles, and Mark cite. Full
                 usage guide:
-                <a href="https://github.com/andrewtjin/rostrum/blob/master/gdocs/README.md"
-                    >gdocs/README</a
+                <a href="https://github.com/andrewtjin/rostrum/blob/master/google-docs/README.md"
+                    >google-docs/README</a
                 >.
             </p>
 

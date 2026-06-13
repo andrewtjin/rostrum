@@ -13,7 +13,7 @@ const fs = require("fs");
 const pkg = require("./package.json");
 
 // The Google Docs port ships on its OWN semver (GDOCS_VERSION in
-// gdocs/src/core/constants.ts), independent of pkg.version — the Word add-in is
+// google-docs/src/core/constants.ts), independent of pkg.version — the Word add-in is
 // 0.3.x while the Docs MVP is 0.1.x. We stamp it onto the gdocs install page via
 // a SEPARATE __GDOCS_VERSION__ token. Extract the literal by REGEX over the file
 // TEXT — never require()/import the .ts. CI runs Node 20, which cannot strip
@@ -22,7 +22,7 @@ const pkg = require("./package.json");
 // "works" on a newer local Node with strip-mode — a works-here/breaks-in-CI
 // trap). A regex is Node-version-agnostic; a missing match throws HERE so a
 // rename fails the build loudly instead of stamping "undefined" onto the page.
-const GDOCS_CONSTANTS = path.resolve(__dirname, "gdocs/src/core/constants.ts");
+const GDOCS_CONSTANTS = path.resolve(__dirname, "google-docs/src/core/constants.ts");
 const gdocsVersionMatch = fs
   .readFileSync(GDOCS_CONSTANTS, "utf8")
   .match(/GDOCS_VERSION\s*=\s*["']([^"']+)["']/);
@@ -144,16 +144,22 @@ module.exports = async (env, argv) => {
             }
           },
           // The Google Docs single-file deliverable (Code.gs + appsscript.json), built by
-          // `npm run build:gdocs` into gdocs/dist/ in a SEPARATE prior step (the deploy
+          // `npm run build:gdocs` into google-docs/dist/ in a SEPARATE prior step (the deploy
           // workflow runs build:gdocs BEFORE build). webpack's `clean` wipes the OUTPUT
-          // dir (dist/), NOT the copy SOURCE (gdocs/dist/), so this lands them at
+          // dir (dist/), NOT the copy SOURCE (google-docs/dist/), so this lands them at
           // dist/gdocs/Code.gs + dist/gdocs/appsscript.json — where the site's gdocs
           // install page links them and the download-counter Worker proxies Code.gs.
           // noErrorOnMissing keeps a plain local `npm run build` (no prior build:gdocs)
           // green. Deliberately NO transform: the .gs must stay BYTE-IDENTICAL to the
           // built artifact (it embeds its own GDOCS_VERSION; a token pass could corrupt
           // it and would break version-independence).
-          { from: "gdocs/dist", to: "gdocs", noErrorOnMissing: true }
+          //
+          // NOTE: the SOURCE folder is `google-docs/` but the DEPLOYED dir stays `gdocs/`
+          // on purpose — `…/rostrum/gdocs/Code.gs` is the stable public URL the live
+          // download-counter Worker proxies (worker DEFAULT_CODE_GS_ORIGIN) and the install
+          // page links. Renaming `to` would 404 that URL until the Worker is redeployed in
+          // lock-step, so the public path is decoupled from the source folder name.
+          { from: "google-docs/dist", to: "gdocs", noErrorOnMissing: true }
         ]
       })
     ],

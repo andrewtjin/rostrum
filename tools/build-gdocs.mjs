@@ -21,7 +21,7 @@
 //   3. assert no module tokens survived (import/export/require) — a leaked
 //      token would make the pasted file die at parse time on the user's
 //      machine, the one place we cannot debug (fail at BUILD time instead);
-//   4. write gdocs/dist/Code.gs plus a byte-exact copy of gdocs/appsscript.json
+//   4. write google-docs/dist/Code.gs plus a byte-exact copy of google-docs/appsscript.json
 //      so the install packet is one folder.
 //
 // The post-processing steps are EXPORTED PURE HELPERS so __tests__/
@@ -42,11 +42,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const TOOLS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TOOLS_DIR, "..");
-const ADAPTER_ENTRY = path.join(REPO_ROOT, "gdocs", "src", "adapter", "docsAdapter.ts");
-const CONSTANTS_TS = path.join(REPO_ROOT, "gdocs", "src", "core", "constants.ts");
-const ADAPTER_PURE_TS = path.join(REPO_ROOT, "gdocs", "src", "core", "adapterPure.ts");
-const APPSSCRIPT_JSON = path.join(REPO_ROOT, "gdocs", "appsscript.json");
-const DEFAULT_OUT_DIR = path.join(REPO_ROOT, "gdocs", "dist");
+const ADAPTER_ENTRY = path.join(REPO_ROOT, "google-docs", "src", "adapter", "docsAdapter.ts");
+const CONSTANTS_TS = path.join(REPO_ROOT, "google-docs", "src", "core", "constants.ts");
+const ADAPTER_PURE_TS = path.join(REPO_ROOT, "google-docs", "src", "core", "adapterPure.ts");
+const APPSSCRIPT_JSON = path.join(REPO_ROOT, "google-docs", "appsscript.json");
+const DEFAULT_OUT_DIR = path.join(REPO_ROOT, "google-docs", "dist");
 
 // ---------------------------------------------------------------------------
 // Identifier validation — a bad call-map entry must fail the BUILD, never ship
@@ -286,7 +286,7 @@ export function assertEntriesPresentInBundle(bundleText, names) {
   if (missing.length > 0) {
     throw new Error(
       `gdocs build: call-map entries not found anywhere in the bundle: ${missing.join(", ")} — ` +
-      `does gdocs/src/adapter/docsAdapter.ts export them?`
+      `does google-docs/src/adapter/docsAdapter.ts export them?`
     );
   }
 }
@@ -410,7 +410,7 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   // Optional --out <dir> so humans can build elsewhere; default is the
-  // gitignored gdocs/dist/ packet folder.
+  // gitignored google-docs/dist/ packet folder.
   const outFlag = process.argv.indexOf("--out");
   const outDir = outFlag >= 0 && process.argv[outFlag + 1]
     ? path.resolve(process.argv[outFlag + 1])

@@ -44,15 +44,15 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { CHUNK_MAX, NAME_MAX, SENTINEL_PT, SENTINELS } from "../gdocs/src/core/constants";
-import { hide, showAll } from "../gdocs/src/core/controller";
-import { chunkGroups } from "../gdocs/src/core/guards";
-import { parseDocument } from "../gdocs/src/core/parse";
-import { planHide } from "../gdocs/src/core/planner";
-import { decodeRangeName, isRstmName } from "../gdocs/src/core/rangeNames";
-import { planShowAll } from "../gdocs/src/core/restore";
-import { resolveSettings } from "../gdocs/src/core/settings";
-import { DocsRequest, GDoc, GElement, GNamedRange, RequestGroup } from "../gdocs/src/core/types";
+import { CHUNK_MAX, NAME_MAX, SENTINEL_PT, SENTINELS } from "../google-docs/src/core/constants";
+import { hide, showAll } from "../google-docs/src/core/controller";
+import { chunkGroups } from "../google-docs/src/core/guards";
+import { parseDocument } from "../google-docs/src/core/parse";
+import { planHide } from "../google-docs/src/core/planner";
+import { decodeRangeName, isRstmName } from "../google-docs/src/core/rangeNames";
+import { planShowAll } from "../google-docs/src/core/restore";
+import { resolveSettings } from "../google-docs/src/core/settings";
+import { DocsRequest, GDoc, GElement, GNamedRange, RequestGroup } from "../google-docs/src/core/types";
 import { FakeDocs } from "./fakeDocs";
 import { GeSpec, GpSpec } from "./gdocsBuilders";
 

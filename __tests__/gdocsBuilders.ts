@@ -14,7 +14,7 @@ import {
   GNamedStyleType,
   GParagraph,
   GRange
-} from "../gdocs/src/core/types";
+} from "../google-docs/src/core/types";
 
 /** Spec for one element of a paragraph under construction. */
 export interface GeSpec {

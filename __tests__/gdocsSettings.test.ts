@@ -8,13 +8,13 @@ import {
   DEFAULT_KEEP_HEXES,
   resolveSettings,
   serializeSettings
-} from "../gdocs/src/core/settings";
+} from "../google-docs/src/core/settings";
 import {
   CITE_PT,
   DEFAULT_CITE_MIN_PT,
   NEAR_WHITE_MIN_CHANNEL
-} from "../gdocs/src/core/constants";
-import { GdocsSettings } from "../gdocs/src/core/types";
+} from "../google-docs/src/core/constants";
+import { GdocsSettings } from "../google-docs/src/core/types";
 
 /** Tiers arrive as raw JSON strings (DocsPort.readSettingsJson) — this is the
  * shorthand for "a tier that validly states exactly these fields". */

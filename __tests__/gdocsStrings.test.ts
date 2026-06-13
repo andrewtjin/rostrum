@@ -19,7 +19,7 @@ import {
   markCiteReceipt,
   errorMessage,
   UserErrorMessage
-} from "../gdocs/src/core/strings";
+} from "../google-docs/src/core/strings";
 import {
   DocsApiError,
   GHideResult,
@@ -31,8 +31,8 @@ import {
   RevisionConflictError,
   RevisionMismatchError,
   SuggestionsActiveError
-} from "../gdocs/src/core/types";
-import { GDOCS_VERSION } from "../gdocs/src/core/constants";
+} from "../google-docs/src/core/types";
+import { GDOCS_VERSION } from "../google-docs/src/core/constants";
 
 // ---------------------------------------------------------------------------
 // Result builders — zeroed defaults so each case states only what it tests.

@@ -2,7 +2,7 @@
 //
 // WHY THIS FILE EXISTS: @types/google-apps-script (v1.0.x) ships typings for
 // the built-in services (DocumentApp, PropertiesService, HtmlService, ...) but
-// NOT for advanced-service globals — `Docs` (enabled in gdocs/appsscript.json,
+// NOT for advanced-service globals — `Docs` (enabled in google-docs/appsscript.json,
 // userSymbol "Docs") has no declaration there, so typecheck:gdocs would fail
 // on the adapter's two calls. This shim types EXACTLY those two calls and
 // nothing more (deliberately minimal: any other Docs.* use should fail the
