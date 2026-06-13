@@ -15,10 +15,7 @@ Thumbs.db
 # Office add-in sideload / dev-cert scratch
 .office-addin-debugging/
 
-# Agent / knowledge-graph tooling scratch (generated; never ship)
-.claude-flow/
-.swarm/
-.roo/
+# Local agent + knowledge-graph tooling scratch (generated; never ship)
 .claude/
 graphify-out/
 .graphify_python
