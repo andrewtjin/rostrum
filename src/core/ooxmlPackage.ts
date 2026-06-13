@@ -25,6 +25,7 @@
 
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { parseStyleDefs, outlineNumberFromProps, type StyleDef } from "./outline";
+import { ParsedParagraph } from "./ooxml";
 
 // xmldom's node types vary across versions; we keep public signatures fully typed
 // (string in/out, number/null) and use a localized `any` for node handles — the
@@ -646,6 +647,26 @@ export class WholeBodyPackage {
       `<pkg:xmlData><w:document ${this.docAttrs}><w:body>${inner}</w:body></w:document></pkg:xmlData>` +
       `</pkg:part></pkg:package>`
     );
+  }
+
+  /**
+   * The i-th story paragraph as a node-backed `ParsedParagraph` (Loop 002 B1 — the ANCHOR of the
+   * node-direct hide path). Constructs `ParsedParagraph.fromNode` over the SAME live `<w:p>` node this
+   * package already snapshotted at construction (`this.paras[i]`) and the SAME owner document — ZERO
+   * string parse and ZERO serialize (contrast `paragraphXml(i)`, which clones+serializes+rewraps the node
+   * into a standalone flat-OPC package). The engine reads its `RunView[]` and mutates `<w:vanish>` IN
+   * PLACE via `applyVisibilityInPlace`; this package then `serialize()`s the whole body once, with the
+   * mutated node already in the tree. Because the node IS the package's node, the pure commit needs NO
+   * `replace()` — the mutation is already spliced in by reference. The `cleanAlign` identity mapping the
+   * pure read produces guarantees engine index === this index, so the caller indexes directly.
+   *
+   * `fromNode` requires a `<w:p>` owned by `this.doc`; `this.paras[i]` is exactly that (it was selected
+   * from `this.doc` at construction and is mutated in place, never re-imported), so the contract holds.
+   */
+  parsedParagraph(i: number): ParsedParagraph {
+    const node = this.paras[i];
+    if (!node) throw new RangeError(`paragraph index ${i} out of range (count ${this.count})`);
+    return ParsedParagraph.fromNode(this.doc, node);
   }
 
   /**

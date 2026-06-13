@@ -47,7 +47,7 @@ jest.mock("@xmldom/xmldom", () => {
   return { ...actual, DOMParser: CountingDOMParser };
 });
 
-import { classifyParagraph } from "../src/core/invisibility";
+import { classifyParagraph, hide } from "../src/core/invisibility";
 import { DOMParser } from "@xmldom/xmldom";
 import { ParsedParagraph, readRuns, legacyRunViewsForTest } from "../src/core/ooxml";
 import { computeRunKeepFlags, planCrossGapSeparators } from "../src/core/keepers";
@@ -58,8 +58,9 @@ import {
   readFragmentParagraphs
 } from "../src/core/ooxmlCondense";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
+import { createOfficeWordPort } from "../src/core/officeWordPort";
 import { shrinkFragment, unshrinkFragment } from "../src/core/shrink";
-import { settings } from "./fakeWord";
+import { buildPackage, harness, mkDoc, para as fakePara, run as fakeRun, settings } from "./fakeWord";
 import { RawParagraph, ShrinkOptions } from "../src/core/types";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -332,5 +333,51 @@ describe("node-direct path (fromNode + applyVisibilityInPlace) parses ZERO times
     const pp = new ParsedParagraph(xml); // string mode → one parse
     expect(parseCount).toBe(1);
     expect(pp.runs).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 002-S1 — the WHOLE-BODY node-direct Hide parses the package exactly ONCE (tests-4, hide level).
+//
+// The block above proves the `fromNode` PRIMITIVE parses nothing. This proves the WIRED default Hide
+// path (officeWordPort `pureWholeBody:true` → invisibility two-phase loop → node-direct commit) parses
+// the body ONCE — the `WholeBodyPackage` ctor — and NOT per paragraph. The falsifiable scaling claim:
+// with N body paragraphs the engine-side parse count stays 1, not 1+N. (The fake host's `insertOoxml`
+// re-parses the committed package to MODEL Word's import — that re-parse is harness machinery, not
+// engine cost; we exclude it by counting only up to the commit's host call via a body-insert hook.)
+// ---------------------------------------------------------------------------
+describe("node-direct WHOLE-BODY Hide parses the body package exactly ONCE (002-S1, scaling-proof)", () => {
+  /** A body of N hideable paragraphs + one kept heading, wired through the pure node-direct port. */
+  const runPureHide = async (bodyParaCount: number): Promise<number> => {
+    const paras = [
+      fakePara(fakeRun("Heading"), { outlineNumber: 1 }),
+      ...Array.from({ length: bodyParaCount }, (_, i) => fakePara(fakeRun(`body card number ${i}`)))
+    ];
+    const doc = mkDoc(paras);
+    // Freeze the body OOXML so getOoxml returns one well-formed package (and the count aligns).
+    const h = harness(doc, buildPackage(paras));
+    // Count engine parses ONLY (stop before the fake host models its own import re-parse): hook the
+    // whole-body insertOoxml and snapshot the count at the moment the engine hands the package over.
+    const body: any = (h.ctx as any).document.body;
+    const realInsert = body.insertOoxml.bind(body);
+    let atCommit = -1;
+    body.insertOoxml = (xml: string, loc?: string): void => {
+      if (atCommit < 0) atCommit = parseCount; // engine parses up to the host call
+      realInsert(xml, loc);
+    };
+    const port = createOfficeWordPort({ runner: h.runner, pureWholeBody: true, logger: h.tracer.logger("adapter") });
+    parseCount = 0;
+    await hide(port, settings(["yellow"]));
+    return atCommit;
+  };
+
+  it("parses ONCE for a small body — the package ctor, zero per-paragraph parses", async () => {
+    expect(await runPureHide(3)).toBe(1);
+  });
+
+  it("STILL parses ONCE for a 10× larger body — the parse count does not scale with paragraphs", async () => {
+    // If any per-paragraph serialize→parse had crept back in (e.g. via writeParagraphs' fragment
+    // guard, or a stray `replace()`), this would be ~1+N. The node-direct path keeps it at 1.
+    expect(await runPureHide(30)).toBe(1);
   });
 });

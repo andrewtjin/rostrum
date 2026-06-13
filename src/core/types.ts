@@ -248,6 +248,14 @@ export interface WordPort {
   writeManifest(xml: string): Promise<void>;
   /** Remove the Rostrum manifest custom XML part (no-op when absent). */
   clearManifest(): Promise<void>;
+  /**
+   * OPTIONAL (Loop 002 B1 — CONTRACT C / 002-F4). Discard any prepared write state so the next op
+   * re-reads the unchanged on-disk document. The engine calls this when Phase B of a Hide ABORTS
+   * after it began mutating the cached whole-body package's live nodes IN PLACE but before any host
+   * write — nulling the half-mutated package so no later commit can ever serialize it. A port that
+   * keeps no such cross-call read state (the in-memory fakes) may omit it; the engine no-ops then.
+   */
+  discardPreparedWrite?(): void;
 }
 
 // ===========================================================================

@@ -154,10 +154,12 @@ describe("paced hide through the pure whole-body path", () => {
     expect(docB.paragraphs.map((p) => p.xml)).toEqual(docA.paragraphs.map((p) => p.xml));
     expect(docB.manifest?.xml).toBe(docA.manifest?.xml);
     expect(resB).toEqual(resA);
-    // Call-count guard (parseCount-style): the pure read ticks once per package paragraph and
-    // the classify loop once per read paragraph — exactly 2N with budget 0. If a loop stops
-    // ticking (pane freezes again) or starts double-ticking, this fails loudly.
-    expect(yields).toBe(2 * docA.paragraphs.length);
+    // Call-count guard (parseCount-style): with budget 0 (yield on every tick) the pacer is ticked
+    // once per paragraph in EACH of the THREE paced loops — the pure read (port), Phase A classify,
+    // and Phase B apply (Loop 002 B1: the apply stretch is now paced too, so a big-doc node-direct
+    // apply can paint progress and land a mid-Hide Cancel). Exactly 3N. If a loop stops ticking (pane
+    // freezes again) or starts double-ticking, this fails loudly.
+    expect(yields).toBe(3 * docA.paragraphs.length);
   });
 
   it("a cancel landing mid-CLASSIFY aborts pre-write: doc untouched, nothing flushed, TC restored", async () => {

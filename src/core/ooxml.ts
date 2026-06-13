@@ -502,6 +502,17 @@ export class ParsedParagraph {
   readonly runs: RunView[];
 
   /**
+   * True when this is a NODE-backed instance (`fromNode`): it never serializes itself, and the
+   * orchestrator must apply visibility through the in-place methods (`applyVisibilityInPlace` /
+   * `makeAllVisibleInPlace`), NOT the serializing string-mode ones (which throw in node mode —
+   * CONTRACT A). The two-phase Hide reads this to pick the apply method per paragraph, keeping the
+   * node/string branch decision on the instance itself rather than re-deriving it from `RawParagraph`.
+   */
+  get isNodeBacked(): boolean {
+    return this.original === null;
+  }
+
+  /**
    * String mode (the legacy path, byte-for-byte unchanged): parse the package ONCE and read +
    * mutate through that tree. `readRuns`/`applyRunVisibility`/`makeAllVisible` and every existing
    * caller use this; `parseCount.test.ts`'s "exactly one parse" meaning is preserved because this is
@@ -572,6 +583,17 @@ export class ParsedParagraph {
     hideParaMark: boolean,
     splits: readonly BridgeSplit[] = []
   ): { xml: string; changed: boolean } {
+    // CONTRACT (A) — node-mode guard. A node-backed instance (`fromNode`, `original===null`) never
+    // serializes itself: its owner package serializes the whole body once. `applyVisibility` ends by
+    // returning `serialize(doc)` only on change but `this.original` on a no-op — which would emit
+    // `null` as the "unchanged" paragraph OOXML and silently corrupt the commit. The node path MUST
+    // call `applyVisibilityInPlace` instead, so refuse the string-mode method here rather than emit null.
+    if (this.original === null) {
+      throw new Error(
+        "ParsedParagraph.applyVisibility called on a node-mode instance — use applyVisibilityInPlace " +
+          "(a node-backed paragraph never serializes itself; its owner serializes the whole package)."
+      );
+    }
     // String-mode only (the wrappers call it on a string-constructed instance), so `original` is set.
     if (!this.pEl) return { xml: this.original as string, changed: false };
     const { doc, pEl, runEls } = this;
@@ -679,6 +701,15 @@ export class ParsedParagraph {
    * is documented and warned once (decision #10).
    */
   makeAllVisible(): { xml: string; changed: boolean } {
+    // CONTRACT (A) — node-mode guard (see applyVisibility). A node-backed instance would return
+    // `this.original` (null) on a no-op reveal, emitting null OOXML; the node path must use
+    // `makeAllVisibleInPlace`. Refuse here rather than serialize null.
+    if (this.original === null) {
+      throw new Error(
+        "ParsedParagraph.makeAllVisible called on a node-mode instance — use makeAllVisibleInPlace " +
+          "(a node-backed paragraph never serializes itself; its owner serializes the whole package)."
+      );
+    }
     // String-mode only (the wrappers call it on a string-constructed instance), so `original` is set.
     if (!this.pEl) return { xml: this.original as string, changed: false };
     const { doc, pEl, runEls } = this;
@@ -694,6 +725,34 @@ export class ParsedParagraph {
     return changed
       ? { xml: serialize(doc), changed: true }
       : { xml: this.original as string, changed: false };
+  }
+
+  /**
+   * Node-direct reveal (Loop 002 B1, CONTRACT A): clear `<w:vanish>` from every run AND the paragraph
+   * mark IN PLACE on the live attached nodes, returning ONLY whether the DOM changed — it NEVER
+   * serializes (the owner package serializes the whole body once after the pass). This is the node-mode
+   * twin of `makeAllVisible`, used by the keepWhole / heading / cite / table SELF-HEAL: where the string
+   * path forces such a paragraph visible via `makeAllVisible`, the node path forces it visible via this.
+   *
+   * It reuses the EXACT same primitive (`setVanish(...,false)` via `doc.createElement`-built nodes — no
+   * createElementNS, loss-3) the string `makeAllVisible` uses, so the in-place reveal is byte-equivalent
+   * to a string-mode reveal then re-parse. Convergent/idempotent: a second reveal clears nothing new →
+   * `changed:false`. On a node-less instance (no `<w:p>`) it is a safe no-op. Any primitive throw
+   * propagates UNCAUGHT (Phase B's whole-op abort, 002-F4, depends on it surfacing).
+   */
+  makeAllVisibleInPlace(): { changed: boolean } {
+    if (!this.pEl) return { changed: false };
+    const { doc, pEl, runEls } = this;
+
+    let changed = false;
+    for (let i = 0; i < runEls.length; i++) {
+      const rPr = runRPr(runEls[i]);
+      if (rPr && setVanish(doc, rPr, false)) changed = true;
+    }
+    const markRPr = existingMarkRPr(pEl);
+    if (markRPr && setVanish(doc, markRPr, false)) changed = true;
+
+    return { changed };
   }
 }
 

@@ -196,6 +196,16 @@ export const defaultWordRunner: WordRunner = (batch) => {
 
 const defaultRunner = defaultWordRunner;
 
+/**
+ * The placeholder `ooxml` on a node-direct `RawParagraph` (Loop 002 B1). The engine reads such a
+ * paragraph through its `.parsed` node handle, never `.ooxml`, and the node-direct commit serializes
+ * the WHOLE cached package (the `<w:p>` was mutated in place) — so a per-paragraph string is both
+ * unused and a cost we deliberately drop. A bare valid one-`<w:p>` fragment keeps the type total and
+ * any defensive read well-formed.
+ */
+const NODE_BACKED_OOXML =
+  '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>';
+
 // ---------------------------------------------------------------------------
 // Internal read state shared between the read and the (buffered) commit
 // ---------------------------------------------------------------------------
@@ -205,6 +215,14 @@ interface ReadState {
   strategy: "range" | "pkg";
   /** Cached whole-body package to splice into (only when strategy === "pkg"). */
   pkg: WholeBodyPackage | null;
+  /**
+   * True for the LOOP 002 node-direct read (`readBatchPure` handing node-backed paragraphs): the
+   * engine mutated this package's `<w:p>` nodes IN PLACE during Phase B, so the commit must NOT
+   * re-`replace()` — it serializes the WHOLE package once (the mutations are already spliced by
+   * reference) and the per-paragraph `ParagraphUpdate.ooxml` is a placeholder, never consulted. A
+   * non-node-direct `pkg` read still re-splices via `replace()` (the proxy/compat path).
+   */
+  nodeDirect: boolean;
   /** Paragraph count the read observed, used to range-check buffered updates. */
   count: number;
   /**
@@ -400,7 +418,13 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
       await this.pacer.tick();
       const headingLevel = pkg.headingLevel(i);
       const inTable = pkg.inTable(i);
-      out.push({ index: i, headingLevel, inTable, ooxml: pkg.paragraphXml(i) });
+      // LOOP 002 B1 — node-direct: hand the engine a `ParsedParagraph` over the package's LIVE `<w:p>`
+      // node (zero per-paragraph serialize→parse — the win 002-S1 names). The engine reads its run
+      // views and mutates `<w:vanish/>` IN PLACE on this same node, then this package serializes once.
+      // `ooxml` is a placeholder: with `.parsed` set, the engine never reads it, and the node-direct
+      // commit serializes the whole package (never a per-paragraph fragment), so we DROP the
+      // `paragraphXml(i)` serialize the proxy path pays here.
+      out.push({ index: i, headingLevel, inTable, ooxml: NODE_BACKED_OOXML, parsed: pkg.parsedParagraph(i) });
       if (outlineSample === null && headingLevel !== null) {
         outlineSample = { index: i, headingLevel, inTable, source: "package-styles" };
       }
@@ -412,10 +436,10 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     // Identity mapping + cleanAlign: the package is self-consistent, so engineIndex === packageIndex
     // and the whole-body commit re-serializes exactly what we read (only <w:vanish/> changed).
     const pkgIndex = Array.from({ length: total }, (_, i) => i);
-    op.debug("pure whole-body read assembled", { paragraphs: total, source: "package-styles" });
+    op.debug("pure whole-body read assembled (node-direct)", { paragraphs: total, source: "package-styles" });
     return {
       paragraphs: out,
-      state: { strategy: "pkg", pkg, count: total, pkgIndex, cleanAlign: true },
+      state: { strategy: "pkg", pkg, count: total, pkgIndex, cleanAlign: true, nodeDirect: true },
       outlineSample
     };
   }
@@ -565,7 +589,10 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     });
     return {
       paragraphs: out,
-      state: { strategy, pkg, count: total, pkgIndex: mapping, cleanAlign },
+      // nodeDirect:false — the proxy read serializes per-paragraph fragments and commits via
+      // `replace()` (it aligns the package to LIVE proxies, where in-place node mutation can't be
+      // trusted under a ±1 artifact). Only the pure `readBatchPure` path is node-direct.
+      state: { strategy, pkg, count: total, pkgIndex: mapping, cleanAlign, nodeDirect: false },
       outlineSample
     };
   }
@@ -574,10 +601,17 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
   async writeParagraphs(updates: ParagraphUpdate[]): Promise<void> {
     const op = this.log.child("write");
+    // On the LOOP 002 node-direct path the update `ooxml` is a placeholder (the `<w:p>` was already
+    // mutated IN PLACE inside the cached package and the commit serializes the whole package, never a
+    // per-paragraph fragment), so its single-`<w:p>` validity is moot — and `assertSingleParagraph`
+    // parses each fragment, which would re-introduce the very per-paragraph parse P1 deletes (it scales
+    // with the changed-paragraph count, ~489 on ExFlex). Skip the fragment guard on that path; the
+    // index range-check still runs (it never parses).
+    const nodeDirect = this.lastRead?.nodeDirect === true;
     // Validate eagerly, BEFORE any host mutation: every fragment must hold exactly
     // one <w:p> (audit #5), and every index must be within the last read.
     for (const u of updates) {
-      assertSingleParagraph(u.ooxml, `writeParagraphs @${u.index}`);
+      if (!nodeDirect) assertSingleParagraph(u.ooxml, `writeParagraphs @${u.index}`);
       if (this.lastRead && (u.index < 0 || u.index >= this.lastRead.count)) {
         throw new RangeError(
           `writeParagraphs: update index ${u.index} is out of range (document had ` +
@@ -592,6 +626,26 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     op.debug("buffered paragraph updates (await manifest op to flush atomically)", {
       count: updates.length
     });
+  }
+
+  /**
+   * Discard any prepared write state (Loop 002 B1 — CONTRACT C / 002-F4). Called by the engine when
+   * Phase B of a Hide ABORTS (a throwing `applyVisibilityInPlace`, or a cancel) AFTER it began mutating
+   * the cached package's live `<w:p>` nodes but BEFORE any host write. Because the node-direct path
+   * mutates `lastRead.pkg` in place, that package is now HALF-MUTATED in memory; nulling `lastRead`
+   * (and any `pending` buffer) guarantees no later `commit`/manifest op can ever serialize it, and the
+   * NEXT operation re-reads the unchanged on-disk document from scratch. The on-disk doc is untouched
+   * (nothing was inserted), so this leaves it byte-identical with the manifest unarmed. Idempotent.
+   */
+  discardPreparedWrite(): void {
+    if (this.lastRead || this.pending) {
+      this.log.child("abort").debug("discarding prepared write (Phase-B abort) — re-read on next op", {
+        hadRead: !!this.lastRead,
+        hadPending: this.pending ? this.pending.length : 0
+      });
+    }
+    this.lastRead = null;
+    this.pending = null;
   }
 
   // ----- Reveal (fast Show All) --------------------------------------------
@@ -923,7 +977,18 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
         // --- paragraph edits ---
         if (updates.length) {
-          if (usePkg && this.lastRead!.pkg) {
+          if (usePkg && this.lastRead!.pkg && this.lastRead!.nodeDirect) {
+            // LOOP 002 B1 — node-direct commit. The engine already mutated each changed paragraph's
+            // `<w:p>` IN PLACE inside THIS cached package (the `ParsedParagraph` handles wrap the
+            // package's own nodes), so there is NOTHING to splice: serialize the whole package once
+            // and the mutations are already present. We deliberately do NOT call `pkg.replace()` (no
+            // re-parse, no re-import of an identical node) — that is the per-paragraph serialize P1
+            // deletes — and we ignore each update's placeholder `ooxml`.
+            doc.body.insertOoxml(this.lastRead!.pkg.serialize(), "Replace");
+            op.debug("node-direct whole-body insertOoxml queued (no per-paragraph splice)", {
+              changed: updates.length
+            });
+          } else if (usePkg && this.lastRead!.pkg) {
             const pkg = this.lastRead!.pkg;
             const map = this.lastRead!.pkgIndex;
             // Map engine index (proxy order) → package story index via the read's
