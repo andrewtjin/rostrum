@@ -51,8 +51,8 @@ Word engine only.**
 
 ![Hide time vs document length across 1,085 real tournament documents — Rostrum stays near one second on speech docs and under a minute on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
 
-**1,085 real tournament documents** — two seasons' worth of speech docs plus giant
-backfiles — each hidden by all four tools on the market, engine-to-engine:
+**1,085 real tournament documents** — two seasons' worth of speech docs plus giant backfiles —
+each hidden by all four tools on the market, engine-to-engine:
 
 | | **Rostrum** | Verbatim 6.0.0¹ |
 | --- | --- | --- |
