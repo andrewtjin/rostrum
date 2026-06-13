@@ -11,7 +11,7 @@
 // branch left untested ships silently green. Every route/path is enumerated.
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { handleRequest, COUNTER_KEY, GDOCS_KEY } = require("../worker/src/handler.js");
+const { handleRequest, COUNTER_KEY, GOOGLE_DOCS_KEY } = require("../worker/src/handler.js");
 
 /**
  * A Map-backed stand-in for a Cloudflare KV namespace (get/put only).
@@ -23,7 +23,7 @@ function makeEnv(opts: { failPut?: boolean; failGet?: boolean; failGetKey?: stri
   const store = new Map<string, string>();
   return {
     MANIFEST_ORIGIN: "https://example.test/manifest.xml",
-    CODE_GS_ORIGIN: "https://example.test/gdocs/Code.gs",
+    CODE_GS_ORIGIN: "https://example.test/google-docs/Code.gs",
     COUNTER: {
       get: (k: string) =>
         opts.failGet || (opts.failGetKey && k === opts.failGetKey)
@@ -118,7 +118,7 @@ describe("download-counter Worker", () => {
   });
 
   // ---- Google Docs surface: code.gs ---------------------------------------
-  test("GET /code.gs counts the gdocs surface then serves Code.gs as an attachment", async () => {
+  test("GET /code.gs counts the google_docs surface then serves Code.gs as an attachment", async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response("/* Code.gs */", { status: 200 }));
     const env = makeEnv();
 
@@ -128,9 +128,9 @@ describe("download-counter Worker", () => {
     expect(res.headers.get("content-disposition")).toContain('attachment; filename="Code.gs"');
     expect(res.headers.get("content-type")).toContain("javascript");
     expect(await res.text()).toBe("/* Code.gs */");
-    expect(env._store.get(GDOCS_KEY)).toBe("1");
+    expect(env._store.get(GOOGLE_DOCS_KEY)).toBe("1");
     // Proxied the configured Code.gs origin, not the manifest one.
-    expect(global.fetch).toHaveBeenCalledWith("https://example.test/gdocs/Code.gs", expect.anything());
+    expect(global.fetch).toHaveBeenCalledWith("https://example.test/google-docs/Code.gs", expect.anything());
   });
 
   test("/code.gs origin unreachable → 302 to the canonical Code.gs, still counted", async () => {
@@ -140,8 +140,8 @@ describe("download-counter Worker", () => {
     const res = await handleRequest(GET("/code.gs"), env);
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("https://example.test/gdocs/Code.gs");
-    expect(env._store.get(GDOCS_KEY)).toBe("1");
+    expect(res.headers.get("location")).toBe("https://example.test/google-docs/Code.gs");
+    expect(env._store.get(GOOGLE_DOCS_KEY)).toBe("1");
   });
 
   test("/code.gs origin returns non-2xx → also 302 fallback", async () => {
@@ -158,7 +158,7 @@ describe("download-counter Worker", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-disposition")).toContain('filename="Code.gs"');
-    expect(env._store.get(GDOCS_KEY)).toBeUndefined();
+    expect(env._store.get(GOOGLE_DOCS_KEY)).toBeUndefined();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -177,58 +177,58 @@ describe("download-counter Worker", () => {
     const env = makeEnv();
 
     await handleRequest(GET("/code.gs"), env);
-    expect(env._store.get(GDOCS_KEY)).toBe("1");
+    expect(env._store.get(GOOGLE_DOCS_KEY)).toBe("1");
     expect(env._store.get(COUNTER_KEY)).toBeUndefined(); // Word tally untouched
 
     await handleRequest(GET("/manifest.xml"), env);
     expect(env._store.get(COUNTER_KEY)).toBe("1");
-    expect(env._store.get(GDOCS_KEY)).toBe("1"); // gdocs tally unchanged by a Word hit
+    expect(env._store.get(GOOGLE_DOCS_KEY)).toBe("1"); // google_docs tally unchanged by a Word hit
   });
 
   // ---- /count: the unified cross-platform read ----------------------------
   test("GET /count returns both per-surface tallies plus the unified total (CORS-open)", async () => {
     const env = makeEnv();
     env._store.set(COUNTER_KEY, "42");
-    env._store.set(GDOCS_KEY, "8");
+    env._store.set(GOOGLE_DOCS_KEY, "8");
 
     const res = await handleRequest(GET("/count"), env);
 
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    expect(await res.json()).toEqual({ downloads: 42, gdocs: 8, total: 50 });
+    expect(await res.json()).toEqual({ downloads: 42, google_docs: 8, total: 50 });
   });
 
   test("GET /count is all-zero when never set", async () => {
     const res = await handleRequest(GET("/count"), makeEnv());
-    expect(await res.json()).toEqual({ downloads: 0, gdocs: 0, total: 0 });
+    expect(await res.json()).toEqual({ downloads: 0, google_docs: 0, total: 0 });
   });
 
-  test("total == downloads + gdocs for arbitrary values", async () => {
+  test("total == downloads + google_docs for arbitrary values", async () => {
     const env = makeEnv();
     env._store.set(COUNTER_KEY, "1000");
-    env._store.set(GDOCS_KEY, "337");
+    env._store.set(GOOGLE_DOCS_KEY, "337");
     const body = (await (await handleRequest(GET("/count"), env)).json()) as {
       downloads: number;
-      gdocs: number;
+      google_docs: number;
       total: number;
     };
-    expect(body.total).toBe(body.downloads + body.gdocs);
+    expect(body.total).toBe(body.downloads + body.google_docs);
   });
 
   test("KV get failure on /count degrades BOTH counters to 0, never throws", async () => {
     const res = await handleRequest(GET("/count"), makeEnv({ failGet: true }));
-    expect(await res.json()).toEqual({ downloads: 0, gdocs: 0, total: 0 });
+    expect(await res.json()).toEqual({ downloads: 0, google_docs: 0, total: 0 });
   });
 
   test("/count degrades PER KEY — one counter readable, the other down → total never NaN", async () => {
-    const env = makeEnv({ failGetKey: GDOCS_KEY }); // gdocs read throws, downloads read fine
+    const env = makeEnv({ failGetKey: GOOGLE_DOCS_KEY }); // google_docs read throws, downloads read fine
     env._store.set(COUNTER_KEY, "5");
 
     const res = await handleRequest(GET("/count"), env);
-    const body = (await res.json()) as { downloads: number; gdocs: number; total: number };
+    const body = (await res.json()) as { downloads: number; google_docs: number; total: number };
 
     expect(body.downloads).toBe(5);
-    expect(body.gdocs).toBe(0); // degraded independently
+    expect(body.google_docs).toBe(0); // degraded independently
     expect(body.total).toBe(5); // 5 + 0, deterministic — not NaN
     expect(Number.isNaN(body.total)).toBe(false);
   });

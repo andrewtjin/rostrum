@@ -147,19 +147,17 @@ module.exports = async (env, argv) => {
           // `npm run build:gdocs` into google-docs/dist/ in a SEPARATE prior step (the deploy
           // workflow runs build:gdocs BEFORE build). webpack's `clean` wipes the OUTPUT
           // dir (dist/), NOT the copy SOURCE (google-docs/dist/), so this lands them at
-          // dist/gdocs/Code.gs + dist/gdocs/appsscript.json — where the site's gdocs
-          // install page links them and the download-counter Worker proxies Code.gs.
+          // dist/google-docs/Code.gs + dist/google-docs/appsscript.json — where the site's
+          // Google Docs install page links them and the download-counter Worker proxies Code.gs.
           // noErrorOnMissing keeps a plain local `npm run build` (no prior build:gdocs)
           // green. Deliberately NO transform: the .gs must stay BYTE-IDENTICAL to the
           // built artifact (it embeds its own GDOCS_VERSION; a token pass could corrupt
           // it and would break version-independence).
           //
-          // NOTE: the SOURCE folder is `google-docs/` but the DEPLOYED dir stays `gdocs/`
-          // on purpose — `…/rostrum/gdocs/Code.gs` is the stable public URL the live
-          // download-counter Worker proxies (worker DEFAULT_CODE_GS_ORIGIN) and the install
-          // page links. Renaming `to` would 404 that URL until the Worker is redeployed in
-          // lock-step, so the public path is decoupled from the source folder name.
-          { from: "google-docs/dist", to: "gdocs", noErrorOnMissing: true }
+          // The public URL is `…/rostrum/google-docs/Code.gs`, kept in lock-step with the
+          // Worker origin (worker DEFAULT_CODE_GS_ORIGIN / wrangler.toml CODE_GS_ORIGIN) and
+          // the install-page links. Changing this `to` requires redeploying the Worker too.
+          { from: "google-docs/dist", to: "google-docs", noErrorOnMissing: true }
         ]
       })
     ],

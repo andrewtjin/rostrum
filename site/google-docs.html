@@ -7,10 +7,10 @@
 
   The __GDOCS_VERSION__ token is stamped to the Google Docs port's own version (read from
   google-docs/src/core/constants.ts at build time), NOT pkg.version; the two surfaces version
-  independently. The Code.gs + appsscript.json this page links live at /gdocs/, published by
-  the deploy workflow's build:gdocs step plus the webpack copy of google-docs/dist -> dist/gdocs.
+  independently. The Code.gs + appsscript.json this page links live at /google-docs/, published by
+  the deploy workflow's build:gdocs step plus the webpack copy of google-docs/dist -> dist/google-docs.
 
-  Primary Code.gs download goes through the counting Worker (/code.gs); a direct ./gdocs/Code.gs
+  Primary Code.gs download goes through the counting Worker (/code.gs); a direct ./google-docs/Code.gs
   fallback is offered so a Worker outage never blocks an install (mirrors the manifest pattern).
 -->
 <html lang="en">
@@ -77,14 +77,14 @@
                     >
                     <span class="download-note"
                         >Download didn't start? Use the
-                        <a href="./gdocs/Code.gs" download="Code.gs"
+                        <a href="./google-docs/Code.gs" download="Code.gs"
                             >direct link</a
                         >.</span
                     >
                 </p>
                 <p>
                     <a
-                        href="./gdocs/appsscript.json"
+                        href="./google-docs/appsscript.json"
                         download="appsscript.json"
                         class="button-link"
                         >appsscript.json</a

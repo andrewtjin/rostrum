@@ -14,14 +14,14 @@
 // Canonical install deliverables, used when the *_ORIGIN vars aren't set in the
 // environment. Both live on the Pages site next to their install page.
 const DEFAULT_MANIFEST_ORIGIN = "https://andrewtjin.github.io/rostrum/manifest.xml";
-const DEFAULT_CODE_GS_ORIGIN = "https://andrewtjin.github.io/rostrum/gdocs/Code.gs";
+const DEFAULT_CODE_GS_ORIGIN = "https://andrewtjin.github.io/rostrum/google-docs/Code.gs";
 
 // The two KV keys — one anonymous counter per install surface. The Word key
 // keeps its original name ("downloads") so the historical tally is preserved
-// across this change; the Google Docs key ("gdocs_downloads") is new and starts
-// at 0. The whole datastore is these two integers.
+// across this change; the Google Docs key ("google_docs_downloads") is new and
+// starts at 0. The whole datastore is these two integers.
 const COUNTER_KEY = "downloads"; // Microsoft Word — manifest.xml downloads
-const GDOCS_KEY = "gdocs_downloads"; // Google Docs — Code.gs downloads
+const GOOGLE_DOCS_KEY = "google_docs_downloads"; // Google Docs — Code.gs downloads
 
 // CORS for the public /count read only: the README badge and any internal
 // dashboard fetch it cross-origin. We expose the aggregate numbers and nothing
@@ -34,7 +34,7 @@ const COUNT_CORS = { "Access-Control-Allow-Origin": "*" };
  * deliberately soft lower bound (non-atomic read-modify-write can drop a write
  * under concurrency, and that is acceptable for a rough "how many people
  * installed" signal). `key` defaults to the Word counter so pre-existing callers
- * keep their behavior; the gdocs route passes GDOCS_KEY.
+ * keep their behavior; the Google Docs route passes GOOGLE_DOCS_KEY.
  */
 async function bumpCount(env, key = COUNTER_KEY) {
   try {
@@ -126,11 +126,11 @@ async function handleRequest(request, env) {
   // cross-platform total (what the public README badge shows).
   if (url.pathname === "/count") {
     const downloads = await readCount(env, COUNTER_KEY);
-    const gdocs = await readCount(env, GDOCS_KEY);
+    const googleDocs = await readCount(env, GOOGLE_DOCS_KEY);
     return new Response(
       // `downloads` retained for back-compat (the pre-bifurcation badge query);
-      // `gdocs` is the new surface; `total` is the unified cross-platform number.
-      JSON.stringify({ downloads, gdocs, total: downloads + gdocs }),
+      // `google_docs` is the new surface; `total` is the unified cross-platform number.
+      JSON.stringify({ downloads, google_docs: googleDocs, total: downloads + googleDocs }),
       {
         headers: {
           "Content-Type": "application/json",
@@ -156,13 +156,13 @@ async function handleRequest(request, env) {
   }
 
   // Google Docs install deliverable — the single-file Code.gs users paste into
-  // Extensions ▸ Apps Script. Counts the gdocs surface, mirrors the manifest path.
+  // Extensions ▸ Apps Script. Counts the Google Docs surface, mirrors the manifest path.
   if (url.pathname === "/code.gs") {
     if (request.method === "HEAD") {
       return headOnly("text/javascript; charset=utf-8", "Code.gs");
     }
     return serveCountedDownload(env, {
-      key: GDOCS_KEY,
+      key: GOOGLE_DOCS_KEY,
       origin: env.CODE_GS_ORIGIN || DEFAULT_CODE_GS_ORIGIN,
       filename: "Code.gs",
       contentType: "text/javascript; charset=utf-8"
@@ -177,7 +177,7 @@ module.exports = {
   bumpCount,
   readCount,
   COUNTER_KEY,
-  GDOCS_KEY,
+  GOOGLE_DOCS_KEY,
   DEFAULT_MANIFEST_ORIGIN,
   DEFAULT_CODE_GS_ORIGIN
 };

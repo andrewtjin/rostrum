@@ -30,8 +30,8 @@ Or grab them directly:
 
 | File | Download | Direct copy (if the download doesn't start) |
 |---|---|---|
-| `Code.gs` | [Code.gs](https://rostrum-downloads.rostrum.workers.dev/code.gs) | [/gdocs/Code.gs](https://andrewtjin.github.io/rostrum/gdocs/Code.gs) |
-| `appsscript.json` | (none) | [/gdocs/appsscript.json](https://andrewtjin.github.io/rostrum/gdocs/appsscript.json) |
+| `Code.gs` | [Code.gs](https://rostrum-downloads.rostrum.workers.dev/code.gs) | [/google-docs/Code.gs](https://andrewtjin.github.io/rostrum/google-docs/Code.gs) |
+| `appsscript.json` | (none) | [/google-docs/appsscript.json](https://andrewtjin.github.io/rostrum/google-docs/appsscript.json) |
 
 (The first `Code.gs` link counts an anonymous download; the direct copy doesn't. Either
 works; see *Privacy* below.) Then:

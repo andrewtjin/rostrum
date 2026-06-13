@@ -53,8 +53,8 @@ jobs:
       - run: npm run typecheck
       # Build the Google Docs single-file deliverable FIRST (typecheck:gdocs + esbuild
       # → google-docs/dist/Code.gs + appsscript.json). Must run BEFORE `build` so webpack's
-      # CopyWebpackPlugin can pick up google-docs/dist/ and publish it at dist/gdocs/ — the
-      # path the site's gdocs install page links and the download-counter Worker proxies.
+      # CopyWebpackPlugin can pick up google-docs/dist/ and publish it at dist/google-docs/ — the
+      # path the site's Google Docs install page links and the download-counter Worker proxies.
       - run: npm run build:gdocs
       - run: npm run build
       # Prod manifest is written AFTER build (build's `clean` wipes dist first); --origin must

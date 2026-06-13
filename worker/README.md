@@ -8,11 +8,11 @@ metadata is ever read or stored. The entire datastore is two integers.
 - `GET /manifest.xml` (or `/`) → `downloads++`, then serve the manifest with a
   `Content-Disposition: attachment` header. If the origin is unreachable it
   302-redirects to the canonical Pages copy, so an install is **never blocked**.
-- `GET /code.gs` → `gdocs_downloads++`, then serve the Google Docs `Code.gs` the
+- `GET /code.gs` → `google_docs_downloads++`, then serve the Google Docs `Code.gs` the
   same way (attachment; 302-fallback to `CODE_GS_ORIGIN` if unreachable).
-- `GET /count` → `{ "downloads": N, "gdocs": M, "total": N+M }` (CORS-open) for
+- `GET /count` → `{ "downloads": N, "google_docs": M, "total": N+M }` (CORS-open) for
   internal checks + the README badge. `downloads` is the Word tally (its key name
-  is unchanged so the historical count is preserved); `gdocs` is the Google Docs
+  is unchanged so the historical count is preserved); `google_docs` is the Google Docs
   tally; `total` is the unified cross-platform number the badge displays. Each is
   read independently and degrades to 0 on a KV hiccup, so `total` is never `NaN`.
 - `HEAD` on either download path returns the attachment headers but is **not**
@@ -35,8 +35,8 @@ wrangler deploy                        # prints the live URL, e.g.
 
 The two proxied origins are set in `wrangler.toml` (`MANIFEST_ORIGIN`,
 `CODE_GS_ORIGIN`); both default to the Pages site if unset. `CODE_GS_ORIGIN` points
-at `…/rostrum/gdocs/Code.gs`, which the deploy workflow publishes via its
-`build:gdocs` step + the webpack copy of `google-docs/dist` → `dist/gdocs`.
+at `…/rostrum/google-docs/Code.gs`, which the deploy workflow publishes via its
+`build:gdocs` step + the webpack copy of `google-docs/dist` → `dist/google-docs`.
 
 ### Deploy ordering (important)
 
@@ -47,11 +47,11 @@ the site/README change** that points the badge at `$.total`. Because `downloads`
 keeps its key, the existing Word tally carries over untouched.
 
 The `/code.gs` route proxies `CODE_GS_ORIGIN` (the Pages copy at
-`…/rostrum/gdocs/Code.gs`), which exists only after the master push that
+`…/rostrum/google-docs/Code.gs`), which exists only after the master push that
 publishes it. So the Google Docs download route is fully live only once that push
 completes. If you deploy the Worker first, a `GET /code.gs` in the gap falls back
 to a not-yet-published origin (a redirect to a 404) and records a few phantom
-`gdocs` counts. This is harmless (the gdocs install page is not advertised until
+`google_docs` counts. This is harmless (the Google Docs install page is not advertised until
 that same push) and never affects the Word `/manifest.xml` route, whose origin is
 already live. To avoid the gap, confirm `curl -sI …/code.gs` redirects to a live
 200 before announcing the Google Docs surface.
@@ -75,13 +75,13 @@ Then wire the site to the Worker (only if your Worker host differs from the
 
 ```sh
 curl -s https://rostrum-downloads.rostrum.workers.dev/count
-#   → {"downloads":0,"gdocs":0,"total":0}
+#   → {"downloads":0,"google_docs":0,"total":0}
 curl -sI https://rostrum-downloads.rostrum.workers.dev/manifest.xml | grep -i content-disposition
 #   → content-disposition: attachment; filename="manifest.xml"
 curl -sI https://rostrum-downloads.rostrum.workers.dev/code.gs | grep -i content-disposition
 #   → content-disposition: attachment; filename="Code.gs"
 curl -s https://rostrum-downloads.rostrum.workers.dev/count
-#   → {"downloads":1,"gdocs":1,"total":2}
+#   → {"downloads":1,"google_docs":1,"total":2}
 ```
 
 ## Tests
