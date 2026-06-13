@@ -40,6 +40,7 @@ the hood.
 > engine code**; each is built for its platform's document model, and they version
 > independently. **Every benchmark and competitive claim below is Word-specific**; the
 > Google Docs port is an early MVP with no performance corpus of its own (yet).
+> Repository layout and the one-repo decision: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
