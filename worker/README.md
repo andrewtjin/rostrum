@@ -1,9 +1,9 @@
 # Rostrum download counter (Cloudflare Worker)
 
-A tiny Worker that sits behind the site's two install deliverables — the **Word
+A tiny Worker that sits behind the site's two install deliverables: the **Word
 `manifest.xml`** and the **Google Docs `Code.gs`**. It bumps one anonymous integer
 per surface in KV, then serves the canonical file as a download. No request
-metadata is ever read or stored — the entire datastore is two integers.
+metadata is ever read or stored. The entire datastore is two integers.
 
 - `GET /manifest.xml` (or `/`) → `downloads++`, then serve the manifest with a
   `Content-Disposition: attachment` header. If the origin is unreachable it
@@ -51,13 +51,13 @@ Then wire the site to the Worker (only if your Worker host differs from the
 
 1. In `site/word.html`, replace the placeholder host on the `manifest.xml` links;
    in `site/google-docs.html`, replace it on the `/code.gs` link.
-2. In `README.md`, the badge points at `/count` via the same placeholder — update it
+2. In `README.md`, the badge points at `/count` via the same placeholder, so update it
    too.
-3. **Rate-limit cap — deferred (optional).** A `*.workers.dev` subdomain is not a
+3. **Rate-limit cap, deferred (optional).** A `*.workers.dev` subdomain is not a
    Cloudflare *zone*, so the dashboard WAF "Rate limiting rules" UI does NOT apply
-   here — there is nothing to configure in the dashboard. To add a cap later, use
+   here; there is nothing to configure in the dashboard. To add a cap later, use
    the native **Workers rate-limiting binding** (declare it in `wrangler.toml` and
-   call `env.RATE_LIMITER.limit(...)` in `handler.js`, fail-open) — it keys on IP
+   call `env.RATE_LIMITER.limit(...)` in `handler.js`, fail-open). It keys on IP
    ephemerally at the edge and stores nothing, so the privacy promise holds.
    Alternatively, attach a custom domain to unlock the WAF rate-limiting UI.
 
@@ -77,7 +77,7 @@ curl -s https://rostrum-downloads.rostrum.workers.dev/count
 ## Tests
 
 The handler logic is unit-tested by the add-in's Jest suite
-(`__tests__/worker.test.ts`) — run `npm test` from the repo root. worker/ is outside
+(`__tests__/worker.test.ts`). Run `npm test` from the repo root. worker/ is outside
 the coverage globs, so these tests are the SOLE correctness gate: every route and
 failure path (including both downloads' 302 fallbacks, HEAD-uncounted, KV-fail-safe,
 cross-counter isolation, and the per-key `/count` degrade) is enumerated there.

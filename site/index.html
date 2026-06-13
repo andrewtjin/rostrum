@@ -2,24 +2,24 @@
 <!--
   Rostrum BRAND landing + platform chooser. Served at the Pages site root (…/rostrum/),
   copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .). PURE static HTML
-  — no bundle — so it loads instantly and can't break when the add-in bundle changes.
+  (no bundle), so it loads instantly and can't break when the add-in bundle changes.
 
   This is the cross-platform "front door": it states what Rostrum is and routes to the two
-  per-platform install pages — word.html (Microsoft Word) and google-docs.html (Google
+  per-platform install pages: word.html (Microsoft Word) and google-docs.html (Google
   Docs). Each surface carries its OWN install steps, version, and proof; this page makes no
   benchmark/competitive claim (those are Word-specific and live on word.html / comparison.html).
 
-  Word is listed first as the dominant surface, with Google Docs co-equal — one calm choose
+  Word is listed first as the dominant surface, with Google Docs co-equal. One calm choose
   screen, not a wall of options.
 -->
 <html lang="en">
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Rostrum — invisibility &amp; debate formatting for Word and Google Docs</title>
+        <title>Rostrum: invisibility &amp; debate formatting for Word and Google Docs</title>
         <meta
             name="description"
-            content="Rostrum collapses a debate doc to a headings/cites/highlights view and formats cards — reversibly — in Microsoft Word and Google Docs. Pick your editor to install."
+            content="Rostrum collapses a debate doc to a headings/cites/highlights view and formats cards (reversibly) in Microsoft Word and Google Docs. Pick your editor to install."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -36,7 +36,7 @@
             </p>
             <p class="lede">
                 Collapse a debate doc to a <strong>headings, cites &amp; highlights</strong>
-                view and format your cards — <strong>reversibly</strong> — in the two editors
+                view and format your cards (<strong>reversibly</strong>) in the two editors
                 debaters actually use. Pick yours:
             </p>
 
@@ -47,7 +47,7 @@
                     <span class="choice-h">Microsoft Word</span>
                     <span class="choice-sub">Windows &amp; Mac (desktop)</span>
                     <span class="choice-note">
-                        Register one <code>manifest.xml</code> in Word, once — then the
+                        Register one <code>manifest.xml</code> in Word, once. Then the
                         Rostrum ribbon rides every document.
                     </span>
                     <span class="choice-cta">Install for Word →</span>
@@ -56,7 +56,7 @@
                     <span class="choice-h">Google Docs</span>
                     <span class="choice-sub">paste-in · early (MVP)</span>
                     <span class="choice-note">
-                        Paste one script into the doc's Apps Script — a Rostrum menu
+                        Paste one script into the doc's Apps Script. A Rostrum menu
                         appears after a reload. ~2 minutes, no Marketplace.
                     </span>
                     <span class="choice-cta">Install for Google Docs →</span>
@@ -66,14 +66,14 @@
             <h2>The same idea on both</h2>
             <ul>
                 <li>
-                    <strong>Hide</strong> collapses every body run except the keepers —
-                    <strong>headings, cites, and highlighted text</strong> — into a dense,
+                    <strong>Hide</strong> collapses every body run except the keepers
+                    (<strong>headings, cites, and highlighted text</strong>) into a dense,
                     skimmable view; <strong>Show All</strong> brings every word back.
                 </li>
                 <li>
                     <strong>Reversible without Rostrum.</strong> In Word, hidden text is
                     Word's own <em>Hidden font</em> attribute. In Google Docs, Hide is a
-                    font-size shrink — <strong>not secrecy</strong> — that anyone undoes with
+                    font-size shrink (<strong>not secrecy</strong>) that anyone undoes with
                     Select&nbsp;All → font size&nbsp;11.
                 </li>
                 <li>
@@ -85,7 +85,7 @@
             <div class="banner" role="note">
                 <strong>Two engines under one name.</strong> The Word add-in and the Google
                 Docs port are built separately for each editor's document model, so they
-                behave a little differently and update on their own schedules — but the keep
+                behave a little differently and update on their own schedules, but the keep
                 rules and the “Show&nbsp;All brings everything back” promise are identical.
                 The speed benchmarks you'll see are measured on
                 <strong>Word</strong>; the Google Docs version is an early MVP.

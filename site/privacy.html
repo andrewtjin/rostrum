@@ -2,7 +2,7 @@
 <!--
   Rostrum privacy page. Served at the Pages site root as …/rostrum/privacy.html,
   copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .), same as
-  index.html. PURE static HTML, no bundle — shares ./styles.css (one cached request).
+  index.html. PURE static HTML, no bundle; shares ./styles.css (one cached request).
 
   This page is the public disclosure backing the download counters behind the two
   install deliverables: the Word manifest.xml and the Google Docs Code.gs. Two
@@ -15,10 +15,10 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Rostrum — privacy</title>
+        <title>Rostrum: privacy</title>
         <meta
             name="description"
-            content="Rostrum's privacy disclosure: it counts anonymous downloads of its two install files (Word and Google Docs), and nothing else — no document content, no personal data."
+            content="Rostrum's privacy disclosure: it counts anonymous downloads of its two install files (Word and Google Docs), and nothing else. No document content, no personal data."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -40,14 +40,14 @@
                 <strong>Word</strong> add-in's <code>manifest.xml</code> and the
                 <strong>Google Docs</strong> port's <code>Code.gs</code>. When you
                 download either from this site, the matching anonymous counter on our
-                end goes up by one. Those two counters — and their sum — are the
+                end goes up by one. Those two counters (and their sum) are the
                 <em>entire</em> extent of what Rostrum collects.
             </p>
 
             <h2>What is collected</h2>
             <ul>
                 <li>
-                    <strong>Two anonymous numbers</strong> — running totals of how
+                    <strong>Two anonymous numbers</strong>: running totals of how
                     many times the Word <code>manifest.xml</code> and the Google Docs
                     <code>Code.gs</code> have each been downloaded. We also publish
                     their <strong>sum</strong> (a rough cross-platform total). None of
@@ -64,7 +64,7 @@
                 </li>
                 <li>
                     <strong>No personal data.</strong> No names, emails, accounts,
-                    or sign-ins — there is no account to make.
+                    or sign-ins. There is no account to make.
                 </li>
                 <li>
                     <strong
@@ -72,7 +72,7 @@
                         Rostrum.</strong
                     >
                     The counters record only that a download happened, never who
-                    or from where — we keep no request logs of our own. (Files are
+                    or from where; we keep no request logs of our own. (Files are
                     delivered through Cloudflare, which may process requests in
                     transit under its
                     <a href="https://www.cloudflare.com/privacypolicy/"
@@ -81,13 +81,13 @@
                 </li>
                 <li>
                     <strong>No tracking inside Word.</strong> The add-in itself sends
-                    nothing back as you use it — the count happens only at the moment
+                    nothing back as you use it. The count happens only at the moment
                     you download <code>manifest.xml</code> from this website.
                 </li>
                 <li>
                     <strong>No tracking inside Google Docs.</strong> The pasted
                     <code>Code.gs</code> only ever changes font size and named-style
-                    definitions; it sends nothing back as you use it — no usage pings,
+                    definitions; it sends nothing back as you use it: no usage pings,
                     no document content. The only count is the one-time
                     <code>Code.gs</code> download from this website (and only if you
                     used the counted download link, not the direct copy).
@@ -96,7 +96,7 @@
 
             <h2>Why</h2>
             <p>
-                It tells us roughly how many people are using Rostrum over a season —
+                It tells us roughly how many people are using Rostrum over a season:
                 enough to know the project is worth maintaining, and nothing more.
             </p>
             <p>
