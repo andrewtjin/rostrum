@@ -21,7 +21,7 @@ The fastest install is to **make your own copy of a ready-made template**. The c
 already carries the bound Rostrum script, so a **Rostrum** menu appears in your new
 document after a reload, with nothing to paste and no editor to open.
 
-**[Make your copy of Rostrum](https://docs.google.com/document/d/REPLACE_WITH_TEMPLATE_DOC_ID/copy)**
+**[Make your copy of Rostrum](https://docs.google.com/document/d/1DCR2b0sETwjCa_8VOjuEJ7BRatj8PbyPadnyYkhryQw/copy)**
 
 This opens Google's own *Copy document* dialog. A copy is a snapshot of this version;
 to move to a newer release later, make a fresh copy from the

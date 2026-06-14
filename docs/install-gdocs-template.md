@@ -101,11 +101,11 @@ re-pastes its script, it does not mint a new Doc. If the id genuinely must chang
 to recreate the template), it is a **single-href edit in those two files** — nothing else
 references it.
 
-The hero href ships a `REPLACE_WITH_TEMPLATE_DOC_ID` sentinel until the real id is wired.
-That sentinel is deliberate: `gdocsTemplate.test.ts` has a test ("is a real doc id, not a
-release placeholder") that **stays red** while the placeholder is present. Since push-to-
-master deploys the install page, that red is the guard against shipping a **dead primary
-CTA** — swap in the live doc id to clear it.
+The hero href carries the live template doc id. A `REPLACE_WITH_TEMPLATE_DOC_ID` sentinel
+guards it: `gdocsTemplate.test.ts` has a test ("is a real doc id, not a release placeholder")
+that **stays red** whenever that placeholder is present. Since push-to-master deploys the
+install page, that red is the guard against shipping a **dead primary CTA** — if you ever
+recreate the template, swap the new id into the two files above to clear it again.
 
 ---
 

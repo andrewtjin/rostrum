@@ -15,9 +15,9 @@
   <a href=".../copy"> straight to Google's Copy dialog — NOT routed through the counting Worker
   (a Doc copy is not a counted file download), so the recommended path is uncounted by design.
   The counted Code.gs download (/code.gs through the Worker) survives ONLY inside the demoted
-  Advanced manual-install <details>. The hero href ships a REPLACE_WITH_TEMPLATE_DOC_ID sentinel
-  that __tests__/gdocsTemplate.test.ts reds until the real template doc id is wired at release —
-  so push-to-deploy can never publish a dead primary CTA.
+  Advanced manual-install <details>. The hero href carries the live template doc id; the guard
+  in __tests__/gdocsTemplate.test.ts reds the build if it is ever reverted to a placeholder, so
+  push-to-deploy can never publish a dead primary CTA.
 -->
 <html lang="en">
     <head>
@@ -77,7 +77,7 @@
             </p>
             <a
                 class="cta"
-                href="https://docs.google.com/document/d/REPLACE_WITH_TEMPLATE_DOC_ID/copy"
+                href="https://docs.google.com/document/d/1DCR2b0sETwjCa_8VOjuEJ7BRatj8PbyPadnyYkhryQw/copy"
                 >Make your copy of Rostrum</a
             >
             <p class="ok">
