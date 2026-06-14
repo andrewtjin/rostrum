@@ -62,12 +62,12 @@
                             <a href="#speed">(the benchmark)</a>
                         </td>
                         <td>
-                            <strong>Median ~1 second</strong> per speech doc;
-                            36–59 seconds even on 0.9–1.3-million-word
+                            <strong>Median ~0.5 second</strong> per speech doc;
+                            13–22 seconds even on 0.9–1.3-million-word
                             backfiles; <strong>1,085 of 1,085</strong> completed
                         </td>
                         <td>
-                            Median ~35 seconds — ~31× slower doc-for-doc
+                            Median ~35 seconds — ~60× slower doc-for-doc
                             (Verbatim 6.0.0, at its most favorable lab
                             condition); 1–3 <em>hours</em> on big backfiles;
                             12 documents never finished, 1 crashed Word, 17 it
@@ -130,6 +130,19 @@
                 condition it has (as actually experienced from the ribbon it
                 measures 2–6× slower than shown here).
             </p>
+            <p>
+                <strong>How these were measured.</strong> Rostrum's times were
+                re-measured for v0.3.2 (the node-direct engine, June 2026)
+                <strong>single-instance</strong> — one document at a time, the
+                condition a single user actually sees. The three competitor tools
+                are carried unchanged from the earlier run, which swept the corpus
+                several documents in parallel. That barely affects the Verbatim
+                comparison — its macro is single-threaded, so running copies in
+                parallel doesn't slow each one — but it is why we claim only
+                <em>parity</em> with the destructive macros on small docs, never a
+                win: they weren't re-timed one-at-a-time. The backfile gaps
+                (minutes versus seconds) hold under any condition.
+            </p>
             <!-- The benchmark charts ship twice: a static SVG <img> here (the
                  no-JS truth — zoomable via the same CSS-only :target lightbox
                  pattern as the screenshots below), which bench-chart.js swaps
@@ -141,7 +154,7 @@
                 <a href="#zoom-bench-words" class="shot-zoom" aria-label="Zoom the hide-time versus document-length chart">
                     <img
                         src="./assets/bench-words-vs-time.svg"
-                        alt="Scatter chart: hide time versus document length for 1,085 documents and four tools, log-log scale. Rostrum clusters near one second on speech docs and stays under a minute even at 1.3 million words; Verbatim spreads from tens of seconds to multiple hours; the two community zap macros track Rostrum on small docs but trail roughly ten times on backfiles."
+                        alt="Scatter chart: hide time versus document length for 1,085 documents and four tools, log-log scale. Rostrum clusters near half a second on speech docs and stays around twenty seconds even at 1.3 million words; Verbatim spreads from tens of seconds to multiple hours; the two community zap macros track Rostrum on small docs but trail roughly fifteen times on backfiles."
                         width="960"
                         height="540"
                         loading="lazy"
@@ -162,14 +175,14 @@
             <ul>
                 <li>
                     <strong>Speech docs:</strong> Rostrum median
-                    <strong>~1 s</strong>, worst 11 s. Verbatim median ~35 s —
-                    <strong>~31× slower doc-for-doc</strong> — with 6 real
+                    <strong>~0.5 s</strong>, worst ~4 s. Verbatim median ~35 s —
+                    <strong>~60× slower doc-for-doc</strong> — with 6 real
                     speech docs it could not finish inside 15 minutes (Rostrum
-                    did each of those six in under 4 s).
+                    did each of those six in a few seconds).
                 </li>
                 <li>
                     <strong>Backfiles:</strong> Rostrum hides 0.9–1.3-million-word
-                    files in <strong>36–59 s</strong>. Verbatim, where it
+                    files in <strong>13–22 s</strong>. Verbatim, where it
                     finished at all, took 1–3 <em>hours</em>.
                 </li>
                 <li>
@@ -182,7 +195,7 @@
                 <li>
                     <strong>The destructive macros:</strong> the community
                     "zap" macros match Rostrum's speed on small docs but trail
-                    ~10× on backfiles — and they permanently delete what they
+                    ~15× on backfiles — and they permanently delete what they
                     hide. Rostrum's hide is lossless and reversible.
                 </li>
             </ul>

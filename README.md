@@ -49,24 +49,31 @@ A desktop Word add-in suite for collapsing, condensing, and formatting debate do
 prep or in-round. **The numbers and comparisons in this section are measured on the
 Word engine only.**
 
-![Hide time vs document length across 1,085 real tournament documents: Rostrum stays near one second on speech docs and under a minute on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
+![Hide time vs document length across 1,085 real tournament documents: Rostrum stays near half a second on speech docs and around twenty seconds on million-word backfiles, while Verbatim ranges from tens of seconds to hours](assets/bench-words-vs-time.svg)
 
 **1,085 real tournament documents** (two seasons' worth of speech docs plus giant backfiles),
 each hidden by all four tools on the market, engine-to-engine:
 
 | | **Rostrum** | Verbatim 6.0.0¹ |
 | --- | --- | --- |
-| Median hide, delivered speech docs | **~1 s** | ~35 s (**~31× slower** doc-for-doc) |
-| Worst speech doc | 11 s | 6 docs never finished (15-min cap) |
-| 0.9–1.3M-word backfiles | **36–59 s** | 1–3 **hours**; 6 more abandoned at 45 min; 1 crashed Word |
+| Median hide, delivered speech docs | **~0.5 s** | ~35 s (**~60× slower** doc-for-doc) |
+| Worst speech doc | ~4 s | 6 docs never finished (15-min cap) |
+| 0.9–1.3M-word backfiles | **13–22 s** | 1–3 **hours**; 6 more abandoned at 45 min; 1 crashed Word |
 | Completed the corpus | **1,085 / 1,085** | 1,055 / 1,085 (timeouts, a Word crash, 17 files its macro errors out on) |
 
 ¹ Verbatim timed at its in-process *lab floor*, the most favorable condition it has;
 as actually experienced (ribbon click, foreground window) it measures 2–6× slower
 than these numbers.
 
+**How these were measured.** Rostrum's v0.3.2 times were re-measured **single-instance**
+(one doc at a time — the real single-user condition); the three competitor tools are carried
+unchanged from the earlier run that swept the corpus several docs in parallel. This barely
+affects the Verbatim comparison (its macro is single-threaded), but it's why we claim only
+*parity* with the destructive macros on small docs, never a win — they weren't re-timed
+single-instance. The backfile gaps (minutes vs seconds) hold under any condition.
+
 The destructive community "zap" macros match Rostrum's speed on small docs but fall
-~10× behind on backfiles, and they permanently delete what they hide, where Rostrum's
+~15× behind on backfiles, and they permanently delete what they hide, where Rostrum's
 hide is lossless and reversible. Full per-doc dataset, methodology, and the cards-vs-time
 chart: [how it compares](https://andrewtjin.github.io/rostrum/comparison.html).
 
