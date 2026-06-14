@@ -65,16 +65,16 @@ each hidden by all four tools on the market, engine-to-engine:
 as actually experienced (ribbon click, foreground window) it measures 2–6× slower
 than these numbers.
 
-**How these were measured.** Rostrum's v0.3.2 times were re-measured **single-instance**
-(one doc at a time — the real single-user condition); the three competitor tools are carried
-unchanged from the earlier run that swept the corpus several docs in parallel. This barely
-affects the Verbatim comparison (its macro is single-threaded), but it's why we claim only
-*parity* with the destructive macros on small docs, never a win — they weren't re-timed
-single-instance. The backfile gaps (minutes vs seconds) hold under any condition.
+**How these were measured.** Rostrum (v0.3.2) and the two community macros were all measured
+**single-instance** — one doc at a time, the real single-user condition — so the Rostrum-vs-macros
+numbers are matched apples-to-apples. Verbatim's figures are carried from an earlier run that swept
+the corpus several docs in parallel; that barely affects its comparison (its macro is single-threaded),
+and a partial single-instance re-measure confirms the same ~60×. A full single-instance Verbatim pass
+is in progress.
 
-The destructive community "zap" macros match Rostrum's speed on small docs but fall
-~15× behind on backfiles, and they permanently delete what they hide, where Rostrum's
-hide is lossless and reversible. Full per-doc dataset, methodology, and the cards-vs-time
+Matched single-instance, Rostrum is ~2× faster than the destructive community "zap" macros
+on speech docs and ~6× on backfiles, and they permanently delete what they hide, where
+Rostrum's hide is lossless and reversible. Full per-doc dataset, methodology, and the cards-vs-time
 chart: [how it compares](https://andrewtjin.github.io/rostrum/comparison.html).
 
 ![Hide time vs number of cards in the document, same corpus](assets/bench-cards-vs-time.svg)
