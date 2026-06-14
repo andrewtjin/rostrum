@@ -43,23 +43,32 @@ export interface TrackChangesPort {
 }
 
 /**
- * Run a mutation under the Track-Changes gate (decision #14), shared by the whole-body Hide engine AND
- * the range-scoped Condense & Shrink controller so the policy lives in ONE place. With TC off, runs
- * directly. With TC on: throw `TrackChangesActiveError` unless the caller opted into auto-toggle, in
- * which case turn TC off, run, and restore the prior mode in `finally` — so a partial Undo can never
- * strand the document with half-tracked revisions. Returns the body's result plus whether it toggled.
+ * The Track-Changes POLICY over an ALREADY-READ mode (decision #14), with the throw/toggle/finally-
+ * restore behavior that both gate entry points share. Kept as the one copy of that policy (DRY): the
+ * standard `withTrackChangesGate` issues its own TC read then delegates here; the Hide engine's
+ * read-fused path (Loop 002 B2 / 002-S4) primes the TC mode in `readParagraphs`' FIRST sync and calls
+ * this directly, so a clean Hide spends NO separate Word.run on the TC read.
+ *
+ * Semantics (identical to the legacy gate): with TC off, run directly. With TC on: throw
+ * `TrackChangesActiveError` unless the caller opted into auto-toggle, in which case turn TC off, run,
+ * and restore the prior mode in `finally` — so a partial Undo can never strand the document with
+ * half-tracked revisions. Returns the body's result plus whether it toggled.
+ *
+ * NOTE the ordering contract the Hide path depends on: when TC is on and auto-toggle is off, this
+ * throws BEFORE invoking `body`, so a caller that has already read the document (to prime the mode in
+ * the same sync) classifies/writes NOTHING — the abort happens before any parse or host write.
  */
-export async function withTrackChangesGate<T>(
+export async function withPrefetchedTrackChangesGate<T>(
   port: TrackChangesPort,
   autoToggle: boolean,
+  mode: TrackChangesMode,
   body: () => Promise<T>
 ): Promise<{ result: T; toggled: boolean }> {
-  const mode = await port.getChangeTrackingMode();
   if (mode === "Off") {
     return { result: await body(), toggled: false };
   }
   if (!autoToggle) {
-    assertTrackChangesOff(mode); // throws TrackChangesActiveError
+    assertTrackChangesOff(mode); // throws TrackChangesActiveError (before body runs)
   }
   await port.setChangeTrackingMode("Off");
   try {
@@ -67,6 +76,24 @@ export async function withTrackChangesGate<T>(
   } finally {
     await port.setChangeTrackingMode(mode);
   }
+}
+
+/**
+ * Run a mutation under the Track-Changes gate (decision #14), shared by the whole-body Hide engine AND
+ * the range-scoped Condense & Shrink controller so the policy lives in ONE place. Reads the current TC
+ * mode in its own Word.run, then applies the shared throw/toggle/finally-restore policy
+ * (`withPrefetchedTrackChangesGate`). Returns the body's result plus whether it toggled.
+ *
+ * The Hide path no longer uses THIS entry point (it primes TC inside its read sync and calls the
+ * prefetched variant); Condense & Shrink still do, so their behavior is byte-for-byte unchanged.
+ */
+export async function withTrackChangesGate<T>(
+  port: TrackChangesPort,
+  autoToggle: boolean,
+  body: () => Promise<T>
+): Promise<{ result: T; toggled: boolean }> {
+  const mode = await port.getChangeTrackingMode();
+  return withPrefetchedTrackChangesGate(port, autoToggle, mode, body);
 }
 
 /**

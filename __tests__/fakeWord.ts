@@ -185,7 +185,12 @@ class FakeBody {
   }
   getOoxml(): { value: string } {
     const result = { value: "" };
-    this.ctx.enqueue(() => (result.value = this.ctx.bodyOoxml()));
+    // Log the whole-body read so tests can count read syncs (e.g. the Loop 002 B2 read-fusion proof:
+    // a clean Hide reads ONCE; the auto-toggle path discards the primed read and reads a SECOND time).
+    this.ctx.enqueue(() => {
+      result.value = this.ctx.bodyOoxml();
+      this.ctx.log("body.getOoxml");
+    });
     return result;
   }
   insertOoxml(xml: string): void {

@@ -238,6 +238,15 @@ export interface WordPort {
   setChangeTrackingMode(mode: TrackChangesMode): Promise<void>;
   /** Enumerate body-story paragraphs (footnotes/headers/etc. excluded — decision #16). */
   readParagraphs(): Promise<RawParagraph[]>;
+  /**
+   * OPTIONAL (Loop 002 B2 / 002-S4 read fusion). The Track-Changes mode the most recent
+   * `readParagraphs` prefetched in its FIRST sync, or `null` when no read has primed one. The Hide
+   * engine consumes this through the prefetched-mode TC gate so a clean Hide spends NO separate
+   * Word.run on the TC read (3 runs → 2). A port that doesn't fuse the read (the in-memory fakes) may
+   * omit it OR return `null`; the engine then falls back to the standard gate (its own TC read), so
+   * correctness never depends on the prime being present.
+   */
+  getPrimedTrackChangesMode?(): TrackChangesMode | null;
   /** Replace the OOXML of the given paragraphs (batched + synced by the adapter). */
   writeParagraphs(updates: ParagraphUpdate[]): Promise<void>;
   /**

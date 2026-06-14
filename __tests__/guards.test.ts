@@ -2,11 +2,14 @@ import {
   assertTrackChangesOff,
   detectFeatureSupport,
   assertCanRun,
+  withTrackChangesGate,
+  withPrefetchedTrackChangesGate,
   TrackChangesActiveError,
   UnsupportedHostError,
-  RequirementsLike
+  RequirementsLike,
+  TrackChangesPort
 } from "../src/core/guards";
-import { FeatureSupport } from "../src/core/types";
+import { FeatureSupport, TrackChangesMode } from "../src/core/types";
 
 /** Fake `Office.context.requirements`: supports exactly the listed "name version" pairs. */
 class FakeRequirements implements RequirementsLike {
@@ -73,6 +76,75 @@ describe("detectFeatureSupport (decision #18)", () => {
     expect(support.canStyleFormat).toBe(true);
     // Sanity: the desktop-only set is genuinely absent on this host shape.
     expect(req.isSetSupported("WordApiDesktop", "1.4")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Track-Changes gate — the prefetched-mode variant (Loop 002 B2 / 002-S4) and the
+// standard gate that now delegates to it (DRY: one copy of the throw/toggle/restore policy).
+// ---------------------------------------------------------------------------
+describe("withPrefetchedTrackChangesGate (B2 read fusion)", () => {
+  /** A TC port that records every set + how many times the mode was READ (must be ZERO here). */
+  class RecordingPort implements TrackChangesPort {
+    reads = 0;
+    readonly sets: TrackChangesMode[] = [];
+    constructor(public mode: TrackChangesMode) {}
+    async getChangeTrackingMode(): Promise<TrackChangesMode> {
+      this.reads++;
+      return this.mode;
+    }
+    async setChangeTrackingMode(mode: TrackChangesMode): Promise<void> {
+      this.sets.push(mode);
+      this.mode = mode;
+    }
+  }
+
+  it("runs the body directly when the primed mode is Off — and NEVER reads the mode itself", async () => {
+    const port = new RecordingPort("Off");
+    const out = await withPrefetchedTrackChangesGate(port, false, "Off", async () => 42);
+    expect(out).toEqual({ result: 42, toggled: false });
+    expect(port.reads).toBe(0); // the whole point: no TC-read run
+    expect(port.sets).toEqual([]);
+  });
+
+  it("throws BEFORE the body runs when primed mode is on and auto-toggle is off (abort-before-parse)", async () => {
+    const port = new RecordingPort("TrackAll");
+    let bodyRan = false;
+    await expect(
+      withPrefetchedTrackChangesGate(port, false, "TrackAll", async () => {
+        bodyRan = true;
+        return 1;
+      })
+    ).rejects.toBeInstanceOf(TrackChangesActiveError);
+    expect(bodyRan).toBe(false); // body never ran → zero classify/writes for the engine
+    expect(port.sets).toEqual([]); // no toggle either
+    expect(port.reads).toBe(0);
+  });
+
+  it("toggles off, runs, and restores the primed mode in finally (S-005)", async () => {
+    const port = new RecordingPort("TrackMineOnly");
+    const out = await withPrefetchedTrackChangesGate(port, true, "TrackMineOnly", async () => "done");
+    expect(out).toEqual({ result: "done", toggled: true });
+    expect(port.sets).toEqual(["Off", "TrackMineOnly"]); // toggled off, then restored
+    expect(port.reads).toBe(0);
+  });
+
+  it("restores the prior mode even when the body throws", async () => {
+    const port = new RecordingPort("TrackAll");
+    await expect(
+      withPrefetchedTrackChangesGate(port, true, "TrackAll", async () => {
+        throw new Error("boom");
+      })
+    ).rejects.toThrow("boom");
+    expect(port.sets).toEqual(["Off", "TrackAll"]); // finally restored despite the throw
+  });
+
+  it("the standard withTrackChangesGate delegates to it (reads the mode ONCE, same outcome)", async () => {
+    const port = new RecordingPort("TrackAll");
+    const out = await withTrackChangesGate(port, true, async () => "x");
+    expect(out).toEqual({ result: "x", toggled: true });
+    expect(port.reads).toBe(1); // the standard gate issues its own one TC read
+    expect(port.sets).toEqual(["Off", "TrackAll"]);
   });
 });
 

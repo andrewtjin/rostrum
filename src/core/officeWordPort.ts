@@ -268,6 +268,14 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private pending: ParagraphUpdate[] | null = null;
   /** State from the most recent `readParagraphs`, consumed by `commit`. */
   private lastRead: ReadState | null = null;
+  /**
+   * The Track-Changes mode observed in the FIRST sync of the most recent `readParagraphs` (Loop 002 B2
+   * / 002-S4 read fusion). Loaded alongside the body OOXML on that same sync, so a clean Hide spends NO
+   * extra Word.run reading TC — the engine's prefetched-mode gate consumes this instead. `null` until a
+   * read primes it, and re-nulled at the START of every read so a stale value from a prior op can never
+   * leak into a later gate decision.
+   */
+  private lastReadTrackChanges: TrackChangesMode | null = null;
   /** Last observed manifest part id — advisory/diagnostic only (lookups go by namespace). */
   private manifestPartId: string | null = null;
 
@@ -341,17 +349,33 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
   // ----- Read ---------------------------------------------------------------
 
+  /**
+   * The Track-Changes mode prefetched by the most recent `readParagraphs` (Loop 002 B2 / 002-S4), or
+   * `null` if no read has happened since construction. The Hide engine consumes this through the
+   * prefetched-mode TC gate so a clean Hide pays NO separate Word.run for the TC read — the read sync
+   * already carried it. A `null` here means "no primed value"; the engine then falls back to the
+   * standard gate (its own TC read), so correctness never depends on the prime being present.
+   */
+  getPrimedTrackChangesMode(): TrackChangesMode | null {
+    return this.lastReadTrackChanges;
+  }
+
   async readParagraphs(): Promise<RawParagraph[]> {
     const op = this.log.child("read");
     const span = op.span("readParagraphs", { strategy: this.strategy, pure: this.pureWholeBody });
+    // Null any TC mode primed by a prior read BEFORE this read begins: a stale value must never leak
+    // into a later gate decision. The read paths below re-prime it inside their first sync.
+    this.lastReadTrackChanges = null;
     try {
       const result = await this.run(async (ctx) =>
         this.pureWholeBody ? this.readBatchPure(ctx, op) : this.readBatch(ctx, op)
       );
       this.lastRead = result.state;
+      this.lastReadTrackChanges = result.trackChanges;
       span.end({
         count: result.paragraphs.length,
         source: result.state.strategy,
+        trackChanges: result.trackChanges,
         outlineRawSample: result.outlineSample
       });
       return result.paragraphs;
@@ -385,17 +409,25 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private async readBatchPure(
     ctx: any,
     op: Logger
-  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown }> {
-    const body = ctx.document.body;
+  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown; trackChanges: TrackChangesMode }> {
+    const doc: any = ctx.document;
+    const body = doc.body;
     const bodyOoxml = body.getOoxml();
-    await ctx.sync(); // the ONLY read sync: the whole-body OOXML
+    // Loop 002 B2 (002-S4) — PREFETCH the Track-Changes mode in this same first sync, fusing what was a
+    // dedicated TC-read Word.run into the read. The engine's prefetched-mode gate consumes it, so a
+    // clean Hide costs 2 runs (read + commit) instead of 3 (TC read + read + commit).
+    doc.load("changeTrackingMode");
+    await ctx.sync(); // the ONLY read sync: the whole-body OOXML + the TC mode
+    const trackChanges = normalizeTcMode(String(doc.changeTrackingMode), op);
 
     let pkg: WholeBodyPackage;
     try {
       pkg = new WholeBodyPackage(bodyOoxml.value);
     } catch (e) {
       op.warn("pure whole-body parse failed — falling back to the proxy read path", describeError(e));
-      return this.readBatch(ctx, op);
+      // The fallback re-reads the body via the proxy path but has ALREADY primed TC in this sync; pass
+      // it through so the fallback's own (second) TC load is unnecessary — preserve the prime.
+      return { ...(await this.readBatch(ctx, op)), trackChanges };
     }
 
     // Review C-3: the package has a styles part but it parsed to ZERO style defs (an unreadable
@@ -404,7 +436,7 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     // fall back to the proven proxy read (which reads outline from `Paragraph.outlineLevel`).
     if (pkg.styleParseSuspect) {
       op.warn("pure whole-body: styles.xml present but unparseable — falling back to the proxy read path");
-      return this.readBatch(ctx, op);
+      return { ...(await this.readBatch(ctx, op)), trackChanges };
     }
 
     const total = pkg.count;
@@ -440,7 +472,8 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     return {
       paragraphs: out,
       state: { strategy: "pkg", pkg, count: total, pkgIndex, cleanAlign: true, nodeDirect: true },
-      outlineSample
+      outlineSample,
+      trackChanges
     };
   }
 
@@ -460,12 +493,17 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private async readBatch(
     ctx: any,
     op: Logger
-  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown }> {
-    const body = ctx.document.body;
+  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown; trackChanges: TrackChangesMode }> {
+    const doc: any = ctx.document;
+    const body = doc.body;
     const paras = body.paragraphs;
     paras.load("items");
     const bodyOoxml = body.getOoxml(); // ALWAYS: one whole-body read
-    await ctx.sync(); // sync 1: items + whole-body OOXML
+    // Loop 002 B2 (002-S4) — PREFETCH the Track-Changes mode in this same first sync (see readBatchPure).
+    // Fuses the dedicated TC-read run into the read, so the proxy-path Hide also costs one fewer run.
+    doc.load("changeTrackingMode");
+    await ctx.sync(); // sync 1: items + whole-body OOXML + the TC mode
+    const trackChanges = normalizeTcMode(String(doc.changeTrackingMode), op);
 
     const total: number = paras.items.length;
     op.debug("paragraph collection materialized", { total });
@@ -593,7 +631,8 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
       // `replace()` (it aligns the package to LIVE proxies, where in-place node mutation can't be
       // trusted under a ±1 artifact). Only the pure `readBatchPure` path is node-direct.
       state: { strategy, pkg, count: total, pkgIndex: mapping, cleanAlign, nodeDirect: false },
-      outlineSample
+      outlineSample,
+      trackChanges
     };
   }
 

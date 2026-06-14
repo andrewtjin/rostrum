@@ -34,7 +34,7 @@ import {
   planCrossGapSeparators
 } from "./keepers";
 import { ParsedParagraph, VisibilityPlan } from "./ooxml";
-import { withTrackChangesGate } from "./guards";
+import { withPrefetchedTrackChangesGate } from "./guards";
 import { MANIFEST_SCHEMA_VERSION, clearManifestPart, saveManifest } from "./manifest";
 
 export interface ParagraphPlan {
@@ -168,18 +168,20 @@ interface PhaseAItem {
   decision: ParagraphDecision;
 }
 
-/** Hide all non-keeper body text and arm the document (write manifest). */
-export async function hide(
+/**
+ * Classify + apply + commit a Hide over an ALREADY-READ paragraph array, then arm the manifest.
+ * Extracted from `hide` so the read-fused composition can call it with EITHER the read it primed the TC
+ * mode from (the clean path) OR a fresh re-read (the auto-toggle path, which must discard the primed
+ * read — see `hide`). The two-phase classify/apply contract (Phase A skip-on-throw, Phase B abort-the-
+ * whole-op-before-any-write) is unchanged; only WHERE the read happens moved out to the caller.
+ */
+async function classifyApplyCommit(
   port: WordPort,
   settings: ResolvedSettings,
-  opts: HideOptions = {}
-): Promise<HideResult> {
-  // Reuses the shared Track-Changes gate (guards.ts) — the same one the range-scoped Condense &
-  // Shrink controller runs under, so the TC policy lives in exactly one place.
-  const { result, toggled } = await withTrackChangesGate(port, opts.autoToggleTrackChanges ?? false, async () => {
-    const paras = await port.readParagraphs();
-
-    // ── PHASE A — read-only classify (paced). Build each paragraph's pure decision WITHOUT
+  paras: RawParagraph[],
+  opts: HideOptions
+): Promise<{ scanned: number; changed: number; skipped: number }> {
+  // ── PHASE A — read-only classify (paced). Build each paragraph's pure decision WITHOUT
     // mutating its tree. A node-backed paragraph (`p.parsed`, the pure whole-body read) is read
     // through its LIVE node (zero parse); every other paragraph parses its own string ONCE — the
     // compat shim `p.parsed ?? new ParsedParagraph(p.ooxml)`, so `parseCount.test.ts`'s meaning is
@@ -252,13 +254,57 @@ export async function hide(
       throw e;
     }
 
-    await port.writeParagraphs(updates);
-    await saveManifest(port, {
-      active: true,
-      keepColors: [...settings.keepColors],
-      schemaVersion: MANIFEST_SCHEMA_VERSION
-    });
-    return { scanned: paras.length, changed: updates.length, skipped };
+  await port.writeParagraphs(updates);
+  await saveManifest(port, {
+    active: true,
+    keepColors: [...settings.keepColors],
+    schemaVersion: MANIFEST_SCHEMA_VERSION
+  });
+  return { scanned: paras.length, changed: updates.length, skipped };
+}
+
+/**
+ * Hide all non-keeper body text and arm the document (write manifest).
+ *
+ * READ FUSION (Loop 002 B2 / 002-S4): the first `readParagraphs` runs OUTSIDE the gate so the port can
+ * prefetch the Track-Changes mode in that SAME read sync (`getPrimedTrackChangesMode`). The gate then
+ * consumes the primed mode instead of issuing its own TC-read Word.run, so a clean Hide spends 2 runs
+ * (read + commit), not 3 (TC read + read + commit). When the port can't prime one (the in-memory fakes,
+ * or any non-fused port), we fall back to its own `getChangeTrackingMode()` so correctness never depends
+ * on the prime — only the run count does.
+ *
+ * S-005 is preserved byte-for-byte (the gate's throw/toggle/finally-restore is the SAME shared policy):
+ *   * TC off → the gate runs the body directly with the already-read paragraphs (the fast path).
+ *   * TC on, NO auto-toggle → the gate throws `TrackChangesActiveError` BEFORE the body runs, so the
+ *     primed read is simply discarded: ZERO classify, ZERO writes, manifest unarmed (abort-before-parse).
+ *   * TC on, auto-toggle → the gate turns TC off, runs the body, restores the prior mode in `finally`.
+ *     The body DISCARDS the primed read and RE-READS: a package read while TC was on can carry
+ *     `w:trackChanges` in its bundled settings, so the primed paragraphs are not trustworthy to commit;
+ *     re-reading after the toggle reads the document with TC off. Pristine first-Hide (TC off) never
+ *     re-reads — it pays zero extra syncs.
+ */
+export async function hide(
+  port: WordPort,
+  settings: ResolvedSettings,
+  opts: HideOptions = {}
+): Promise<HideResult> {
+  // Read FIRST so the port can fuse the TC-mode prefetch into this read's first sync. The primed mode
+  // (or `getChangeTrackingMode()` when the port doesn't prime one) drives the gate without a second run.
+  const primedParas = await port.readParagraphs();
+  const autoToggle = opts.autoToggleTrackChanges ?? false;
+  const mode = port.getPrimedTrackChangesMode?.() ?? (await port.getChangeTrackingMode());
+
+  // Whether the gate is about to toggle TC off for us: only when TC is on AND the caller opted in. When
+  // it IS toggling, the primed read happened UNDER Track Changes (its package can bundle `w:trackChanges`
+  // in settings), so the gate body must DISCARD that read and re-read with TC off. Computed here — not
+  // from the gate's `toggled` return — because the body runs INSIDE the gate, before that return exists.
+  const willToggle = mode !== "Off" && autoToggle;
+
+  // The shared prefetched-mode gate carries the EXACT throw/toggle/finally-restore policy (guards.ts).
+  const { result, toggled } = await withPrefetchedTrackChangesGate(port, autoToggle, mode, async () => {
+    // Pristine path (TC off, no toggle): reuse the primed read — the clean 2-run path, no extra sync.
+    const paras = willToggle ? await port.readParagraphs() : primedParas;
+    return classifyApplyCommit(port, settings, paras, opts);
   });
   return {
     paragraphsScanned: result.scanned,
