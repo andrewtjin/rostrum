@@ -420,16 +420,119 @@ function collectAuxRels(doc: any): string {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// P4-REVISED — string-level flat-OPC part segmentation (Loop 002 A2).
+//
+// WHY (perf-1 / PLAN §2 A2). The ctor used to DOM-parse the WHOLE flat-OPC package — the
+// document part PLUS the styles part (≈1.27MB on a real debate doc), numbering, theme, rels,
+// settings — into one xmldom tree, even though the node-direct Hide only ever MUTATES the
+// document part. That whole-package parse is the dominant read-side ctor cost. A2 cuts the
+// package at `<pkg:part>` boundaries with a linear string scan, DOM-parses ONLY the document
+// part (so its `<w:p>` nodes can still be mutated in place + re-serialized — the CORE-3
+// contract), and keeps every other part as a VERBATIM substring. `serialize()` stitches the
+// captured substrings back in ORIGINAL ORDER with the document part swapped for the
+// re-serialized (mutation-bearing) `<w:document>` subtree.
+//
+// WHY THIS IS BYTE-IDENTICAL TO TODAY (002-S2/F2). The synthetic fixtures are authored in
+// xmldom's canonical round-trip form, so `serialize(parse(fixture)) === fixture` and each
+// part's verbatim substring already EQUALS xmldom's standalone serialization of that part.
+// Re-serializing only the `<w:document>` subtree reproduces its bytes exactly (xmldom never
+// walks above a prefixed start node — the same property `paragraphXml` relies on). So the
+// stitched output equals today's whole-DOM `serialize()` byte-for-byte. On REAL docs (no byte
+// control) keeping non-document parts verbatim is a FIDELITY IMPROVEMENT over xmldom
+// re-serialization, and the document part still DOM-reserializes identically to today.
+// ---------------------------------------------------------------------------
+
+/** `<w:t>` content is entity-escaped, so a literal `</pkg:part>` can never appear inside text. */
+const PART_OPEN = "<pkg:part";
+const PART_CLOSE = "</pkg:part>";
+
+/** One captured `<pkg:part>` of a flat-OPC package — its verbatim bytes plus the pieces A2 needs. */
+interface PackagePart {
+  /** `pkg:name` attribute value (e.g. `/word/document.xml`), or "" if absent. */
+  name: string;
+  /** `pkg:contentType` attribute value, or "" if absent. */
+  contentType: string;
+  /** The part's ENTIRE `<pkg:part …>…</pkg:part>` substring, verbatim from the input. */
+  full: string;
+  /** The inner content of this part's `<pkg:xmlData>` (the actual part XML), or "" if none. */
+  xmlData: string;
+}
+
 /**
- * The serialized `<w:styles>` part from a whole-body package (`word/styles.xml`), or "" when the
- * package carries none. `body.getOoxml()` always bundles it; the PURE whole-body classify path
- * (avenue ⑦) needs it to resolve outline levels through the `basedOn` cascade WITHOUT a Word proxy
- * (the host reports `canGetStyles:false`). `<w:styles>` is unique in the package, so a single
- * `getElementsByTagName` lookup is unambiguous; `parseStyleDefs` then regex-scans the result.
+ * A flat-OPC package cut into its `<pkg:package>` head, ordered parts, and tail — purely by
+ * string scanning, no DOM parse. `head` is everything up to (and including) the package
+ * element's open tag; `tail` is `</pkg:package>` plus any trailing bytes. The `between` array
+ * holds the bytes between consecutive parts (empty for the canonical fixtures, but captured so
+ * any whitespace/XML-decl in a real package round-trips verbatim). `null` when the input is NOT
+ * a flat-OPC package (a raw `document.xml` or a bare `<w:p>` fragment) — those degrade to the
+ * pre-segmentation whole-input DOM parse, unchanged.
  */
-function extractStylesXml(doc: any): string {
-  const styles = doc.getElementsByTagName("w:styles");
-  return styles && styles.length > 0 ? serialize(styles.item(0)) : "";
+interface SegmentedPackage {
+  head: string;
+  parts: PackagePart[];
+  /** `between[k]` = bytes after parts[k-1] and before parts[k]; `between[0]` = bytes after head. */
+  between: string[];
+  tail: string;
+}
+
+/** Read a quoted attribute value from a `<pkg:part …>` open tag substring (returns "" if absent). */
+function attrValue(openTag: string, attr: string): string {
+  const m = new RegExp(`\\b${attr}="([^"]*)"`).exec(openTag);
+  return m ? m[1] : "";
+}
+
+/**
+ * Cut a flat-OPC package string into `{ head, parts, between, tail }` with a single linear scan.
+ * `<pkg:part>` is never nested and `w:t` text is entity-escaped, so matching `<pkg:part`→
+ * `</pkg:part>` linearly is unambiguous. Returns null when the string is not a `<pkg:package>`
+ * (a raw document.xml / bare fragment), signalling the caller to fall back to a whole-input parse.
+ */
+function segmentPackage(packageXml: string): SegmentedPackage | null {
+  const pkgOpen = packageXml.indexOf("<pkg:package");
+  if (pkgOpen < 0) return null; // not a flat-OPC package — caller parses the whole input
+  // End of the `<pkg:package …>` open tag. Attribute values are quoted and can't contain a raw
+  // `>` (XML rule), so the first `>` after the tag name closes the open tag.
+  const headEnd = packageXml.indexOf(">", pkgOpen);
+  if (headEnd < 0) return null;
+  const head = packageXml.slice(0, headEnd + 1);
+
+  const parts: PackagePart[] = [];
+  const between: string[] = [];
+  let cursor = headEnd + 1;
+  for (;;) {
+    const open = packageXml.indexOf(PART_OPEN, cursor);
+    if (open < 0) break;
+    between.push(packageXml.slice(cursor, open)); // bytes since the previous part (or head)
+    const close = packageXml.indexOf(PART_CLOSE, open);
+    if (close < 0) return null; // malformed — let the whole-input parse surface the error
+    const fullEnd = close + PART_CLOSE.length;
+    const full = packageXml.slice(open, fullEnd);
+    const openTagEnd = full.indexOf(">");
+    const openTag = openTagEnd >= 0 ? full.slice(0, openTagEnd + 1) : full;
+    parts.push({
+      name: attrValue(openTag, "pkg:name"),
+      contentType: attrValue(openTag, "pkg:contentType"),
+      full,
+      xmlData: extractXmlData(full)
+    });
+    cursor = fullEnd;
+  }
+  // Nothing matched `<pkg:part>` despite a `<pkg:package>` — treat as non-segmentable so the
+  // caller's whole-input parse keeps today's behavior (and surfaces any real malformation).
+  if (parts.length === 0) return null;
+  const tail = packageXml.slice(cursor);
+  return { head, parts, between, tail };
+}
+
+/** The inner content of a part's `<pkg:xmlData>…</pkg:xmlData>` (the part's own XML), or "". */
+function extractXmlData(partXml: string): string {
+  const open = partXml.indexOf("<pkg:xmlData");
+  if (open < 0) return "";
+  const openEnd = partXml.indexOf(">", open);
+  const close = partXml.lastIndexOf("</pkg:xmlData>");
+  if (openEnd < 0 || close < 0 || close < openEnd) return "";
+  return partXml.slice(openEnd + 1, close);
 }
 
 // ---------------------------------------------------------------------------
@@ -450,41 +553,162 @@ function extractStylesXml(doc: any): string {
  * `paragraphs.items[i]` (the alignment guard) before trusting per-index metadata.
  */
 export class WholeBodyPackage {
+  /**
+   * The DOM-parsed DOCUMENT part — its root is `<w:document>` when the input is a flat-OPC package
+   * (A2 parses ONLY this part), or the whole-input root for a raw document.xml / bare `<w:p>`
+   * fragment. Its `<w:p>` nodes (`this.paras`) are mutated in place by the node-direct Hide and
+   * re-serialized by `serialize()` — the CORE-3 contract.
+   */
   private readonly doc: any;
   private readonly scope: any;
   private readonly paras: any[];
+  /** The `<w:document>` element to re-serialize on `serialize()` (the document part's subtree). */
+  private readonly docElement: any;
   /** The real `<w:document>` start-tag attrs (xmlns:* + mc:Ignorable), re-applied per fragment. */
   private readonly docAttrs: string;
-  /** relationship id → `<Relationship/>` XML, so a fragment can carry the rels it references. */
-  private readonly relsById: Map<string, string>;
-  /** Serialized styles/numbering/theme `<pkg:part>`s, bundled into the COMMIT fragment only. */
-  private readonly auxParts: string;
-  /** Serialized styles/numbering/theme `<Relationship>`s for the commit fragment's doc rels. */
-  private readonly auxRels: string;
   /** styleId → outline definition, parsed once from the package's styles.xml (for `headingLevel`). */
   private readonly styleDefs: Map<string, StyleDef>;
   /** Whether the package actually carried a `<w:styles>` part (to distinguish "absent" from "unparseable"). */
   private readonly stylesPresent: boolean;
+  /**
+   * The flat-OPC segmentation (null for a raw document.xml / bare fragment, which serialize via the
+   * whole-input DOM directly). When present, `serialize()` stitches the verbatim part substrings in
+   * original order with the document part swapped for the re-serialized `<w:document>` subtree.
+   */
+  private readonly segments: SegmentedPackage | null;
+  /** Index of the document part within `segments.parts`, and the bytes around its `<w:document>`. */
+  private readonly docPartIndex: number;
+  private readonly docHead: string; // the document part's bytes before `<w:document`
+  private readonly docTail: string; // the document part's bytes from `</w:document>` onward
+  /**
+   * The small auxiliary parts (rels + styles/numbering/theme) the COMMIT/READ fragments need, parsed
+   * LAZILY on first access — so the node-direct read ctor never DOM-parses the 1.27MB styles part (or
+   * numbering/theme). `paragraphXml`/`commitXml` are off the node-direct hot path, so deferring this
+   * is free there and books the read-side ctor-parse reduction (perf-1). Memoized via the fields below.
+   */
+  private auxParsed: { relsById: Map<string, string>; auxParts: string; auxRels: string } | null = null;
+  /** Captured aux/rels part substrings (verbatim) used to build `auxParsed` on demand. */
+  private readonly auxPartSubstrings: string[];
 
   constructor(packageXml: string) {
-    this.doc = parse(packageXml);
+    // A2: cut the package at `<pkg:part>` boundaries by string scan; DOM-parse ONLY document.xml.
+    // A raw document.xml / bare `<w:p>` fragment isn't a `<pkg:package>` → `segments` is null and we
+    // parse the whole input exactly as before (byte-identical degrade).
+    this.segments = segmentPackage(packageXml);
+    const docPartIndex = this.segments
+      ? this.segments.parts.findIndex((p) => p.name === "/word/document.xml")
+      : -1;
+    // A `<pkg:package>` is only safely segmentable when its `/word/document.xml` part exists AND
+    // carries non-empty `<pkg:xmlData>` content (the `<w:document>` we must parse + re-serialize).
+    // A self-closing/empty `<pkg:xmlData>` would make `indexOf("")` return 0 and corrupt the stitch,
+    // so we fall back to the whole-input parse there — byte-identical to today on that odd shape.
+    const docXmlData = docPartIndex >= 0 ? this.segments!.parts[docPartIndex].xmlData : "";
+    const segmentable = this.segments !== null && docPartIndex >= 0 && docXmlData.length > 0;
+    this.docPartIndex = segmentable ? docPartIndex : -1;
+
+    if (segmentable) {
+      const docPart = this.segments!.parts[docPartIndex];
+      // Parse ONLY the document part's xmlData (its single root `<w:document>` — or a bare root for an
+      // unusual fixture). Capture the verbatim bytes around that root within `docPart.full` (the
+      // `<pkg:part …><pkg:xmlData>` head and `</pkg:xmlData></pkg:part>` tail) so `serialize()` can
+      // splice the re-serialized (mutation-bearing) root back without touching the wrapper. The
+      // boundary is the xmlData inner: `docPart.xmlData` is exactly the root element's source (non-empty,
+      // guaranteed by `segmentable` above), and `<pkg:xmlData>` wraps exactly one element, so
+      // reserializing the parsed root reproduces it.
+      const xdStart = docPart.full.indexOf(docXmlData);
+      this.docHead = docPart.full.slice(0, xdStart);
+      this.docTail = docPart.full.slice(xdStart + docXmlData.length);
+      this.doc = parse(docXmlData);
+    } else {
+      // Not segmentable — today's behavior exactly: DOM-parse the whole input.
+      this.docHead = "";
+      this.docTail = "";
+      this.doc = parse(packageXml);
+    }
+
     this.scope = bodyScope(this.doc);
     // STORY paragraphs only (exclude textbox-nested) so indices align 1:1 with Office.js
     // `body.paragraphs` — the ① half of the Stage 4.1 whole-body alignment fix.
     this.paras = storyParagraphsIn(this.scope);
-    // Captured ONCE so every fragment we hand out is the host's own namespace/MC context and
-    // carries any relationship it references — accepted by the live host's insertOoxml (4.2).
+    // The `<w:document>` element to re-serialize: the parsed document part's root when it IS a
+    // `<w:document>`, else the whole-input document element (raw document.xml / synthetic fixtures).
+    const docs = this.doc.getElementsByTagName("w:document");
+    this.docElement = docs && docs.length > 0 ? docs.item(0) : this.doc.documentElement;
+    // Captured ONCE so every fragment we hand out is the host's own namespace/MC context.
     this.docAttrs = documentAttrs(this.doc);
-    this.relsById = collectRelationships(this.doc);
-    // The style/numbering/theme parts + their rels, captured ONCE (identical for every paragraph)
-    // and bundled into `commitXml` so style-inherited formatting survives the per-paragraph commit.
-    this.auxParts = collectAuxParts(this.doc);
-    this.auxRels = collectAuxRels(this.doc);
-    // Parsed ONCE for the pure whole-body classify path (avenue ⑦): resolve a paragraph's outline
-    // level from the package's OWN styles.xml instead of a Word proxy (`canGetStyles:false`).
-    const stylesXml = extractStylesXml(this.doc);
+
+    // STYLES: feed the styles part's xmlData SUBSTRING straight to the regex-only resolver — NEVER
+    // DOM-parse it (the read-side win: the styles part is the largest single part). When not
+    // segmentable, recover the styles substring from the parsed document tree's sibling parts is
+    // impossible (only document.xml was parsed) — but a raw document.xml carries no styles part at
+    // all, so `stylesXml` is "" there, exactly as `extractStylesXml` returned before.
+    const stylesXml = this.extractStylesSubstring();
     this.stylesPresent = stylesXml.length > 0;
     this.styleDefs = parseStyleDefs(stylesXml);
+
+    // Capture the small aux/rels part substrings (verbatim) for the LAZY `paragraphXml`/`commitXml`
+    // path — NOT parsed here, so the node-direct read ctor stays document-only.
+    this.auxPartSubstrings = segmentable
+      ? this.segments!.parts.filter((_, k) => k !== docPartIndex).map((p) => p.full)
+      : [];
+  }
+
+  /**
+   * The styles part's xmlData SUBSTRING (the `<w:styles>…</w:styles>` XML), or "" when none.
+   * Regex-only: A2 never DOM-parses styles.xml (perf-1, the largest part). Keyed to a `<w:styles>`
+   * ROOT — exactly the old `extractStylesXml` semantics (`getElementsByTagName("w:styles")`), so a
+   * styles part is recognized by its ROOT element, NOT by a particular `pkg:contentType` (a producer
+   * may omit/differ on the attribute). For a non-segmentable input (raw document.xml) there is no
+   * styles part, so "" — matching the old code which returned "" for a doc with no `<w:styles>`.
+   * `styleParseSuspect` then keys to that root being present-but-zero-defs.
+   */
+  private extractStylesSubstring(): string {
+    if (!this.segments) return "";
+    // A `<w:styles` open tag in a part's xmlData marks the styles part (the part is named
+    // `/word/styles.xml` and/or carries the styles content-type, but the ROOT is the durable signal).
+    const part = this.segments.parts.find((p) => /<w:styles[\s>]/.test(p.xmlData));
+    return part ? part.xmlData : "";
+  }
+
+  /**
+   * Build (once, memoized) the aux artifacts the per-paragraph fragments need: the rel-id map, the
+   * serialized styles/numbering/theme `<pkg:part>`s, and their `<Relationship>`s. Parses ONLY the
+   * small rels + aux part substrings through xmldom and reuses the existing `collect*` helpers, so
+   * the output is BYTE-IDENTICAL to the pre-segmentation path (same nodes, same xmldom serialization
+   * — including the `xmlns`/`xmlns:pkg` decls xmldom re-emits when serializing a part standalone).
+   * Deferred off the node-direct hot path (which never calls paragraphXml/commitXml).
+   */
+  private aux(): { relsById: Map<string, string>; auxParts: string; auxRels: string } {
+    if (this.auxParsed) return this.auxParsed;
+    // The DOM the `collect*` helpers scan. On the segmented path it is a TINY synthetic package of
+    // just the rels + aux part substrings (so the styles/document parts are never re-parsed here); on
+    // the non-segmentable path it is `this.doc` itself — the WHOLE-INPUT parse the old ctor scanned,
+    // so a raw document.xml / bare fragment / pkg-without-document-part collects EXACTLY what
+    // `collectRelationships(this.doc)`/`collectAuxParts`/`collectAuxRels` returned before (preserving
+    // the byte-identical-degrade contract even if such an input carried inline `<Relationship>`s).
+    const auxDoc =
+      this.docPartIndex < 0
+        ? this.doc
+        : parse(`<pkg:package xmlns:pkg="${PKG_NS}">${this.auxPartSubstrings.join("")}</pkg:package>`);
+    this.auxParsed = {
+      relsById: collectRelationships(auxDoc),
+      auxParts: collectAuxParts(auxDoc),
+      auxRels: collectAuxRels(auxDoc)
+    };
+    return this.auxParsed;
+  }
+
+  /** relationship id → `<Relationship/>` XML (lazy). */
+  private get relsById(): Map<string, string> {
+    return this.aux().relsById;
+  }
+  /** Serialized styles/numbering/theme `<pkg:part>`s, bundled into the COMMIT fragment only (lazy). */
+  private get auxParts(): string {
+    return this.aux().auxParts;
+  }
+  /** Serialized styles/numbering/theme `<Relationship>`s for the commit fragment's doc rels (lazy). */
+  private get auxRels(): string {
+    return this.aux().auxRels;
   }
 
   /**
@@ -745,8 +969,37 @@ export class WholeBodyPackage {
     this.paras[i] = imported;
   }
 
-  /** Serialize the whole package for `body.insertOoxml(pkg, "Replace")`. */
+  /**
+   * Serialize the whole package for `body.insertOoxml(pkg, "Replace")`.
+   *
+   * A2 (segmented input): stitch the captured part substrings in ORIGINAL ORDER, with the document
+   * part swapped for `docHead + serialize(<w:document> subtree) + docTail`. The `<w:document>`
+   * subtree carries the engine's in-place `<w:vanish>`/bridge mutations to `this.paras[i]` (the
+   * CORE-3 contract); every OTHER part is re-emitted VERBATIM from the input. This is byte-identical
+   * to the pre-segmentation whole-DOM `serialize()` on the canonical fixtures (each verbatim part
+   * substring already equals xmldom's standalone serialization of that part, and the document subtree
+   * re-serializes identically), and on real docs it preserves Word's own non-document bytes exactly
+   * (a fidelity improvement) while the document part DOM-reserializes as before.
+   *
+   * Non-segmentable input (raw document.xml / bare fragment): exactly today — serialize the one
+   * parsed tree.
+   */
   serialize(): string {
-    return serialize(this.doc);
+    if (!this.segments || this.docPartIndex < 0) return serialize(this.doc);
+    const { head, parts, between, tail } = this.segments;
+    let out = head;
+    for (let k = 0; k < parts.length; k++) {
+      out += between[k] ?? ""; // verbatim inter-part bytes (empty for canonical packages)
+      if (k === this.docPartIndex) {
+        // The document part: verbatim wrapper bytes around the re-serialized (mutation-bearing)
+        // `<w:document>` subtree. docHead/docTail are the `<pkg:part …><pkg:xmlData>` and
+        // `</pkg:xmlData></pkg:part>` bytes captured at construction; serialize(docElement) carries
+        // the engine's in-place vanish/bridge edits.
+        out += this.docHead + serialize(this.docElement) + this.docTail;
+      } else {
+        out += parts[k].full; // every non-document part, byte-for-byte from the input
+      }
+    }
+    return out + tail;
   }
 }

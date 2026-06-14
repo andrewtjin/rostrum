@@ -153,6 +153,54 @@ describe("assertSingleParagraph (multi-<w:p> guard, audit #5)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A2 (P4-REVISED) string-level segmentation — the ctor accepts all THREE input shapes it
+// always did, and the odd/degenerate shapes fall back to the whole-input parse rather than
+// corrupting the stitch. serialize() byte-identity for the canonical shapes is pinned by
+// serializeBaseline.test.ts; these pin the DEGRADE paths the scanner must handle.
+// ---------------------------------------------------------------------------
+describe("WholeBodyPackage A2 segmentation — input-shape compatibility", () => {
+  it("accepts a RAW document.xml (no pkg wrapper) — count, text, and byte-stable serialize", () => {
+    // realDocs passes a bare `word/document.xml` to the ctor; it is NOT a <pkg:package>, so it
+    // degrades to the whole-input parse. serialize() must round-trip the canonical input verbatim.
+    const rawDoc = `<w:document xmlns:w="${W_NS}"><w:body>${p("one")}${p("two")}<w:sectPr/></w:body></w:document>`;
+    const wb = new WholeBodyPackage(rawDoc);
+    expect(wb.count).toBe(2);
+    expect(wb.paragraphText(0)).toBe("one");
+    expect(wb.serialize()).toBe(rawDoc); // byte-identical degrade (canonical input)
+  });
+
+  it("accepts a bare <w:p> fragment and serializes it byte-identically", () => {
+    const bare = `<w:p xmlns:w="${W_NS}"><w:r><w:t xml:space="preserve">solo</w:t></w:r></w:p>`;
+    const wb = new WholeBodyPackage(bare);
+    expect(wb.count).toBe(1);
+    expect(wb.serialize()).toBe(bare);
+  });
+
+  it("falls back to the whole-input parse when the document part has an EMPTY <pkg:xmlData> (no stitch corruption)", () => {
+    // A self-closing/empty document <pkg:xmlData> would make the stitch's indexOf("") return 0 and
+    // append the whole part after the re-serialized root. The ctor detects the empty xmlData and
+    // parses the whole input instead — serialize() then round-trips the (canonical) input verbatim.
+    const weird =
+      `<pkg:package xmlns:pkg="${PKG_NS}">` +
+      `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData/></pkg:part>` +
+      `</pkg:package>`;
+    const wb = new WholeBodyPackage(weird);
+    expect(wb.count).toBe(0); // no <w:p> in an empty document part
+    expect(wb.serialize()).toBe(weird); // whole-input round-trip, NOT a corrupted stitch
+  });
+
+  it("falls back when a <pkg:package> carries no /word/document.xml part", () => {
+    // Without the one part we must mutate, segmentation is unsafe — degrade to the whole-input parse.
+    const noDoc =
+      `<pkg:package xmlns:pkg="${PKG_NS}">` +
+      `<pkg:part pkg:name="/word/styles.xml"><pkg:xmlData><w:styles xmlns:w="${W_NS}"/></pkg:xmlData></pkg:part>` +
+      `</pkg:package>`;
+    const wb = new WholeBodyPackage(noDoc);
+    expect(wb.count).toBe(0);
+    expect(wb.serialize()).toBe(noDoc);
+  });
+});
+
 describe("WholeBodyPackage", () => {
   it("counts body paragraphs and excludes header parts", () => {
     const wb = new WholeBodyPackage(pkg([p("one"), p("two")], { header: "<w:p><w:r><w:t>H</w:t></w:r></w:p>" }));
