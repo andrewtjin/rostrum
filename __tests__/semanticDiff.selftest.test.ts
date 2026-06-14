@@ -28,6 +28,15 @@ const para = (inner: string): string => `<w:document xmlns:w="${W}"><w:body><w:p
 const run = (text: string, rPr = ""): string =>
   `<w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ""}<w:t xml:space="preserve">${text}</w:t></w:r>`;
 
+/**
+ * A run whose `<w:t>` carries NO `xml:space` attribute (Word omits it whenever the run's whitespace is
+ * interior, not boundary). `rPrXml` is the FULL `<w:rPr>…</w:rPr>` element (or ""). Used by the PIN
+ * fixtures to reproduce the real-corpus shape where a bridge trim must ADD `xml:space="preserve"` to a
+ * source run that had none — the exact xlarge paragraph[2330]/run[27] regression. `run()` can't model
+ * it because it always stamps `xml:space="preserve"`.
+ */
+const runRaw = (text: string, rPrXml = ""): string => `<w:r>${rPrXml}<w:t>${text}</w:t></w:r>`;
+
 // ===========================================================================
 // (a) LEGITIMATE deltas — the oracle must PASS these.
 // ===========================================================================
@@ -93,6 +102,61 @@ describe("semantic diff oracle — accepts legitimate engine deltas", () => {
       splits
     );
     expect(changed).toBe(true);
+    expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).not.toThrow();
+  });
+
+  // ---------------------------------------------------------------------------
+  // PIN — the xlarge IPR corpus regression (paragraph[2330]/run[27]). A bridge split TRIMS
+  // the source run to a leading/trailing-whitespace fragment, which the engine MUST stamp
+  // with `xml:space="preserve"` (else Word collapses the now-boundary space — itself a
+  // losslessness failure). When the SOURCE run had NO `xml:space` on input (Word omits it for
+  // an interior space), the trim ADDS the attribute — a provably-lossless companion of the
+  // permitted text move. The oracle must accept that single added attribute. This fixture
+  // replicates the offending shape WITHOUT the xlarge doc (a bare <w:p>, no xml:space on the
+  // gap run, real engine via runRaw `<w:t>` with no preserve), so the standard `npm test`
+  // catches any regression of the bridge-trim companion clause.
+  // ---------------------------------------------------------------------------
+
+  it("PIN(IPR p2330/r27): interior split of a NO-xml:space source that gains preserve → passes", () => {
+    // The gap run holds " point to a very small risk, they " (leading AND trailing space) but
+    // carries NO xml:space — exactly Word's real-corpus emission for an interior-whitespace run.
+    // The engine interior-splits it; the [before] fragment " point" and [after] "to a … they "
+    // each gain xml:space="preserve". Built with a runRaw that omits xml:space so the ADD is real.
+    const gap = " point to a very small risk, they ";
+    const off = gap.indexOf(" ", 1); // first interior space → splits into " point" + "to … they "
+    const input = para(
+      run("arguments", '<w:highlight w:val="cyan"/>') +
+        runRaw(gap, '<w:rPr><w:sz w:val="16"/></w:rPr>') + // NO xml:space on this <w:t>
+        run("do not rule", '<w:highlight w:val="cyan"/>')
+    );
+    const { xml: output, changed } = new ParsedParagraph(input).applyVisibility(
+      [false, true, false],
+      false,
+      [{ index: 1, side: "interior", offset: off }]
+    );
+    expect(changed).toBe(true);
+    // The trimmed source fragment really did GAIN xml:space="preserve" (else the test is vacuous).
+    expect(output).toContain('xml:space="preserve"> point</w:t>');
+    // And the oracle accepts that single added attribute as the lossless bridge-trim companion.
+    expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).not.toThrow();
+  });
+
+  it("PIN: boundary (trail) split of a NO-xml:space source that gains preserve → passes", () => {
+    // The trail variant: the source run ends with a space and carries no xml:space; moving the
+    // trailing space leaves "alpha beta" with... here the remaining text keeps trailing whitespace.
+    // Use a source whose trim leaves boundary whitespace so the engine must add preserve.
+    const input = para(
+      run("alpha", '<w:highlight w:val="cyan"/>') +
+        runRaw(" mid clause ", '<w:rPr><w:sz w:val="16"/></w:rPr>') + // NO xml:space
+        run("omega", '<w:highlight w:val="cyan"/>')
+    );
+    const { xml: output, changed } = new ParsedParagraph(input).applyVisibility(
+      [false, true, false],
+      false,
+      [{ index: 1, side: "lead" }] // move the leading space; remaining "mid clause " keeps trailing ws
+    );
+    expect(changed).toBe(true);
+    expect(output).toContain('xml:space="preserve"');
     expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).not.toThrow();
   });
 
@@ -213,6 +277,43 @@ describe("semantic diff oracle — throws on every violation class", () => {
     const input = para(run("alpha"));
     const empty = `<w:document xmlns:w="${W}"><w:body></w:body></w:document>`;
     expect(() => assertVanishBridgeOnlyDeltaPara(input, empty)).toThrow(/no <w:p>|nothing to compare/i);
+  });
+
+  // ---------------------------------------------------------------------------
+  // STRICTNESS of the bridge-trim companion clause (the IPR p2330 fix). The clause licenses
+  // EXACTLY ONE thing: the OUTPUT <w:t> gaining `xml:space="preserve"` the INPUT lacked. These
+  // prove it does NOT widen into accepting any other `xml:space` delta or a smuggled attribute.
+  // ---------------------------------------------------------------------------
+
+  it("a <w:t> whose xml:space VALUE changed (not added) → throws (clause is add-only)", () => {
+    // Input already had xml:space="preserve"; output changed it to "default". The clause never
+    // licenses a CHANGE — only a pure add of "preserve" — so this must still fail.
+    const input = para(`<w:r><w:t xml:space="preserve">alpha </w:t></w:r>`);
+    const output = para(`<w:r><w:t xml:space="default">alpha </w:t></w:r>`);
+    expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).toThrow(/attributes differ|differ/i);
+  });
+
+  it("a <w:t> that DROPPED xml:space the input had → throws (removal risks a space collapse)", () => {
+    // Input had xml:space="preserve" (significant boundary space); output dropped it. Word would
+    // then collapse the space — a real losslessness risk — so the clause must NOT accept removal.
+    const input = para(`<w:r><w:t xml:space="preserve">alpha </w:t></w:r>`);
+    const output = para(`<w:r><w:t>alpha </w:t></w:r>`);
+    expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).toThrow(/attributes differ|differ/i);
+  });
+
+  it("a <w:t> that gained preserve AND a smuggled attribute → throws (only the one add is licensed)", () => {
+    // Output gains xml:space="preserve" (licensed) but ALSO a foreign attribute. The clause removes
+    // only the one preserve before comparing, so the smuggled attribute still shows as a delta.
+    const input = para(`<w:r><w:t> alpha </w:t></w:r>`);
+    const output = para(`<w:r><w:t xml:space="preserve" w:foo="bar"> alpha </w:t></w:r>`);
+    expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).toThrow(/attributes differ|differ/i);
+  });
+
+  it("a <w:t> that gained xml:space with a NON-preserve value → throws (only preserve is the trim companion)", () => {
+    // The engine's bridge trim only ever writes "preserve"; an added xml:space="default" is foreign.
+    const input = para(`<w:r><w:t> alpha </w:t></w:r>`);
+    const output = para(`<w:r><w:t xml:space="default"> alpha </w:t></w:r>`);
+    expect(() => assertVanishBridgeOnlyDeltaPara(input, output)).toThrow(/attributes differ|differ/i);
   });
 
   it("an interior-split 'after' run that SMUGGLES a format change → throws (clone must be faithful)", () => {

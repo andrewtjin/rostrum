@@ -195,6 +195,65 @@ function attrSignature(el: any): string {
 }
 
 /**
+ * The attribute signature of an element with one specific attribute filtered out (matched by
+ * exact name+value). Used ONLY to compare two `<w:t>` elements modulo an OUTPUT-added
+ * `xml:space="preserve"` — see `wtAttrsEqualModuloAddedPreserve`. A pure read; never mutates.
+ */
+function attrSignatureWithout(el: any, dropName: string, dropValue: string): string {
+  const attrs = el.attributes;
+  if (!attrs) return "";
+  const pairs: string[] = [];
+  for (let i = 0; i < attrs.length; i++) {
+    const a = attrs.item ? attrs.item(i) : attrs[i];
+    const name: string = a && (a.name ?? a.nodeName);
+    if (!name) continue;
+    const value: string = a.value ?? a.nodeValue ?? "";
+    if (name === dropName && value === dropValue) continue; // drop exactly the targeted attr
+    pairs.push(`${name}=${value}`);
+  }
+  pairs.sort();
+  return pairs.join("");
+}
+
+/**
+ * PERMITTED DELTA (b), companion clause — `xml:space="preserve"` newly required by a bridge trim.
+ *
+ * A bridge split (`exposeBoundarySpace`/`exposeInteriorSpace` in ooxml.ts) TRIMS one space out of the
+ * source run's `<w:t>` and MOVES it into a new visible run. When that trim leaves the source `<w:t>` with
+ * leading or trailing whitespace (e.g. the interior-split [before] " point" or [after] "to a … they "),
+ * the engine MUST add `xml:space="preserve"` — without it Word collapses the now-boundary space, which
+ * would itself BREAK losslessness. So this attribute is not a smuggled change: it is the inescapable,
+ * reversibility-PRESERVING consequence of the already-permitted text trim.
+ *
+ * Word omits `xml:space` whenever a run's whitespace is interior (` point to … they ` mid-run needs no
+ * preserve), so a real-corpus `<w:t>` frequently has NO `xml:space` on input yet REQUIRES it on the
+ * trimmed output — the exact xlarge paragraph[2330]/run[27] case. The string path and node-direct path
+ * produce byte-identical output here (proven), and whole-paragraph visible text stays byte-identical
+ * (assertion #1), so this is provably lossless and reversible.
+ *
+ * This clause is DELIBERATELY narrow — it accepts ONLY the OUTPUT gaining `xml:space="preserve"` that the
+ * INPUT lacked, and ONLY on a `<w:t>`. It returns true iff the two `<w:t>` attribute sets are equal after
+ * removing an `xml:space="preserve"` present on the OUTPUT but absent on the INPUT. It therefore still
+ * REJECTS: any non-`xml:space` attribute change, an `xml:space` whose value isn't "preserve", the INPUT
+ * carrying an `xml:space` the OUTPUT dropped (a real space-collapse risk), or an `xml:space` already on
+ * the INPUT (this clause licenses a pure ADDITION, never a change/removal).
+ */
+function wtAttrsEqualModuloAddedPreserve(inWt: any, outWt: any): boolean {
+  const PRESERVE = "preserve";
+  const SPACE = "xml:space";
+  const inSpace = inWt.getAttribute ? inWt.getAttribute(SPACE) : null;
+  const outSpace = outWt.getAttribute ? outWt.getAttribute(SPACE) : null;
+  // The ONLY licensed shape: the INPUT had NO xml:space and the OUTPUT gained xml:space="preserve".
+  // If the input already had one, this clause licenses nothing (a change/removal is never permitted);
+  // if the output's value isn't exactly "preserve", it isn't the engine's bridge-trim companion.
+  if (inSpace != null) return false;
+  if (outSpace !== PRESERVE) return false;
+  // Every OTHER attribute must still be byte-identical — so an injected/changed attribute (or any
+  // attribute beyond the single added xml:space) is still caught.
+  return attrSignature(inWt) === attrSignatureWithout(outWt, SPACE, PRESERVE);
+}
+
+/**
  * True when `<w:rPr>` (or `<w:pPr>`'s mark rPr) is "vanish-only": after removing every
  * `<w:vanish>` it has NO element children left. The engine's `ensureRPr`+`setVanish` path
  * creates exactly such an rPr when hiding a run that had none — so a vanish-only rPr in the
@@ -437,7 +496,14 @@ function structuralDiffIgnoringWtText(a: any, b: any, path: string): string | nu
       return `${path}: element name differs (${a.nodeName} vs ${b.nodeName})`;
     }
     if (attrSignature(a) !== attrSignature(b)) {
-      return `${path}/${a.nodeName}: attributes differ (in=[${attrSignature(a)}] out=[${attrSignature(b)}])`;
+      // A <w:t> may legitimately GAIN `xml:space="preserve"` when a bridge split trims it to a
+      // leading/trailing-whitespace fragment (permitted delta (b)'s companion clause). When the strict
+      // signatures differ ONLY by that one added attribute it is lossless, so accept it; otherwise (any
+      // other attribute change, or any non-<w:t> element) the differing attributes are a real violation.
+      const licensedPreserveAdd = a.nodeName === "w:t" && wtAttrsEqualModuloAddedPreserve(a, b);
+      if (!licensedPreserveAdd) {
+        return `${path}/${a.nodeName}: attributes differ (in=[${attrSignature(a)}] out=[${attrSignature(b)}])`;
+      }
     }
     // Inside a <w:t>, skip the text-payload comparison (the moved space lives here).
     if (a.nodeName === "w:t") return null;
