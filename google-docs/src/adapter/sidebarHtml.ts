@@ -439,6 +439,12 @@ export function helpHtml(): string {
      up (exec-review MAJOR). Rendered as its own paragraph alongside the other
      help prose, before the cheat sheet. -->
 <p>${escapeHtml(H.analyticsVerbs)}</p>
+<!-- Version-detection pointer (Loop 004): a copy is frozen at copy time, so Help
+     carries the static "newer releases live on the install page; compare your
+     version" line. Static by design — no fetch-latest, keeping the binding
+     "sends nothing back" promise. Rendered before the cheat sheet, after the
+     other help prose. -->
+<p>${escapeHtml(H.newerReleases)}</p>
 <h2 class="r-card-title">${escapeHtml(STRINGS.sidebar.cheatSheet.title)}</h2>
 ${cheatSheetTable(true)}
 <p class="r-micro">${escapeHtml(STRINGS.sidebar.cheatSheet.screenReaderNote)}</p>`

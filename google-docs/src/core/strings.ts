@@ -248,7 +248,15 @@ export const STRINGS = {
      * only un-shrinks.
      */
     analyticsVerbs:
-      "Analytic-ify marks whole lines as Analytics (navy, 14pt) so Hide keeps them. Delete analytics is the only action that removes content — and only the Analytics text you styled. To bring it back, use File > Version history; Show All does not."
+      "Analytic-ify marks whole lines as Analytics (navy, 14pt) so Hide keeps them. Delete analytics is the only action that removes content — and only the Analytics text you styled. To bring it back, use File > Version history; Show All does not.",
+    /** Version-detection pointer (Loop 004). A copy is frozen at copy time, so a
+     * debater needs a way to notice a copy is behind and to move up — with NO
+     * network call (the "sends nothing back" promise is binding; a fetch-latest
+     * check is rejected by design). The running version already shows in the
+     * footer and in Diagnostics; newer releases live on the public install page.
+     * Lexicon-clean: no banned engine nouns, no "run" verb. */
+    newerReleases:
+      "Newer releases are listed on the install page. Your version is shown here and in Diagnostics; make a fresh copy when a newer one ships."
   },
 
   /** Diagnostics dialog chrome. The report BODY is composed by

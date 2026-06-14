@@ -1,8 +1,8 @@
 # Rostrum for Google Docs: Invisibility Mode
 
 Bring Rostrum's **Invisibility Mode** and **debate styles** to a Google Doc, with
-no Marketplace install. You paste one script file into the doc's own Apps Script
-project; a **Rostrum** menu appears after a reload.
+no Marketplace install. Make your own copy of a ready-made template and the
+**Rostrum** menu travels with it, with nothing to paste and no editor to open.
 
 > **What "Hide" actually does.** Hide reduces every word of body text
 > except headings, cites, and highlighted text to a 1‑point size, so a long
@@ -11,16 +11,33 @@ project; a **Rostrum** menu appears after a reload.
 > everything* below). This matches how Rostrum behaves in Word. **Show All brings
 > every word back.**
 
-Current version: **v0.2.0** (shown in the panel footer as `Rostrum v0.2.0`).
+Current version: **v0.2.1** (shown in the panel footer as `Rostrum v0.2.1`).
 
 ---
 
-## 1. Install (paste-in, ~2 minutes)
+## 1. Install: make a copy
+
+The fastest install is to **make your own copy of a ready-made template**. The copy
+already carries the bound Rostrum script, so a **Rostrum** menu appears in your new
+document after a reload, with nothing to paste and no editor to open.
+
+**[Make your copy of Rostrum](https://docs.google.com/document/d/REPLACE_WITH_TEMPLATE_DOC_ID/copy)**
+
+This opens Google's own *Copy document* dialog. A copy is a snapshot of this version;
+to move to a newer release later, make a fresh copy from the
+[install page](https://andrewtjin.github.io/rostrum/google-docs.html). The documents
+you already have keep working as they are.
+
+> Your **first** Rostrum action asks Google for permission, including an "unverified
+> script" screen. That is expected for a script you copied yourself; the exact steps
+> are in *First run* below.
+
+### Advanced: manual paste-in install
 
 You install per‑doc, into the document's *container‑bound* script. Nothing is
 published anywhere; the script lives inside the doc.
 
-### Get the two files
+#### Get the two files
 
 You paste in two small files: `Code.gs` (the script) and `appsscript.json` (the
 permissions manifest). The friendliest path is the install page, which has both as
@@ -64,12 +81,14 @@ styled — and only that text. Rostrum never otherwise inserts, deletes, or reor
 any text character.
 
 ### Privacy: no tracking inside Google Docs
-The pasted script **sends nothing back** as you use it: no document content, no
-personal data, no usage pings. It runs entirely inside your doc and only edits font
+The Rostrum script **sends nothing back** as you use it: no document content, no
+personal data, no usage pings. It works entirely inside your doc and only edits font
 sizes, foreground colors, and style definitions (and removes analytics text when you
 explicitly choose Delete analytics). The *only* anonymous number Rostrum ever counts is the
-one‑time `Code.gs` download from the website (and only if you used the counted download
-link above, not the direct copy), exactly mirroring the Word side. Full disclosure:
+one‑time `Code.gs` download, and only if you used the counted link in the Advanced manual install
+(not the template copy), exactly mirroring the Word side. Because the recommended
+install is a copy, which downloads nothing, most Google Docs installs are not
+counted at all. Full disclosure:
 the [privacy page](https://andrewtjin.github.io/rostrum/privacy.html).
 
 ---
@@ -79,7 +98,7 @@ the [privacy page](https://andrewtjin.github.io/rostrum/privacy.html).
 The **first** time you pick a Rostrum action, Google interrupts to ask for
 permission. Your click is consumed by the consent flow, not the action.
 
-1. Pick **Rostrum → Hide** (or any verb). A Google authorization dialog appears.
+1. Open your copy, then pick **Rostrum → Hide** (or any action). A Google authorization dialog appears.
 2. Choose your account.
 3. Because this is your own unverified script, Google shows a warning screen.
    Click **Advanced**, then **"Go to *(your doc)* (unsafe)."** (This is expected

@@ -7,11 +7,17 @@
 
   The __GDOCS_VERSION__ token is stamped to the Google Docs port's own version (read from
   google-docs/src/core/constants.ts at build time), NOT pkg.version; the two surfaces version
-  independently. The Code.gs + appsscript.json this page links live at /google-docs/, published by
-  the deploy workflow's build:gdocs step plus the webpack copy of google-docs/dist -> dist/google-docs.
+  independently. The Code.gs + appsscript.json the Advanced flow links live at /google-docs/,
+  published by the deploy workflow's build:gdocs step plus the webpack copy of google-docs/dist
+  -> dist/google-docs.
 
-  Primary Code.gs download goes through the counting Worker (/code.gs); a direct ./google-docs/Code.gs
-  fallback is offered so a Worker outage never blocks an install (mirrors the manifest pattern).
+  PRIMARY install (Loop 004) is "Make a copy" of a maintainer-published template: a plain
+  <a href=".../copy"> straight to Google's Copy dialog — NOT routed through the counting Worker
+  (a Doc copy is not a counted file download), so the recommended path is uncounted by design.
+  The counted Code.gs download (/code.gs through the Worker) survives ONLY inside the demoted
+  Advanced manual-install <details>. The hero href ships a REPLACE_WITH_TEMPLATE_DOC_ID sentinel
+  that __tests__/gdocsTemplate.test.ts reds until the real template doc id is wired at release —
+  so push-to-deploy can never publish a dead primary CTA.
 -->
 <html lang="en">
     <head>
@@ -20,7 +26,7 @@
         <title>Rostrum for Google Docs: install</title>
         <meta
             name="description"
-            content="Install Rostrum for Google Docs: Invisibility Mode and debate styles, added to your document through Apps Script. No Marketplace, about two minutes, fully reversible."
+            content="Install Rostrum for Google Docs: make a copy of a ready-made template and the Rostrum menu travels with it. Invisibility Mode and debate styles, no Marketplace, about a minute, fully reversible."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -37,9 +43,10 @@
                 <em>by</em> debaters.
             </p>
             <p class="lede">
-                You paste one script into the document's own Apps Script project,
-                and a <strong>Rostrum</strong> menu appears after a reload. The
-                whole process takes about two minutes.
+                Rostrum for Google Docs installs by making your own copy of a
+                ready&#8209;made template. The copy already carries the
+                <strong>Rostrum</strong> menu, so there is nothing to paste and no
+                editor to open. The whole process takes about a minute.
             </p>
             <p class="download-note">
                 Version <strong>v__GDOCS_VERSION__</strong>. This early release
@@ -61,106 +68,59 @@
                 Rostrum behaves in Word.
             </div>
 
-            <h2>1 · Get the two files</h2>
+            <h2>1 · Make your copy</h2>
             <p>
-                You paste in two small files:
-                <code>Code.gs</code> (the script) and
-                <code>appsscript.json</code> (the permissions manifest).
+                The button below opens Google's own <strong>Copy document</strong>
+                dialog. The Rostrum script travels with the copy, so a
+                <strong>Rostrum</strong> menu appears in your new document after one
+                reload. There is nothing else to install.
             </p>
-            <div class="card">
-                <p>
-                    <a
-                        href="https://rostrum-downloads.rostrum.workers.dev/code.gs"
-                        download="Code.gs"
-                        class="button-link"
-                        >Code.gs</a
-                    >
-                    <span class="download-note"
-                        >Download didn't start? Use the
-                        <a href="./google-docs/Code.gs" download="Code.gs"
-                            >direct link</a
-                        >.</span
-                    >
-                </p>
-                <p>
-                    <a
-                        href="./google-docs/appsscript.json"
-                        download="appsscript.json"
-                        class="button-link"
-                        >appsscript.json</a
-                    >
-                    <span class="download-note"
-                        >the permissions manifest (the Docs service plus two
-                        scopes).</span
-                    >
-                </p>
-            </div>
-
-            <h2>2 · Paste it in</h2>
-            <p>
-                You install per&#8209;document, into the document's
-                container&#8209;bound script. Nothing is published anywhere; the
-                script lives inside the document.
-            </p>
-            <ol>
-                <li>Open the Google Doc you want Rostrum in.</li>
-                <li>
-                    <strong>Extensions → Apps Script.</strong> A new editor tab
-                    opens with an empty <code>Code.gs</code>.
-                </li>
-                <li>
-                    Select everything in <code>Code.gs</code> and delete it, then
-                    <strong>paste the entire contents of the downloaded
-                    <code>Code.gs</code></strong> in its place.
-                </li>
-                <li>
-                    Tell the project which permissions it needs (a one&#8209;time
-                    manifest step): click <strong>Project Settings</strong> (the
-                    gear, left rail) and tick
-                    <strong>"Show 'appsscript.json' manifest file in editor."</strong>
-                    Back in the <strong>Editor</strong>, open
-                    <code>appsscript.json</code> and replace its contents with the
-                    downloaded one. <em>(Alternatively, add the Docs API advanced
-                    service directly: <strong>Editor → Services (＋) → Google Docs
-                    API → Add</strong>.)</em>
-                </li>
-                <li><strong>Save</strong> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>).</li>
-                <li>
-                    <strong>Reload the Google Doc tab.</strong> After the reload a
-                    <strong>Rostrum</strong> menu appears in the menu bar, next to
-                    <em>Help</em>.
-                </li>
-            </ol>
+            <a
+                class="cta"
+                href="https://docs.google.com/document/d/REPLACE_WITH_TEMPLATE_DOC_ID/copy"
+                >Make your copy of Rostrum</a
+            >
             <p class="ok">
-                ✓ A <strong>Rostrum</strong> menu now sits in the document's menu
-                bar.
+                ✓ A <strong>Rostrum</strong> menu sits in your copy's menu bar, next
+                to <em>Help</em>.
+            </p>
+            <p class="download-note">
+                A copy is a snapshot of this version. To move to a newer release
+                later, make a fresh copy from this page; the documents you already
+                have keep working exactly as they are.
+            </p>
+            <p class="download-note">
+                Your first Rostrum action asks Google for permission, including a
+                screen that calls the script unverified. That is expected for a
+                script you copied yourself; the exact steps are in
+                <strong>First run</strong> just below.
             </p>
 
-            <h2>3 · First run: authorize, then run again</h2>
+            <h2>2 · First run: authorize, then act again</h2>
             <p>
                 The first time you choose a Rostrum action, Google interrupts to
                 ask for permission, so your first click is used by the consent
                 flow rather than the action itself.
             </p>
             <ol>
-                <li>Choose <strong>Rostrum → Hide</strong> (or any action). A Google authorization dialog appears.</li>
+                <li>Open your copy and choose <strong>Rostrum → Hide</strong> (or any action). A Google authorization dialog appears.</li>
                 <li>Choose your account.</li>
                 <li>
                     Because this is your own unverified script, Google shows a
                     warning screen. Click <strong>Advanced</strong>, then
                     <strong>"Go to <em>(your doc)</em> (unsafe)."</strong> This is
-                    expected for a personal script you pasted yourself; you are
+                    expected for a personal script you copied yourself; you are
                     granting it access to your own document.
                 </li>
                 <li>Review the permissions and click <strong>Allow.</strong></li>
                 <li>
-                    The dialog closes without running the action, which is normal.
+                    The dialog closes without acting, which is normal.
                     <strong>Choose the same Rostrum action again</strong> and it
-                    runs.
+                    goes through.
                 </li>
             </ol>
             <p class="download-note">
-                Rostrum runs as the account you authorized, which is the account
+                Rostrum acts as the account you authorized, which is the account
                 signed into <strong>this Chrome profile</strong> when you click
                 <em>Allow</em>. On a managed or school (Workspace Education)
                 account, administrator policy may block consent entirely; if so,
@@ -181,6 +141,91 @@
             </details>
 
             <details>
+                <summary>Advanced: install by pasting the script yourself</summary>
+                <p>
+                    Prefer not to copy the template, or want Rostrum in a document
+                    you already have? Paste the script into that document's own
+                    Apps Script project. This is the original install, kept here as
+                    a fallback; the copy flow above needs none of it.
+                </p>
+
+                <h3>Get the two files</h3>
+                <p>
+                    You paste in two small files:
+                    <code>Code.gs</code> (the script) and
+                    <code>appsscript.json</code> (the permissions manifest).
+                </p>
+                <div class="card">
+                    <p>
+                        <a
+                            href="https://rostrum-downloads.rostrum.workers.dev/code.gs"
+                            download="Code.gs"
+                            class="button-link"
+                            >Code.gs</a
+                        >
+                        <span class="download-note"
+                            >Download didn't start? Use the
+                            <a href="./google-docs/Code.gs" download="Code.gs"
+                                >direct link</a
+                            >.</span
+                        >
+                    </p>
+                    <p>
+                        <a
+                            href="./google-docs/appsscript.json"
+                            download="appsscript.json"
+                            class="button-link"
+                            >appsscript.json</a
+                        >
+                        <span class="download-note"
+                            >the permissions manifest (the Docs service plus two
+                            scopes).</span
+                        >
+                    </p>
+                </div>
+
+                <h3>Paste it in</h3>
+                <p>
+                    You install per&#8209;document, into the document's
+                    container&#8209;bound script. Nothing is published anywhere; the
+                    script lives inside the document.
+                </p>
+                <ol>
+                    <li>Open the Google Doc you want Rostrum in.</li>
+                    <li>
+                        <strong>Extensions → Apps Script.</strong> A new editor tab
+                        opens with an empty <code>Code.gs</code>.
+                    </li>
+                    <li>
+                        Select everything in <code>Code.gs</code> and delete it, then
+                        <strong>paste the entire contents of the downloaded
+                        <code>Code.gs</code></strong> in its place.
+                    </li>
+                    <li>
+                        Tell the project which permissions it needs (a one&#8209;time
+                        manifest step): click <strong>Project Settings</strong> (the
+                        gear, left rail) and tick
+                        <strong>"Show 'appsscript.json' manifest file in editor."</strong>
+                        Back in the <strong>Editor</strong>, open
+                        <code>appsscript.json</code> and replace its contents with the
+                        downloaded one. <em>(Alternatively, add the Docs API advanced
+                        service directly: <strong>Editor → Services (＋) → Google Docs
+                        API → Add</strong>.)</em>
+                    </li>
+                    <li><strong>Save</strong> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>).</li>
+                    <li>
+                        <strong>Reload the Google Doc tab.</strong> After the reload a
+                        <strong>Rostrum</strong> menu appears in the menu bar, next to
+                        <em>Help</em>.
+                    </li>
+                </ol>
+                <p class="ok">
+                    ✓ A <strong>Rostrum</strong> menu now sits in the document's menu
+                    bar.
+                </p>
+            </details>
+
+            <details>
                 <summary>Sharing with teammates</summary>
                 <p>
                     A Google Doc's bound script travels with a copy. To give a
@@ -193,7 +238,7 @@
                 </p>
                 <p class="download-note">
                     <strong>Team norm:</strong> don't edit a document while it is
-                    hidden. Run <strong>Show All</strong> first. Moving or copying
+                    hidden. Use <strong>Show All</strong> first. Moving or copying
                     hidden text can separate it from its saved sizes; Show All still
                     brings it back (with a note), but editing while visible is
                     cleaner.
@@ -211,7 +256,7 @@
                     </li>
                     <li>
                         <strong>Suggesting mode:</strong> Hide and Apply debate
-                        styles do not run while there are unresolved suggestions;
+                        styles do not act while there are unresolved suggestions;
                         Show All always works.
                     </li>
                     <li>
@@ -224,13 +269,15 @@
             </details>
 
             <div class="banner" role="note">
-                <strong>No tracking inside Google Docs.</strong> The pasted script
-                only ever changes font size and named&#8209;style definitions; it
-                sends nothing back as you use it. There is no document content, no
-                personal data, and no usage reporting. The single anonymous number
-                Rostrum records is the one&#8209;time <code>Code.gs</code> download
-                from this site (and only through the counted link above, not the
-                direct copy). Full disclosure: <a href="./privacy.html">Privacy</a>.
+                <strong>No tracking inside Google Docs.</strong> The Rostrum script
+                only ever changes font size and style definitions; it sends nothing
+                back as you use it: no document content, no personal data, no usage
+                reporting. Making a copy downloads nothing from this site, so the
+                recommended install is not counted. The one anonymous number Rostrum
+                records is a single <code>Code.gs</code> download, and only if you
+                use the counted link inside <strong>Advanced manual install</strong>,
+                not the template copy. Full disclosure:
+                <a href="./privacy.html">Privacy</a>.
             </div>
 
             <footer>

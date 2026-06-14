@@ -48,8 +48,11 @@ export const NEAR_WHITE_MIN_CHANNEL = 243;
 
 /** gdocs artifact version — deliberately NOT package.json's version, which
  * drives the WORD manifest (plan D14). Surfaced in the sidebar footer.
- * 0.2.0: the analytics style + analytic-ify + Delete analytics (Loop 003). */
-export const GDOCS_VERSION = "0.2.0";
+ * 0.2.0: the analytics style + analytic-ify + Delete analytics (Loop 003).
+ * 0.2.1: the "Make a copy" template install path + the static install-page
+ *        version pointer in Help (Loop 004). PATCH — no new in-product verb;
+ *        the only Code.gs change is that one informational help line. */
+export const GDOCS_VERSION = "0.2.1";
 
 /**
  * Debate style sizes (Word STYLE_MAP parity, decision #9): pocket 26 / hat 22 /
