@@ -4,12 +4,13 @@
   copied verbatim into dist/ by webpack's CopyWebpackPlugin (site/ -> .), same as
   index.html. PURE static HTML, no bundle; shares ./styles.css (one cached request).
 
-  This page is the public disclosure backing the download counters behind the two
-  install deliverables: the Word manifest.xml and the Google Docs Code.gs. Two
-  anonymous integers, plus their sum, and nothing else. Wording note: the privacy
-  copy says "downloads" (the literal, truthful event we count); promotional copy
-  elsewhere (the README badge) says "installs". It also discloses both biases so
-  the combined number is never read as a precise install tally.
+  This page is the public disclosure backing the install counters behind the site's
+  install paths: the Word manifest.xml download, the Google Docs "Make a copy" template
+  link (a counted redirect through the Worker), and the Google Docs Code.gs download.
+  Three anonymous integers, plus their cross-platform sum, and nothing else. Wording
+  note: the copy describes the literal, truthful event we count (a download, or a click
+  on the copy link); promotional copy elsewhere (the README badge) says "installs". It
+  also discloses the biases so the combined number is never read as a precise tally.
 -->
 <html lang="en">
     <head>
@@ -18,7 +19,7 @@
         <title>Rostrum: privacy</title>
         <meta
             name="description"
-            content="Rostrum's privacy disclosure: it counts anonymous downloads of its two install files (Word and Google Docs), and nothing else. No document content, no personal data."
+            content="Rostrum's privacy disclosure: it counts anonymous install clicks (the Word download and the Google Docs Make-a-copy link), and nothing else. No document content, no personal data."
         />
         <link rel="icon" href="./assets/icon-32.png" />
         <link rel="stylesheet" href="./styles.css" />
@@ -32,26 +33,29 @@
             </header>
 
             <p class="lede">
-                <strong>Rostrum counts anonymous downloads; and nothing else.</strong>
+                <strong>Rostrum counts anonymous install clicks; and nothing else.</strong>
             </p>
 
             <p>
-                Rostrum ships on two platforms, each with one install file: the
-                <strong>Word</strong> add-in's <code>manifest.xml</code> and the
-                <strong>Google Docs</strong> port's <code>Code.gs</code>. When you
-                download either from this site, the matching anonymous counter on our
-                end goes up by one. Those two counters (and their sum) are the
-                <em>entire</em> extent of what Rostrum collects.
+                Rostrum ships on two platforms. The <strong>Word</strong> add-in
+                installs from a <code>manifest.xml</code> download; <strong>Google
+                Docs</strong> installs by clicking <strong>Make a copy</strong> of a
+                template (with a manual <code>Code.gs</code> download as a fallback).
+                Each time you click one of those install links on this site, the
+                matching anonymous counter on our end goes up by one. Those counters
+                (and their sum) are the <em>entire</em> extent of what Rostrum collects.
             </p>
 
             <h2>What is collected</h2>
             <ul>
                 <li>
-                    <strong>Two anonymous numbers</strong>: running totals of how
-                    many times the Word <code>manifest.xml</code> and the Google Docs
-                    <code>Code.gs</code> have each been downloaded. We also publish
-                    their <strong>sum</strong> (a rough cross-platform total). None of
-                    these is tied to you, your device, or anything you do afterward.
+                    <strong>Anonymous install counts</strong>: running totals of how
+                    many times the Word <code>manifest.xml</code> was downloaded and the
+                    Google Docs template was installed (the <strong>Make a copy</strong>
+                    link click, plus any Advanced <code>Code.gs</code> download). We also
+                    publish their <strong>sum</strong> (a rough cross-platform total).
+                    None of these is tied to you, your device, or anything you do
+                    afterward.
                 </li>
             </ul>
 
@@ -71,9 +75,9 @@
                         >No IP addresses or device fingerprints are retained by
                         Rostrum.</strong
                     >
-                    The counters record only that a download happened, never who
-                    or from where; we keep no request logs of our own. (Files are
-                    delivered through Cloudflare, which may process requests in
+                    The counters record only that an install link was clicked, never
+                    who or from where; we keep no request logs of our own. (Requests are
+                    served through Cloudflare, which may process them in
                     transit under its
                     <a href="https://www.cloudflare.com/privacypolicy/"
                         >own privacy policy</a
@@ -88,11 +92,11 @@
                     <strong>No tracking inside Google Docs.</strong> The Rostrum
                     <code>Code.gs</code> only ever changes font size and style
                     definitions; it sends nothing back as you use it: no usage pings,
-                    no document content. The recommended install is to make a copy of
-                    a template, which downloads nothing, so it is not counted. The only
-                    number Rostrum records is a single <code>Code.gs</code> download,
-                    and only if you used the counted link in the Advanced manual
-                    install, not the template copy.
+                    no document content. The only thing counted is the install click on
+                    this site — the <strong>Make a copy</strong> link (a redirect that
+                    tallies one anonymous integer, then sends you to Google's Copy
+                    dialog) or the Advanced <code>Code.gs</code> download. Nothing about
+                    the copy, or what you do in it, is ever seen.
                 </li>
             </ul>
 
@@ -102,8 +106,9 @@
                 enough to know the project is worth maintaining, and nothing more.
             </p>
             <p>
-                The number is <strong>deliberately approximate</strong>, and it leans
-                in both directions depending on the platform:
+                The number is <strong>deliberately approximate</strong>, and on both
+                platforms it leans slightly high (it counts install clicks, some of
+                which never finish):
             </p>
             <ul>
                 <li>
@@ -111,11 +116,12 @@
                     <code>manifest.xml</code> to pick up a new version counts again.
                 </li>
                 <li>
-                    <strong>Google Docs is largely uncounted by design:</strong> the
-                    recommended install is to make a copy of the template, which
-                    downloads nothing, so it is not counted at all. Only the Advanced
-                    paste-in path, through the counted link, adds to the number. Treat
-                    the Google Docs count as a floor: a fraction of the real installs.
+                    <strong>Google Docs over-counts a little too:</strong> the
+                    <strong>Make a copy</strong> link counts the click, not a finished
+                    copy — clicking then cancelling Google's dialog, or re-copying to
+                    pick up a new version, each still counts. So, like Word, treat the
+                    Google Docs number as a rough upper-ish estimate, not a precise
+                    install tally.
                 </li>
             </ul>
             <p>

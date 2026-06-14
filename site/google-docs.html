@@ -11,13 +11,14 @@
   published by the deploy workflow's build:gdocs step plus the webpack copy of google-docs/dist
   -> dist/google-docs.
 
-  PRIMARY install (Loop 004) is "Make a copy" of a maintainer-published template: a plain
-  <a href=".../copy"> straight to Google's Copy dialog — NOT routed through the counting Worker
-  (a Doc copy is not a counted file download), so the recommended path is uncounted by design.
-  The counted Code.gs download (/code.gs through the Worker) survives ONLY inside the demoted
-  Advanced manual-install <details>. The hero href carries the live template doc id; the guard
-  in __tests__/gdocsTemplate.test.ts reds the build if it is ever reverted to a placeholder, so
-  push-to-deploy can never publish a dead primary CTA.
+  PRIMARY install (Loop 004) is "Make a copy" of a maintainer-published template. The hero
+  CTA points at the counting Worker's /gdocs-copy route (Loop 006), which counts the click —
+  one anonymous integer, exactly like the Word manifest download — then 302-redirects to
+  Google's Copy dialog, so the recommended install is now measured (privacy.html documents it).
+  The template doc id lives in the Worker (worker/wrangler.toml GDOCS_COPY_TARGET), NOT here, so
+  the hero href is a fixed route; __tests__/gdocsTemplate.test.ts reds the build if the Worker
+  target is ever a placeholder, so a dead primary CTA can never ship. The Advanced manual-install
+  <details> keeps the older counted Code.gs download (/code.gs through the Worker).
 -->
 <html lang="en">
     <head>
@@ -77,7 +78,7 @@
             </p>
             <a
                 class="cta"
-                href="https://docs.google.com/document/d/1DCR2b0sETwjCa_8VOjuEJ7BRatj8PbyPadnyYkhryQw/copy"
+                href="https://rostrum-downloads.rostrum.workers.dev/gdocs-copy"
                 >Make your copy of Rostrum</a
             >
             <p class="ok">
@@ -234,7 +235,8 @@
                     carries the bound script, so they get the
                     <strong>Rostrum</strong> menu after their own first&#8209;run
                     authorization. There is no central install to manage.
-                    <em>(Shared copies are not counted as downloads; see Privacy.)</em>
+                    <em>(Copying a document you already have is a Drive action, not an
+                    install click, so it is not counted; see Privacy.)</em>
                 </p>
                 <p class="download-note">
                     <strong>Team norm:</strong> don't edit a document while it is
@@ -272,11 +274,11 @@
                 <strong>No tracking inside Google Docs.</strong> The Rostrum script
                 only ever changes font size and style definitions; it sends nothing
                 back as you use it: no document content, no personal data, no usage
-                reporting. Making a copy downloads nothing from this site, so the
-                recommended install is not counted. The one anonymous number Rostrum
-                records is a single <code>Code.gs</code> download, and only if you
-                use the counted link inside <strong>Advanced manual install</strong>,
-                not the template copy. Full disclosure:
+                reporting. The single anonymous number Rostrum keeps is a count of
+                install clicks on this site — clicking <strong>Make your copy</strong>
+                above adds one, exactly like downloading the Word add-in. It is one
+                integer with no IP, account, or document data attached, and it counts
+                the click, not anything you do afterward. Full disclosure:
                 <a href="./privacy.html">Privacy</a>.
             </div>
 

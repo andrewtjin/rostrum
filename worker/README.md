@@ -8,16 +8,24 @@ metadata is ever read or stored. The entire datastore is two integers.
 - `GET /manifest.xml` (or `/`) → `downloads++`, then serve the manifest with a
   `Content-Disposition: attachment` header. If the origin is unreachable it
   302-redirects to the canonical Pages copy, so an install is **never blocked**.
+- `GET /gdocs-copy` → `google_docs_copies++`, then **302-redirect** to the Google Docs
+  template's `.../copy` dialog (`GDOCS_COPY_TARGET`, defaulting to the live template).
+  This is the PRIMARY Google Docs install — counting the click here is what makes "Make
+  a copy" measured, exactly like the Word manifest download.
 - `GET /code.gs` → `google_docs_downloads++`, then serve the Google Docs `Code.gs` the
-  same way (attachment; 302-fallback to `CODE_GS_ORIGIN` if unreachable).
-- `GET /count` → `{ "word": N, "google_docs": M, "total": N+M }` (CORS-open) for
-  internal checks + the README badge. `word` is the Word tally (its KV key is still
-  `downloads`, so the historical count is preserved; only the output field was renamed
-  for clarity); `google_docs` is the Google Docs tally; `total` is the unified
-  cross-platform number the badge displays. Each is read independently and degrades to
-  0 on a KV hiccup, so `total` is never `NaN`.
-- `HEAD` on either download path returns the attachment headers but is **not**
-  counted and does not pull the upstream body (link prefetchers / health checks).
+  same way as the manifest (attachment; 302-fallback to `CODE_GS_ORIGIN` if unreachable).
+  This is the Advanced / fallback install.
+- `GET /count` → `{ "word": N, "google_docs": M, "google_docs_copies": C,
+  "google_docs_downloads": D, "total": N+M }` (CORS-open) for internal checks + the
+  README badge. `word` is the Word tally (KV key still `downloads`, so history is
+  preserved); `google_docs` is the apples-to-apples Google Docs install number
+  (`= C + D`: the template copies plus the Advanced downloads); the two `google_docs_*`
+  fields expose the split; `total = word + google_docs` is the unified number the badge
+  reads (`$.total`). Each tally is read independently and degrades to 0 on a KV hiccup,
+  so `total` is never `NaN`.
+- `HEAD` on a download path returns the attachment headers (uncounted, no upstream pull);
+  `HEAD /gdocs-copy` returns its 302 without counting — both for link prefetchers /
+  health checks.
 
 ## One-time deploy
 
@@ -56,11 +64,20 @@ that same push) and never affects the Word `/manifest.xml` route, whose origin i
 already live. To avoid the gap, confirm `curl -sI …/code.gs` redirects to a live
 200 before announcing the Google Docs surface.
 
+**`/gdocs-copy` must be live before the install page points at it.** The install page's
+hero CTA links to `…/gdocs-copy`. The Pages deploy (push to master) and this Worker deploy
+(`wrangler deploy`) are independent pipelines, so to avoid a dead hero, deploy the **Worker
+first**, confirm `curl -sI …/gdocs-copy` 302s to the template `.../copy` URL, and only then
+push the install-page change. (`GDOCS_COPY_TARGET` ships in `wrangler.toml`; if it is unset,
+the route falls back to `handler.js`'s `DEFAULT_GDOCS_COPY_TARGET`, so a var-less deploy
+still lands users on the Copy dialog.)
+
 Then wire the site to the Worker (only if your Worker host differs from the
 `rostrum-downloads.rostrum.workers.dev` placeholder):
 
 1. In `site/word.html`, replace the placeholder host on the `manifest.xml` links;
-   in `site/google-docs.html`, replace it on the `/code.gs` link.
+   in `site/google-docs.html`, replace it on the `/gdocs-copy` hero CTA and the
+   `/code.gs` Advanced link; in `google-docs/README.md`, on the `/gdocs-copy` copy link.
 2. In `README.md`, the badge points at `/count` via the same placeholder, so update it
    too.
 3. **Rate-limit cap, deferred (optional).** A `*.workers.dev` subdomain is not a
@@ -75,13 +92,17 @@ Then wire the site to the Worker (only if your Worker host differs from the
 
 ```sh
 curl -s https://rostrum-downloads.rostrum.workers.dev/count
-#   → {"word":0,"google_docs":0,"total":0}
+#   → {"word":0,"google_docs":0,"google_docs_copies":0,"google_docs_downloads":0,"total":0}
+# HEAD probes verify headers WITHOUT counting (link prefetch / health checks):
 curl -sI https://rostrum-downloads.rostrum.workers.dev/manifest.xml | grep -i content-disposition
 #   → content-disposition: attachment; filename="manifest.xml"
+curl -sI https://rostrum-downloads.rostrum.workers.dev/gdocs-copy | grep -i location
+#   → location: https://docs.google.com/document/d/<DOC_ID>/copy
 curl -sI https://rostrum-downloads.rostrum.workers.dev/code.gs | grep -i content-disposition
 #   → content-disposition: attachment; filename="Code.gs"
+# Real GET installs (a browser following each link) bump the counters; after one of each:
 curl -s https://rostrum-downloads.rostrum.workers.dev/count
-#   → {"word":1,"google_docs":1,"total":2}
+#   → {"word":1,"google_docs":2,"google_docs_copies":1,"google_docs_downloads":1,"total":3}
 ```
 
 ## Tests

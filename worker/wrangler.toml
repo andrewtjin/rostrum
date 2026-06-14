@@ -1,12 +1,14 @@
-# Rostrum download counter — two anonymous integers behind the site's install
-# deliverables: the Word manifest.xml and the Google Docs Code.gs. One-time
-# deploy steps: see worker/README.md.
+# Rostrum install counter — three anonymous integers behind the site's install
+# paths: the Word manifest.xml download, the Google Docs "Make a copy" template
+# (/gdocs-copy), and the Google Docs Code.gs download. One-time deploy: see
+# worker/README.md.
 #
 # PRIVACY (must stay true to site/privacy.html): no request metadata is ever
 # retained. Observability is explicitly DISABLED so Workers Logs never capture
 # IPs or headers; there is deliberately NO Analytics Engine binding; and you must
-# never run `wrangler tail` into a saved log. The only stored data is the two
-# per-surface download counters (Word + Google Docs) and their derived total.
+# never run `wrangler tail` into a saved log. The only stored data is three
+# anonymous counters (Word manifest download, Google Docs template copy, Google
+# Docs Code.gs download) and their derived total.
 #
 # OPERATIONAL: the `enabled = false` flag below suppresses Workers Logs only. To
 # keep the "no request logs" promise you must ALSO ensure no account-level
@@ -28,6 +30,15 @@ MANIFEST_ORIGIN = "https://andrewtjin.github.io/rostrum/manifest.xml"
 # Published to Pages at /google-docs/Code.gs by the deploy workflow's `build:gdocs`
 # step + the webpack copy of google-docs/dist → dist/google-docs.
 CODE_GS_ORIGIN = "https://andrewtjin.github.io/rostrum/google-docs/Code.gs"
+
+# The Google Docs PRIMARY install target: the maintainer template's "Make a copy"
+# dialog. The /gdocs-copy route counts the click (one anonymous integer, exactly like
+# the Word manifest download) then 302-redirects here. SINGLE source of the template
+# doc id — the install page links to /gdocs-copy, not to Google directly — so
+# recreating the template is a one-line edit HERE + `wrangler deploy`, no site change.
+# Keep in sync with handler.js's DEFAULT_GDOCS_COPY_TARGET (gdocsTemplate.test.ts
+# asserts both are a real .../copy URL and equal, so a placeholder can't ship).
+GDOCS_COPY_TARGET = "https://docs.google.com/document/d/1DCR2b0sETwjCa_8VOjuEJ7BRatj8PbyPadnyYkhryQw/copy"
 
 # `wrangler kv namespace create COUNTER` prints an id — paste it below.
 [[kv_namespaces]]

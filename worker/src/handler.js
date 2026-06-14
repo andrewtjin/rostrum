@@ -5,24 +5,39 @@
 // Cloudflare entry (index.js, an ES module) imports it and wraps `handleRequest`
 // in the `export default { fetch }` shape the Workers runtime expects.
 //
-// One job: serve the two install deliverables (Word's manifest.xml and Google
-// Docs' Code.gs) while bumping a SINGLE anonymous integer PER SURFACE in KV.
-// Privacy contract (must stay true to site/privacy.html): the only things ever
-// retained are those two counters — no request body is read, and no IP or header
-// is stored or logged (observability is disabled in wrangler.toml).
+// One job: measure how many people install Rostrum, anonymously. Two surfaces —
+// Word (serve manifest.xml; bump "downloads") and Google Docs, whose PRIMARY install
+// is the "Make a copy" template (the /gdocs-copy counted redirect) with the legacy
+// Advanced Code.gs download as a fallback. The whole datastore is three anonymous
+// integers in KV. Privacy contract (must stay true to site/privacy.html): no request
+// body is read, and no IP or header is stored or logged (observability off in wrangler.toml).
 
 // Canonical install deliverables, used when the *_ORIGIN vars aren't set in the
 // environment. Both live on the Pages site next to their install page.
 const DEFAULT_MANIFEST_ORIGIN = "https://andrewtjin.github.io/rostrum/manifest.xml";
 const DEFAULT_CODE_GS_ORIGIN = "https://andrewtjin.github.io/rostrum/google-docs/Code.gs";
 
-// The two KV keys — one anonymous counter per install surface. The Word key
-// keeps its original KV name ("downloads") so the historical tally is preserved
-// across renames; /count surfaces it under the clearer field name "word". The
-// Google Docs key ("google_docs_downloads") is new and starts at 0. The whole
-// datastore is these two integers.
+// The Google Docs PRIMARY install target — the maintainer template's "Make a copy"
+// dialog. /gdocs-copy counts the click then 302-redirects here, so the recommended
+// install is measured exactly like the Word manifest download. Used when
+// GDOCS_COPY_TARGET is unset (wrangler.toml sets it). This is the SINGLE on-Worker
+// source of the template doc id — the install page links to /gdocs-copy, never to
+// Google directly — so recreating the template is a one-line edit here + a redeploy.
+// gdocsTemplate.test.ts asserts this is a real /copy URL (not a placeholder), which
+// relocates the old dead-CTA guard to where the doc id now actually lives.
+const DEFAULT_GDOCS_COPY_TARGET =
+  "https://docs.google.com/document/d/1DCR2b0sETwjCa_8VOjuEJ7BRatj8PbyPadnyYkhryQw/copy";
+
+// The KV keys — anonymous counters per install action. The Word key keeps its
+// original KV name ("downloads") so the historical tally is preserved across renames;
+// /count surfaces it as "word". The Google Docs surface has TWO actions: the primary
+// template copy ("google_docs_copies") and the Advanced Code.gs download
+// ("google_docs_downloads"); /count reports their SUM as "google_docs" — the
+// apples-to-apples gdocs install number — plus each as a breakdown field. The whole
+// datastore is these three integers.
 const COUNTER_KEY = "downloads"; // Microsoft Word manifest.xml tally (KV key; /count field = "word")
-const GOOGLE_DOCS_KEY = "google_docs_downloads"; // Google Docs — Code.gs downloads
+const GOOGLE_DOCS_KEY = "google_docs_downloads"; // Google Docs — Advanced Code.gs downloads
+const GOOGLE_DOCS_COPIES_KEY = "google_docs_copies"; // Google Docs — primary "Make a copy" template installs
 
 // CORS for the public /count read only: the README badge and any internal
 // dashboard fetch it cross-origin. We expose the aggregate numbers and nothing
@@ -102,9 +117,10 @@ function headOnly(contentType, filename) {
 }
 
 /**
- * Route a request. Only GET/HEAD are meaningful (a static download + a counter
- * read). Two download routes (manifest.xml for Word, code.gs for Google Docs)
- * each count their own surface; /count returns both plus the unified total.
+ * Route a request. Only GET/HEAD are meaningful (downloads, a counted redirect, and a
+ * counter read). manifest.xml (Word) and code.gs (Google Docs Advanced) are counted
+ * downloads; /gdocs-copy is the counted redirect to the Google Docs template Copy
+ * dialog; /count returns every tally plus the unified total.
  */
 async function handleRequest(request, env) {
   const url = new URL(request.url);
@@ -127,13 +143,23 @@ async function handleRequest(request, env) {
   // cross-platform total (what the public README badge shows).
   if (url.pathname === "/count") {
     const word = await readCount(env, COUNTER_KEY);
-    const googleDocs = await readCount(env, GOOGLE_DOCS_KEY);
+    const googleDocsCopies = await readCount(env, GOOGLE_DOCS_COPIES_KEY);
+    const googleDocsDownloads = await readCount(env, GOOGLE_DOCS_KEY);
+    // `google_docs` is the apples-to-apples Google Docs INSTALL number: the primary
+    // template copies plus the Advanced Code.gs downloads. `google_docs_copies` and
+    // `google_docs_downloads` expose the split. `total` = Word + Google Docs (unchanged
+    // contract — the README badge reads $.total). `word`'s KV key is still "downloads"
+    // (COUNTER_KEY), so its historical count carried across the field rename. Each tally
+    // is read independently and degrades to 0 on a KV hiccup, so `total` is never NaN.
+    const googleDocs = googleDocsCopies + googleDocsDownloads;
     return new Response(
-      // `word` = the Microsoft Word (manifest.xml) tally; `google_docs` = the Google
-      // Docs (Code.gs) tally; `total` is the unified cross-platform number the README
-      // badge reads ($.total). `word`'s KV key is still "downloads" (COUNTER_KEY), so the
-      // historical count survived this rename — only the output field name got clearer.
-      JSON.stringify({ word, google_docs: googleDocs, total: word + googleDocs }),
+      JSON.stringify({
+        word,
+        google_docs: googleDocs,
+        google_docs_copies: googleDocsCopies,
+        google_docs_downloads: googleDocsDownloads,
+        total: word + googleDocs
+      }),
       {
         headers: {
           "Content-Type": "application/json",
@@ -172,6 +198,19 @@ async function handleRequest(request, env) {
     });
   }
 
+  // Google Docs PRIMARY install — "Make a copy" of the maintainer template. Unlike the
+  // two file routes above, this 302-redirects to Google's own Copy dialog (the bound
+  // script travels with the copy); we count the intent-to-copy first so the recommended
+  // path is measured like the Word manifest download. HEAD (link prefetch / health
+  // checks) redirects WITHOUT counting, mirroring the download routes' HEAD handling.
+  if (url.pathname === "/gdocs-copy") {
+    const target = env.GDOCS_COPY_TARGET || DEFAULT_GDOCS_COPY_TARGET;
+    if (request.method !== "HEAD") {
+      await bumpCount(env, GOOGLE_DOCS_COPIES_KEY);
+    }
+    return Response.redirect(target, 302);
+  }
+
   return new Response("Not Found", { status: 404 });
 }
 
@@ -181,6 +220,8 @@ module.exports = {
   readCount,
   COUNTER_KEY,
   GOOGLE_DOCS_KEY,
+  GOOGLE_DOCS_COPIES_KEY,
   DEFAULT_MANIFEST_ORIGIN,
-  DEFAULT_CODE_GS_ORIGIN
+  DEFAULT_CODE_GS_ORIGIN,
+  DEFAULT_GDOCS_COPY_TARGET
 };

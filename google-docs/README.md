@@ -21,11 +21,12 @@ The fastest install is to **make your own copy of a ready-made template**. The c
 already carries the bound Rostrum script, so a **Rostrum** menu appears in your new
 document after a reload, with nothing to paste and no editor to open.
 
-**[Make your copy of Rostrum](https://docs.google.com/document/d/1DCR2b0sETwjCa_8VOjuEJ7BRatj8PbyPadnyYkhryQw/copy)**
+**[Make your copy of Rostrum](https://rostrum-downloads.rostrum.workers.dev/gdocs-copy)**
 
-This opens Google's own *Copy document* dialog. A copy is a snapshot of this version;
-to move to a newer release later, make a fresh copy from the
-[install page](https://andrewtjin.github.io/rostrum/google-docs.html). The documents
+This link counts an anonymous install click (one integer, exactly like the Word
+download — see *Privacy* below), then opens Google's own *Copy document* dialog. A copy
+is a snapshot of this version; to move to a newer release later, make a fresh copy from
+the [install page](https://andrewtjin.github.io/rostrum/google-docs.html). The documents
 you already have keep working as they are.
 
 > Your **first** Rostrum action asks Google for permission, including an "unverified
@@ -84,11 +85,11 @@ any text character.
 The Rostrum script **sends nothing back** as you use it: no document content, no
 personal data, no usage pings. It works entirely inside your doc and only edits font
 sizes, foreground colors, and style definitions (and removes analytics text when you
-explicitly choose Delete analytics). The *only* anonymous number Rostrum ever counts is the
-one‑time `Code.gs` download, and only if you used the counted link in the Advanced manual install
-(not the template copy), exactly mirroring the Word side. Because the recommended
-install is a copy, which downloads nothing, most Google Docs installs are not
-counted at all. Full disclosure:
+explicitly choose Delete analytics). The *only* anonymous number Rostrum keeps is a
+count of install clicks on this site: the **Make a copy** link above adds one (and the
+Advanced `Code.gs` download adds one too), exactly mirroring the Word side. It is a
+single integer — no IP, no account, no document data — and it counts the click, not
+anything you do afterward. Full disclosure:
 the [privacy page](https://andrewtjin.github.io/rostrum/privacy.html).
 
 ---

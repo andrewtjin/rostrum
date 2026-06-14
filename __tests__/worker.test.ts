@@ -11,7 +11,13 @@
 // branch left untested ships silently green. Every route/path is enumerated.
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { handleRequest, COUNTER_KEY, GOOGLE_DOCS_KEY } = require("../worker/src/handler.js");
+const {
+  handleRequest,
+  COUNTER_KEY,
+  GOOGLE_DOCS_KEY,
+  GOOGLE_DOCS_COPIES_KEY,
+  DEFAULT_GDOCS_COPY_TARGET
+} = require("../worker/src/handler.js");
 
 /**
  * A Map-backed stand-in for a Cloudflare KV namespace (get/put only).
@@ -24,6 +30,7 @@ function makeEnv(opts: { failPut?: boolean; failGet?: boolean; failGetKey?: stri
   return {
     MANIFEST_ORIGIN: "https://example.test/manifest.xml",
     CODE_GS_ORIGIN: "https://example.test/google-docs/Code.gs",
+    GDOCS_COPY_TARGET: "https://docs.google.com/document/d/TEST_TEMPLATE_DOC/copy",
     COUNTER: {
       get: (k: string) =>
         opts.failGet || (opts.failGetKey && k === opts.failGetKey)
@@ -185,51 +192,147 @@ describe("download-counter Worker", () => {
     expect(env._store.get(GOOGLE_DOCS_KEY)).toBe("1"); // google_docs tally unchanged by a Word hit
   });
 
+  // ---- Google Docs PRIMARY install: /gdocs-copy (counted redirect) --------
+  test("GET /gdocs-copy counts the template-copy click then 302-redirects to the configured Copy dialog", async () => {
+    const env = makeEnv();
+
+    const res = await handleRequest(GET("/gdocs-copy"), env);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(env.GDOCS_COPY_TARGET);
+    expect(env._store.get(GOOGLE_DOCS_COPIES_KEY)).toBe("1"); // intent-to-copy tallied
+  });
+
+  test("/gdocs-copy counts RAW clicks — every hit increments (no dedup), like the download routes", async () => {
+    const env = makeEnv();
+    await handleRequest(GET("/gdocs-copy"), env);
+    await handleRequest(GET("/gdocs-copy"), env);
+    expect(env._store.get(GOOGLE_DOCS_COPIES_KEY)).toBe("2");
+  });
+
+  test("HEAD /gdocs-copy redirects but does NOT count (link prefetch / health checks)", async () => {
+    const env = makeEnv();
+
+    const res = await handleRequest(new Request("https://w.test/gdocs-copy", { method: "HEAD" }), env);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(env.GDOCS_COPY_TARGET);
+    expect(env._store.get(GOOGLE_DOCS_COPIES_KEY)).toBeUndefined(); // not counted
+  });
+
+  test("/gdocs-copy KV put failure must NOT break the redirect", async () => {
+    const env = makeEnv({ failPut: true });
+
+    const res = await handleRequest(GET("/gdocs-copy"), env);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(env.GDOCS_COPY_TARGET);
+  });
+
+  test("/gdocs-copy falls back to DEFAULT_GDOCS_COPY_TARGET when the env var is unset", async () => {
+    const env = makeEnv();
+    delete env.GDOCS_COPY_TARGET; // simulate a deploy that didn't set the var
+
+    const res = await handleRequest(GET("/gdocs-copy"), env);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(DEFAULT_GDOCS_COPY_TARGET);
+    // The hard-coded default is a real Google Docs /copy URL (the live template),
+    // so even a var-less deploy still lands users on the Copy dialog.
+    expect(DEFAULT_GDOCS_COPY_TARGET).toMatch(
+      /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]{25,}\/copy$/
+    );
+  });
+
+  test("the copy counter is INDEPENDENT — /gdocs-copy never touches the Word or Code.gs tallies", async () => {
+    const env = makeEnv();
+
+    await handleRequest(GET("/gdocs-copy"), env);
+
+    expect(env._store.get(GOOGLE_DOCS_COPIES_KEY)).toBe("1");
+    expect(env._store.get(COUNTER_KEY)).toBeUndefined(); // Word tally untouched
+    expect(env._store.get(GOOGLE_DOCS_KEY)).toBeUndefined(); // Advanced-download tally untouched
+  });
+
   // ---- /count: the unified cross-platform read ----------------------------
-  test("GET /count returns both per-surface tallies plus the unified total (CORS-open)", async () => {
+  test("GET /count returns every tally, google_docs = copies + downloads, plus the unified total (CORS-open)", async () => {
     const env = makeEnv();
     env._store.set(COUNTER_KEY, "42");
-    env._store.set(GOOGLE_DOCS_KEY, "8");
+    env._store.set(GOOGLE_DOCS_KEY, "8"); // Advanced Code.gs downloads
+    env._store.set(GOOGLE_DOCS_COPIES_KEY, "30"); // primary template copies
 
     const res = await handleRequest(GET("/count"), env);
 
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    expect(await res.json()).toEqual({ word: 42, google_docs: 8, total: 50 });
+    // google_docs is the apples-to-apples install number (copies + downloads = 38);
+    // total = word + google_docs = 80. The two breakdown fields expose the split.
+    expect(await res.json()).toEqual({
+      word: 42,
+      google_docs: 38,
+      google_docs_copies: 30,
+      google_docs_downloads: 8,
+      total: 80
+    });
   });
 
   test("GET /count is all-zero when never set", async () => {
     const res = await handleRequest(GET("/count"), makeEnv());
-    expect(await res.json()).toEqual({ word: 0, google_docs: 0, total: 0 });
+    expect(await res.json()).toEqual({
+      word: 0,
+      google_docs: 0,
+      google_docs_copies: 0,
+      google_docs_downloads: 0,
+      total: 0
+    });
   });
 
-  test("total == word + google_docs for arbitrary values", async () => {
+  test("invariants hold for arbitrary values: google_docs == copies + downloads, total == word + google_docs", async () => {
     const env = makeEnv();
     env._store.set(COUNTER_KEY, "1000");
-    env._store.set(GOOGLE_DOCS_KEY, "337");
+    env._store.set(GOOGLE_DOCS_KEY, "337"); // Advanced downloads
+    env._store.set(GOOGLE_DOCS_COPIES_KEY, "1200"); // template copies
     const body = (await (await handleRequest(GET("/count"), env)).json()) as {
       word: number;
       google_docs: number;
+      google_docs_copies: number;
+      google_docs_downloads: number;
       total: number;
     };
+    expect(body.google_docs).toBe(body.google_docs_copies + body.google_docs_downloads);
     expect(body.total).toBe(body.word + body.google_docs);
   });
 
-  test("KV get failure on /count degrades BOTH counters to 0, never throws", async () => {
+  test("KV get failure on /count degrades ALL counters to 0, never throws", async () => {
     const res = await handleRequest(GET("/count"), makeEnv({ failGet: true }));
-    expect(await res.json()).toEqual({ word: 0, google_docs: 0, total: 0 });
+    expect(await res.json()).toEqual({
+      word: 0,
+      google_docs: 0,
+      google_docs_copies: 0,
+      google_docs_downloads: 0,
+      total: 0
+    });
   });
 
-  test("/count degrades PER KEY — one counter readable, the other down → total never NaN", async () => {
-    const env = makeEnv({ failGetKey: GOOGLE_DOCS_KEY }); // google_docs read throws, word read fine
+  test("/count degrades PER KEY — the downloads read is down but copies + word survive → total never NaN", async () => {
+    const env = makeEnv({ failGetKey: GOOGLE_DOCS_KEY }); // Advanced-downloads read throws; the others read fine
     env._store.set(COUNTER_KEY, "5");
+    env._store.set(GOOGLE_DOCS_COPIES_KEY, "9"); // template copies survive the downloads-key outage
 
     const res = await handleRequest(GET("/count"), env);
-    const body = (await res.json()) as { word: number; google_docs: number; total: number };
+    const body = (await res.json()) as {
+      word: number;
+      google_docs: number;
+      google_docs_copies: number;
+      google_docs_downloads: number;
+      total: number;
+    };
 
     expect(body.word).toBe(5);
-    expect(body.google_docs).toBe(0); // degraded independently
-    expect(body.total).toBe(5); // 5 + 0, deterministic — not NaN
+    expect(body.google_docs_downloads).toBe(0); // degraded independently
+    expect(body.google_docs_copies).toBe(9); // unaffected by the other key's outage
+    expect(body.google_docs).toBe(9); // 0 + 9
+    expect(body.total).toBe(14); // 5 + 9, deterministic — not NaN
     expect(Number.isNaN(body.total)).toBe(false);
   });
 

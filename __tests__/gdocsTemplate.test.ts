@@ -4,11 +4,12 @@
 // WHAT IS PROVEN HERE (and, just as importantly, what is NOT):
 //   A. the committed google-docs/template.descriptor.json matches a fresh build
 //      — so the attestation can never silently fall behind a Code.gs change;
-//   B. the install page's hero "Make a copy" link is a well-formed
-//      docs.google.com `.../copy` URL;
-//   C. that same link is a REAL doc id, not the release placeholder (this one is
-//      EXPECTED TO FAIL until the real template doc id is wired — it is the
-//      deliberate dead-CTA deploy guard, see its comment);
+//   B. the install page hero + README "Make a copy" links point at the Worker's
+//      counted /gdocs-copy redirect (so the recommended install is measured, like
+//      the Word manifest download — Loop 006);
+//   C. the Worker's copy target (wrangler.toml + handler.js, which must agree) is a
+//      REAL docs.google.com `.../copy` URL, not a release placeholder — the dead-CTA
+//      guard, relocated to where the template doc id now lives;
 //   D. the built Code.gs makes no network call — backing the "sends nothing
 //      back" privacy promise the new install page leans on.
 //
@@ -29,6 +30,14 @@ import * as os from "os";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { GDOCS_VERSION } from "../google-docs/src/core/constants";
+
+// The Worker's hard-coded fallback copy target — the redirect destination behind the
+// hero CTA. require()d directly (handler.js is CommonJS, exactly how worker.test.ts
+// loads it) so the relocated dead-CTA guard checks the SAME value the Worker ships.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { DEFAULT_GDOCS_COPY_TARGET } = require("../worker/src/handler.js") as {
+  DEFAULT_GDOCS_COPY_TARGET: string;
+};
 
 // ---------------------------------------------------------------------------
 // Child-process driver for tools/build-gdocs.mjs (origin: gdocsBuild.test.ts).
@@ -109,11 +118,18 @@ function callBuild(fnName: string, ...args: unknown[]): unknown {
 const DESCRIPTOR_PATH = path.resolve(__dirname, "../google-docs/template.descriptor.json");
 const INSTALL_PAGE_PATH = path.resolve(__dirname, "../site/google-docs.html");
 const README_PATH = path.resolve(__dirname, "../google-docs/README.md");
+const WRANGLER_PATH = path.resolve(__dirname, "../worker/wrangler.toml");
 
-/** The canonical placeholder that site/google-docs.html and google-docs/README.md
- * both ship in the copy href until a human wires the real template doc id at
- * release. Defined once so the dead-CTA guard is anchored to ONE string instead
- * of magic substrings scattered through assertions. */
+/** The counted-redirect endpoint the install page + README point at for "Make a
+ * copy": the Worker (worker/src/handler.js) counts the click, then 302-redirects to
+ * the template's Copy dialog. Anchored once so the two surfaces can't drift. */
+const WORKER_COPY_ROUTE = "https://rostrum-downloads.rostrum.workers.dev/gdocs-copy";
+
+/** The canonical placeholder a Worker copy target would carry if a maintainer wired
+ * the template before creating the Doc. Since Loop 006 the site's copy href is a fixed
+ * /gdocs-copy route and the doc id lives in the Worker (wrangler.toml + handler.js), so
+ * this guards THOSE values. Defined once so the dead-CTA guard is anchored to ONE
+ * string instead of magic substrings scattered through assertions. */
 const TEMPLATE_DOC_ID_SENTINEL = "REPLACE_WITH_TEMPLATE_DOC_ID";
 
 /** Lowercase sha256 hex of a buffer/string — the descriptor's hash convention
@@ -124,13 +140,13 @@ function sha256(data: Buffer | string): string {
 
 /**
  * Extract the hero "Make a copy" CTA href from the install page. The hero anchor
- * carries class="cta"; we select the one whose href is a docs.google.com link
- * (the page may grow secondary CTAs — word.html already has two — so "the cta
- * anchor" is matched by ITS destination, not by being the only one). Throws a
- * diagnosable error if no such anchor exists, so a missing hero fails loudly
- * here rather than yielding a misleading "" that silently passes a weak regex.
+ * carries class="cta"; google-docs.html has exactly one (the Advanced download uses
+ * .button-link, not .cta). We return that single href and let the caller assert it is
+ * the counted /gdocs-copy route. Throws a diagnosable error if zero or more than one
+ * cta anchor exists, so a missing/duplicated hero fails loudly here rather than
+ * yielding a misleading "" that silently passes a weak assertion.
  */
-function heroCopyHref(html: string): string {
+function heroCtaHref(html: string): string {
   // Walk every <a …class="cta"…> anchor and read its href attribute. A tolerant
   // attribute scan (class and href in either order, single or double quotes)
   // keeps this robust to harmless markup reshuffles on the install page.
@@ -141,20 +157,27 @@ function heroCopyHref(html: string): string {
     const hrefMatch = /\bhref\s*=\s*["']([^"']*)["']/i.exec(m[0]);
     if (hrefMatch) hrefs.push(hrefMatch[1]);
   }
-  const docsHrefs = hrefs.filter((h) => /docs\.google\.com/i.test(h));
-  if (docsHrefs.length === 0) {
+  if (hrefs.length === 0) {
+    throw new Error(`no hero CTA (<a class="cta">) found in site/google-docs.html`);
+  }
+  if (hrefs.length > 1) {
     throw new Error(
-      `no hero copy CTA found in site/google-docs.html — expected an <a class="cta"> whose ` +
-        `href points at docs.google.com (found ${hrefs.length} cta anchor(s): ${JSON.stringify(hrefs)})`
+      `multiple cta anchors in site/google-docs.html — expected exactly one hero CTA: ${JSON.stringify(hrefs)}`
     );
   }
-  if (docsHrefs.length > 1) {
-    throw new Error(
-      `multiple docs.google.com cta anchors in site/google-docs.html — expected exactly one hero ` +
-        `copy link: ${JSON.stringify(docsHrefs)}`
-    );
-  }
-  return docsHrefs[0];
+  return hrefs[0];
+}
+
+/**
+ * Read the deployed copy target (GDOCS_COPY_TARGET) out of worker/wrangler.toml — the
+ * value the live Worker actually 302-redirects to. Throws if absent so a missing var
+ * fails loudly. (A line-anchored regex, not a TOML parser: one scalar string, no deps.)
+ */
+function wranglerCopyTarget(): string {
+  const toml = fs.readFileSync(WRANGLER_PATH, "utf8");
+  const m = /^\s*GDOCS_COPY_TARGET\s*=\s*"([^"]+)"/m.exec(toml);
+  if (!m) throw new Error("GDOCS_COPY_TARGET not found in worker/wrangler.toml");
+  return m[1];
 }
 
 // ---------------------------------------------------------------------------
@@ -226,36 +249,61 @@ describe("README version literal", () => {
 // Tests B + C — the install-page hero copy link.
 // ---------------------------------------------------------------------------
 
-describe("install-page hero copy link", () => {
-  it("is a well-formed template /copy URL", () => {
-    // WHY: the entire install path is "click this link, then File > Make a copy".
-    // If the hero href is not a docs.google.com `.../copy` URL, the primary CTA
-    // does not open the Copy dialog and the page is broken for every visitor.
+describe("install-page + README copy link → the counted /gdocs-copy redirect", () => {
+  it("the hero CTA points at the Worker's /gdocs-copy route (not Google directly)", () => {
+    // WHY: the primary install is "click this, then make a copy". Routing the click
+    // through the Worker's /gdocs-copy is what makes the recommended install COUNTED
+    // (anonymously, like the Word manifest download — the whole point of Loop 006). If
+    // the hero pointed straight at docs.google.com the copy would be invisible to the
+    // counter. The Worker then 302-redirects to the real template Copy dialog.
     const html = fs.readFileSync(INSTALL_PAGE_PATH, "utf8");
-    const href = heroCopyHref(html);
-    // The id class requires >=25 chars: real Google doc ids are ~44 chars of
-    // [A-Za-z0-9_-], so this floor rejects short fake placeholders (TODO,
-    // xxxxxxxx, YOUR_DOC_ID_HERE) that a bare "+" would wave through.
-    expect(href).toMatch(/^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]{25,}\/copy$/);
+    expect(heroCtaHref(html)).toBe(WORKER_COPY_ROUTE);
   });
 
-  it("is a real doc id, not a release placeholder", () => {
-    // WHY: push-to-master DEPLOYS the install page. A placeholder doc id would
-    // ship a DEAD primary CTA to production. This is the deliberate dead-CTA
-    // deploy guard.
-    //
-    // EXPECTED TO FAIL until the real template doc id is wired at release: the
-    // hero href ships a REPLACE_WITH_TEMPLATE_DOC_ID sentinel on purpose, and
-    // this red is the signal that the id is still un-wired. It is written as a
-    // normal assertion (NOT .skip/.todo) precisely so it stays loud — the suite
-    // must not go green until a human swaps in the live doc id.
-    const html = fs.readFileSync(INSTALL_PAGE_PATH, "utf8");
-    const href = heroCopyHref(html);
-    // Primary: the exact canonical sentinel the page ships until release.
-    expect(href).not.toContain(TEMPLATE_DOC_ID_SENTINEL);
-    // Belt-and-suspenders: reject any obviously-placeholder id wording too, so a
-    // future reworded sentinel cannot slip a dead CTA past the line above.
-    const idSeg = /\/document\/d\/([^/]+)\/copy/.exec(href)?.[1] ?? "";
+  it("the README copy link uses the same /gdocs-copy route", () => {
+    // The user-facing README must route through the same counted endpoint, or installs
+    // that start from GitHub go uncounted and the two surfaces drift apart.
+    const readme = fs.readFileSync(README_PATH, "utf8");
+    expect(readme).toContain(WORKER_COPY_ROUTE);
+  });
+});
+
+describe("Worker copy target — the relocated dead-CTA guard", () => {
+  // The doc id moved off the install page (which now links to /gdocs-copy) and onto the
+  // WORKER, which holds the redirect destination in two places that must agree:
+  // wrangler.toml's GDOCS_COPY_TARGET (the deployed value) and handler.js's
+  // DEFAULT_GDOCS_COPY_TARGET (the in-code fallback). The dead-CTA risk relocated with
+  // it — a placeholder in EITHER would 302 users to a broken page — so these guards
+  // keep both a real /copy URL AND identical, so neither a committed placeholder nor a
+  // silent drift between the two layers can ship.
+  //
+  // The id class requires >=25 chars: real Google doc ids are ~44 chars of
+  // [A-Za-z0-9_-], so this floor rejects short fake placeholders (TODO, xxxxxxxx,
+  // YOUR_DOC_ID_HERE) that a looser pattern would wave through.
+  const COPY_URL_RE = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]{25,}\/copy$/;
+
+  it("wrangler.toml GDOCS_COPY_TARGET is a well-formed template /copy URL", () => {
+    expect(wranglerCopyTarget()).toMatch(COPY_URL_RE);
+  });
+
+  it("handler.js DEFAULT_GDOCS_COPY_TARGET is a well-formed template /copy URL", () => {
+    expect(DEFAULT_GDOCS_COPY_TARGET).toMatch(COPY_URL_RE);
+  });
+
+  it("the deployed var and the in-code default agree (no silent drift)", () => {
+    // If they diverge, prod uses the var while the fallback rots — assert equality so a
+    // template-id change must update both layers in the same commit.
+    expect(wranglerCopyTarget()).toBe(DEFAULT_GDOCS_COPY_TARGET);
+  });
+
+  it("the copy target is a real doc id, not a release placeholder", () => {
+    // WHY: a placeholder doc id would 302 every visitor to a dead page. This is the
+    // deliberate dead-CTA guard, relocated from the install page to the Worker target.
+    const target = wranglerCopyTarget();
+    expect(target).not.toContain(TEMPLATE_DOC_ID_SENTINEL);
+    // Belt-and-suspenders: reject any obviously-placeholder id wording too, so a future
+    // reworded sentinel cannot slip a dead CTA past the line above.
+    const idSeg = /\/document\/d\/([^/]+)\/copy/.exec(target)?.[1] ?? "";
     expect(idSeg).not.toMatch(/REPLACE|TEMPLATE|PENDING|TODO|YOUR|EXAMPLE|SAMPLE|PLACEHOLDER|XXX/i);
   });
 });
