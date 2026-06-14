@@ -25,12 +25,20 @@ const {
  * - failGetKey models a SINGLE key's get rejecting while the other succeeds —
  *   needed to prove /count degrades each counter independently (never NaN).
  */
-function makeEnv(opts: { failPut?: boolean; failGet?: boolean; failGetKey?: string } = {}) {
+function makeEnv(
+  opts: { failPut?: boolean; failGet?: boolean; failGetKey?: string; omitCopyTarget?: boolean } = {}
+) {
   const store = new Map<string, string>();
   return {
     MANIFEST_ORIGIN: "https://example.test/manifest.xml",
     CODE_GS_ORIGIN: "https://example.test/google-docs/Code.gs",
-    GDOCS_COPY_TARGET: "https://docs.google.com/document/d/TEST_TEMPLATE_DOC/copy",
+    // Conditionally present so a test can model a deploy that never set the var — the
+    // route then falls back to handler.js's DEFAULT_GDOCS_COPY_TARGET. (A conditional
+    // spread, not a later `delete`, keeps the property statically optional under
+    // strict tsc, which the root `npm run typecheck` enforces.)
+    ...(opts.omitCopyTarget
+      ? {}
+      : { GDOCS_COPY_TARGET: "https://docs.google.com/document/d/TEST_TEMPLATE_DOC/copy" }),
     COUNTER: {
       get: (k: string) =>
         opts.failGet || (opts.failGetKey && k === opts.failGetKey)
@@ -230,8 +238,7 @@ describe("download-counter Worker", () => {
   });
 
   test("/gdocs-copy falls back to DEFAULT_GDOCS_COPY_TARGET when the env var is unset", async () => {
-    const env = makeEnv();
-    delete env.GDOCS_COPY_TARGET; // simulate a deploy that didn't set the var
+    const env = makeEnv({ omitCopyTarget: true }); // a deploy that didn't set the var
 
     const res = await handleRequest(GET("/gdocs-copy"), env);
 
