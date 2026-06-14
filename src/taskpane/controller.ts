@@ -290,6 +290,15 @@ export class RostrumController {
    *     BOTH sizing is unsupported AND no cites were repaired (nothing useful happened).
    */
   async applyStyles(): Promise<OpOutcome> {
+    // Re-entrancy guard (002-F8): refuse a SECOND concurrent op while one is in flight. B1's
+    // node-direct Hide keeps a parsed, partially-mutated DOM in the port's `lastRead.pkg` across the
+    // read→commit window; a second op interleaving there could land on the first's primed/half-mutated
+    // state — the half-mutated-package losslessness exposure (002-F1/F4). Setting `inFlight` alone
+    // (below) does NOT prevent that — only CHECKING it before starting does. We surface the block via
+    // the same `status:"error"` "still running" channel the sibling CondenseController already uses
+    // (runRangeOp), so the ribbon/pane render the existing kept-open pop-out (S-009) with no new UI.
+    const blocked = this.blockedIfInFlight();
+    if (blocked) return blocked;
     this.resetCancel();
     this.inFlight = true;
     const t0 = this.now();
@@ -364,12 +373,32 @@ export class RostrumController {
     }
   }
 
+  /**
+   * Blocked outcome when an op is already in flight, else null. The `inFlight` flag is set
+   * SYNCHRONOUSLY at the top of every op (before the first `await`), so a second op invoked while the
+   * first is still running observes it `true` and is refused here — no second concurrent mutation is
+   * ever started (002-F8). The message + `status:"error"` match CondenseController.runRangeOp verbatim
+   * so a blocked Hide surfaces through the EXISTING completion channel (toResult → kept-open pop-out),
+   * not a new UI. Behavior-neutral for the normal single-op path (a lone Hide never sees `inFlight`).
+   */
+  private blockedIfInFlight(): OpOutcome | null {
+    if (this.inFlight) {
+      return { status: "error", message: "Another Rostrum operation is still running — let it finish first." };
+    }
+    return null;
+  }
+
   /** Shared mutation runner: timing, cancel reset, and outcome translation. */
   private async runMutation(
     label: string,
     op: () => Promise<unknown>,
     onSuccess: () => void
   ): Promise<OpOutcome> {
+    // Re-entrancy guard (002-F8): a second mutation must NOT start while one is in flight — it could
+    // land on the first op's primed/half-mutated `lastRead.pkg` (the losslessness exposure B1 widens).
+    // CHECK before we SET, so the second Hide returns blocked having run ZERO engine work.
+    const blocked = this.blockedIfInFlight();
+    if (blocked) return blocked;
     this.resetCancel();
     this.inFlight = true;
     const t0 = this.now();
