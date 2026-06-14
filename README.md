@@ -72,7 +72,7 @@ chart: [how it compares](https://andrewtjin.github.io/rostrum/comparison.html).
 
 ![Hide time vs number of cards in the document, same corpus](assets/bench-cards-vs-time.svg)
 
-> **Status: v0.3.1.0, live.** Two tools (Invisibility Mode and Condense & Shrink)
+> **Status: v0.3.2.0, live.** Two tools (Invisibility Mode and Condense & Shrink)
 > alongside a Settings pane. The production build is hosted on GitHub Pages; install
 > instructions below.
 

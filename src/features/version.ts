@@ -7,7 +7,7 @@
 // revamp, MINOR = a new tool wired, PATCH = in-feature changes + bugfixes (never a suffix).
 
 /** The product semver (mirrors package.json; the first three digits of the Office <Version>). */
-export const PRODUCT_VERSION = "0.3.1";
+export const PRODUCT_VERSION = "0.3.2";
 
 /**
  * The Office manifest's 4th ("revision") digit: bumped ONLY to force Office to re-read ribbon
