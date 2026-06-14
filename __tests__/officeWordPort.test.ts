@@ -738,4 +738,41 @@ describe("read fusion — clean Hide uses 2 Word.runs, was 3 (B2 / 002-S4)", () 
     expect(hiddenFlags(doc.paragraphs[0].xml)).toEqual([true]);
     expect(parseManifestOrNull(doc.manifest!.xml)!.active).toBe(true);
   });
+
+  it("b2-1: the auto-toggle path's committed package carries settings with NO w:trackChanges", async () => {
+    // The discard-and-re-read's PREMISE (S-005): after toggling TC off, the re-read/committed package omits
+    // `w:trackChanges` from its verbatim settings part. Previously UNtested in R1 (the fake had no settings
+    // part at all). Model one that DROPS `w:trackChanges` once tcMode flips to Off, drive the auto-toggle
+    // node-direct Hide, and assert the committed `insertOoxml` package's settings is clean — so a later
+    // re-Hide reading that committed doc would NOT see TC active. (R6 002-S4's TC-on gate is the live confirm.)
+    const doc = mkDoc([para(run("card body"))], "TrackAll", { modelSettings: true });
+    const h = harness(doc);
+
+    // Sanity: the PRIMED read (taken under TC-on) DOES carry `w:trackChanges` — proving the re-read matters.
+    expect(h.ctx.bodyOoxml()).toContain("<w:trackChanges/>");
+
+    // Capture the package handed to the node-direct whole-body commit (the serialized re-read pkg).
+    let committed: string | null = null;
+    const body: any = (h.ctx as any).document.body;
+    const realInsert = body.insertOoxml.bind(body);
+    body.insertOoxml = (xml: string, loc?: string): void => {
+      committed = xml;
+      realInsert(xml, loc);
+    };
+
+    const port = createOfficeWordPort({
+      runner: h.runner,
+      pureWholeBody: true, // node-direct: serializes lastRead.pkg (incl. the verbatim settings part)
+      logger: h.tracer.logger("adapter")
+    });
+    const res = await hide(port, settings(["yellow"]), { autoToggleTrackChanges: true });
+
+    expect(res.trackChangesToggled).toBe(true);
+    expect(committed).not.toBeNull();
+    // The committed package STILL carries a settings part (verbatim carry, A2), but with NO w:trackChanges:
+    // it was serialized from the post-toggle re-read taken with TC off.
+    expect(committed!).toContain(`pkg:name="/word/settings.xml"`);
+    expect(committed!).not.toContain("<w:trackChanges/>");
+    expect(committed!).not.toContain("w:trackChanges");
+  });
 });

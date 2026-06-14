@@ -581,11 +581,52 @@ function styleRefVal(inner: string, tag: string): string | null {
   return m ? m[1] : null;
 }
 
+/** One `<w:style>` element located in a styles part: its full source span plus its parsed open-tag/inner. */
+interface StyleSpan {
+  /** styleId of this element, or null when the `<w:style>` carries no `w:styleId` (un-referenceable). */
+  id: string | null;
+  /** The element's verbatim source bytes — paired `<w:style …>…</w:style>` OR self-closing `<w:style …/>`. */
+  span: string;
+  /** The open-tag attribute text (where `w:default`/`w:type`/`w:styleId` live). */
+  openAttrs: string;
+  /** The inner XML between the open and close tags ("" for a self-closing element — it has no children). */
+  inner: string;
+}
+
 /**
- * Parse the styles part into `styleId → StyleRefs` plus the set of `w:default="1"` styleIds. Regex over
- * each `<w:style>` element (same matcher shape as `parseStyleDefs`), so it sees exactly the styles the
- * resolver sees. A style with no cross-references still gets an (all-null) entry so the closure walk can
- * terminate cleanly at it.
+ * Iterate EVERY `<w:style>` element in a styles part, in source order, matching BOTH forms a producer can
+ * emit: the self-closing `<w:style …/>` (no children — e.g. a bare default/latent reference) AND the
+ * paired `<w:style …>…</w:style>`. Each element is keyed on its OWN `w:styleId` so a self-closing style
+ * can never fuse with the next paired one (the loss-2/reg-2 corruption: the old paired-only regex skipped
+ * over a `<w:style …/>` and let an in-closure style be dropped).
+ *
+ * SINGLE SOURCE OF TRUTH: both `parseStyleGraph` (the indexed-id set) and `pruneStylesXml` (the spanned-
+ * element set) walk styles through THIS iterator, so the two sets are IDENTICAL by construction — there is
+ * no second regex to drift (the `stylesPrune` self-test asserts this agreement, incl. self-closing). Aligns
+ * with `outline.ts parseStyleDefs`'s paired matcher and additionally covers the self-closing form.
+ *
+ * The regex tries the self-closing alternative FIRST (`\/\s*>`) so a `<w:style …/>` is never mis-read as the
+ * open tag of a paired element. `w:styleId` is captured attribute-order-tolerantly (it need not be first).
+ */
+function* iterateStyleSpans(stylesXml: string): Generator<StyleSpan> {
+  // Alt 1 (self-closing): `<w:style …/>` — open-tag attrs in group 1, no inner.
+  // Alt 2 (paired):       `<w:style …>…</w:style>` — open-tag attrs in group 2, inner in group 3.
+  const styleRe = /<w:style\b([^>]*?)\/\s*>|<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g;
+  let m: RegExpExecArray | null;
+  while ((m = styleRe.exec(stylesXml)) !== null) {
+    const selfClosing = m[1] !== undefined;
+    const openAttrs = selfClosing ? m[1] : m[2];
+    const inner = selfClosing ? "" : m[3];
+    const idMatch = /\bw:styleId="([^"]+)"/.exec(openAttrs);
+    yield { id: idMatch ? idMatch[1] : null, span: m[0], openAttrs, inner };
+  }
+}
+
+/**
+ * Parse the styles part into `styleId → StyleRefs` plus the set of default styleIds (`w:default` truthy).
+ * Walks the SAME `iterateStyleSpans` iterator `pruneStylesXml` uses, so the indexed-id set equals the
+ * spanned-element set (no drift; self-test enforced). A style with no cross-references still gets an
+ * (all-null) entry so the closure walk can terminate cleanly at it.
  */
 function parseStyleGraph(stylesXml: string): {
   refs: Map<string, StyleRefs>;
@@ -593,16 +634,10 @@ function parseStyleGraph(stylesXml: string): {
 } {
   const refs = new Map<string, StyleRefs>();
   const defaults = new Set<string>();
-  // Capture the style's open tag (group 1) separately from its inner XML (group 2): `w:default` lives
-  // on the open tag, the cross-references live in the inner XML.
-  const styleRe = /<w:style\b([^>]*)\bw:styleId="([^"]+)"([^>]*)>([\s\S]*?)<\/w:style>/g;
-  let m: RegExpExecArray | null;
-  while ((m = styleRe.exec(stylesXml)) !== null) {
-    const openAttrsBefore = m[1];
-    const id = m[2];
-    const openAttrsAfter = m[3];
-    const inner = m[4];
-    if (/\bw:default="(?:1|true)"/.test(openAttrsBefore + openAttrsAfter)) defaults.add(id);
+  for (const { id, openAttrs, inner } of iterateStyleSpans(stylesXml)) {
+    if (id === null) continue; // an un-id'd style can't be referenced or seeded — no graph node for it
+    // `w:default` is ST_OnOff: truthy is any of "1"/"true"/"on" (b3-4 — Word also emits the bare "on").
+    if (/\bw:default="(?:1|true|on)"/.test(openAttrs)) defaults.add(id);
     refs.set(id, {
       basedOn: styleRefVal(inner, "basedOn"),
       link: styleRefVal(inner, "link"),
@@ -626,26 +661,38 @@ function collectStyleValRefs(xml: string, tags: readonly string[]): Set<string> 
 }
 
 /**
- * The content-part style references that SEED the closure: paragraph/character/table style ids cited in
- * document.xml and any footnotes/headers/footers, PLUS the numbering backlinks (a `w:lvl`'s `w:pStyle`
- * and its `w:rPr`'s `w:rStyle` — the verified gap where ndca styles are referenced ONLY through
- * numbering). All three tags are scanned in every content part: numbering's own `w:pStyle`/`w:rStyle`
- * are exactly the backlinks we need, and scanning document.xml for them is harmless (it has them too).
- * Computed POST-splice so a cite-repair-injected net-new `w:rStyle` is included (loss-5).
+ * The content-part style references that SEED the closure — every OOXML element that names a style by
+ * `w:val` from OUTSIDE a `<w:style>` definition:
+ *   * `pStyle` / `rStyle` — paragraph/character style cites in document.xml, footnotes/endnotes, headers/
+ *     footers, AND numbering's `w:lvl` backlinks (the `w:lvl`'s own `w:pStyle` and its `w:rPr`'s `w:rStyle`
+ *     — the verified ndca gap where a style is referenced ONLY through numbering).
+ *   * `tblStyle` — a `<w:tbl>`'s applied table style (its conditional `<w:tblStylePr>` formatting lives
+ *     INSIDE the style def, so it is NOT a ref — verified: that is a child of `<w:style>`, walked as inner
+ *     bytes, never seeded here).
+ *   * `clickAndTypeStyle` — settings.xml's `<w:clickAndTypeStyle w:val>`: the paragraph style Word applies
+ *     when the user click-and-types into empty body space (reg-1). It is the ONLY style ref that lives in
+ *     settings.xml, so settings.xml is added to `isStyleReferencingPart` to be scanned for it.
+ * Scanning every tag in every content part is harmless (a part lacking a tag just yields no matches) and is
+ * computed POST-splice so a cite-repair-injected net-new `w:rStyle` is included (loss-5).
+ *
+ * DELIBERATELY EXCLUDED (audited, not refs that would drop a needed style): `<w:pPrChange>`/`<w:rPrChange>`
+ * carry FORMATTING snapshots (`<w:pPr>`/`<w:rPr>`), not a `pStyle`/`rStyle` `w:val` of their own beyond the
+ * nested ones our `pStyle`/`rStyle` scan already catches; glossary/`docPart` content lives in a SEPARATE
+ * part (glossary/document.xml) with its OWN styles part, not this one, so it cannot reference these styles.
  */
-const CONTENT_STYLE_REF_TAGS = ["pStyle", "rStyle", "tblStyle"] as const;
+const CONTENT_STYLE_REF_TAGS = ["pStyle", "rStyle", "tblStyle", "clickAndTypeStyle"] as const;
 
 /**
  * True when a non-document, non-styles part can carry style REFERENCES that must seed the closure:
- * `numbering.xml` (the `w:lvl` backlinks — the verified ndca gap), and the auxiliary story parts
- * `footnotes` / `endnotes` / `header*` / `footer*` (their `<w:p>`/`<w:r>` cite styles the same way
- * the body does). Recognized by part NAME (Word's conventional `/word/<name>.xml`) — the durable,
- * cheap signal. `settings`/`theme`/`fontTable`/rels parts carry no `w:pStyle`/`w:rStyle`, so excluding
- * them keeps the seed scan tight (and harmless if a stray ref ever appeared — it would only RETAIN
- * more, never drop a needed style).
+ * `numbering.xml` (the `w:lvl` backlinks — the verified ndca gap), the auxiliary story parts
+ * `footnotes` / `endnotes` / `header*` / `footer*` (their `<w:p>`/`<w:r>` cite styles the same way the
+ * body does), AND `settings.xml` (its `<w:clickAndTypeStyle w:val>` paragraph-style ref — reg-1). Recognized
+ * by part NAME (Word's conventional `/word/<name>.xml`) — the durable, cheap signal. `theme`/`fontTable`/
+ * rels parts carry NO style `w:val` ref (audited), so excluding them keeps the seed scan tight (and is
+ * harmless if a stray ref ever appeared — a wider seed only RETAINS more, never drops a needed style).
  */
 function isStyleReferencingPart(part: PackagePart): boolean {
-  return /\/word\/(numbering|footnotes|endnotes|header\d*|footer\d*)\.xml$/.test(part.name);
+  return /\/word\/(numbering|footnotes|endnotes|header\d*|footer\d*|settings)\.xml$/.test(part.name);
 }
 
 /**
@@ -693,27 +740,46 @@ function expandStyleClosure(seeds: Iterable<string>, refs: Map<string, StyleRefs
 /**
  * Re-emit a `<w:styles>` part keeping ONLY the `<w:style>` children whose styleId is in `keep`, with
  * every NON-`<w:style>` byte (the `<w:styles …>` root open tag + its attrs/namespaces, `docDefaults`,
- * `latentStyles`, inter-element whitespace, the `</w:styles>` close) preserved VERBATIM. Works by
- * walking the part as a string: each `<w:style …>…</w:style>` span is dropped unless its id is kept;
- * everything between/around the style spans is copied byte-for-byte. A `<w:style>` with no styleId is
- * always kept (it can't be referenced, so dropping it could change rendering — be conservative).
+ * `latentStyles`, inter-element whitespace, the `</w:styles>` close) preserved VERBATIM. Walks the part
+ * via the SAME `iterateStyleSpans` iterator `parseStyleGraph` uses (so the dropped-element set matches the
+ * indexed-id set exactly — self-closing `<w:style …/>` and paired `<w:style …>…</w:style>` are both
+ * handled, each keyed on its OWN styleId; the old paired-only regex skipped over self-closing styles and
+ * could fuse one into the next, dropping an in-closure style — loss-2/reg-2). Each kept span is COPIED by
+ * substring offset (`stylesXml.slice`), never via `String.replace`, so a style whose bytes contain `$`
+ * is dollar-safe by construction. A `<w:style>` with no styleId is always kept (it can't be referenced, so
+ * dropping it could change rendering — be conservative).
  */
 function pruneStylesXml(stylesXml: string, keep: Set<string>): string {
-  const styleRe = /<w:style\b[^>]*?>[\s\S]*?<\/w:style>/g;
   let out = "";
   let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = styleRe.exec(stylesXml)) !== null) {
+  for (const { id, span } of iterateStyleSpans(stylesXml)) {
+    const index = stylesXml.indexOf(span, last); // each span's offset (in order — `last` advances monotonically)
     // Copy the verbatim bytes BEFORE this style element (root open tag, docDefaults, whitespace, …).
-    out += stylesXml.slice(last, m.index);
-    const span = m[0];
-    const idMatch = /\bw:styleId="([^"]+)"/.exec(span);
-    const id = idMatch ? idMatch[1] : null;
+    out += stylesXml.slice(last, index);
     if (id === null || keep.has(id)) out += span; // keep retained (or unidentifiable) styles verbatim
-    last = m.index + span.length;
+    last = index + span.length;
   }
   out += stylesXml.slice(last); // the verbatim tail (latentStyles, </w:styles>, …)
   return out;
+}
+
+/**
+ * TEST-ONLY: the two id-sets that MUST agree for the prune to be sound (FIX-2 / 002-F11). `graphIds` is the
+ * set `parseStyleGraph` indexes (the closure graph's nodes); `spanIds` is the set of styleIds whose
+ * `<w:style>` SPANS `pruneStylesXml` would drop/keep. If they ever diverge, an in-closure style could be
+ * indexed-but-never-spanned (silently retained-as-dead) or spanned-but-never-indexed (dropped despite being
+ * reachable). Both now walk the SAME `iterateStyleSpans` iterator, so they are identical by construction —
+ * this helper lets a unit test PROVE that, including for self-closing `<w:style …/>` elements. Underscore-
+ * prefixed so it reads as internal; not part of the public package surface.
+ */
+export function __styleMatcherAgreementForTest(stylesXml: string): {
+  graphIds: Set<string>;
+  spanIds: Set<string>;
+} {
+  const { refs } = parseStyleGraph(stylesXml);
+  const spanIds = new Set<string>();
+  for (const { id } of iterateStyleSpans(stylesXml)) if (id !== null) spanIds.add(id);
+  return { graphIds: new Set(refs.keys()), spanIds };
 }
 
 // ---------------------------------------------------------------------------
@@ -1296,7 +1362,13 @@ export class WholeBodyPackage {
     // REPLACE the captured substrings so `serialize()`'s in-order stitch emits the shrunk part. We swap
     // the `xmlData` inside the part's `full` wrapper, leaving the `<pkg:part …><pkg:xmlData>` head and
     // `</pkg:xmlData></pkg:part>` tail byte-identical (only the styles XML between them changes).
-    const newFull = stylesPart.full.replace(stylesXml, pruned);
+    //
+    // DOLLAR-SAFE (loss-1): pass `pruned` through a replacement FUNCTION, not as a replacement STRING.
+    // `String.prototype.replace` interprets `$&`/`$1`/`$$`/`$\`` in a replacement STRING, so a retained
+    // style whose name/bytes contain `$` (e.g. `<w:name w:val="Price $1"/>`) would corrupt the spliced
+    // part. A function replacement returns its value verbatim — no `$` substitution. The search arg is the
+    // literal `stylesXml` string (not a regex), so it matches the one exact occurrence inside `full`.
+    const newFull = stylesPart.full.replace(stylesXml, () => pruned);
     this.segments.parts[this.stylesPartIndex] = { ...stylesPart, full: newFull, xmlData: pruned };
     return stylesXml.length - pruned.length;
   }

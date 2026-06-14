@@ -15,12 +15,13 @@
 // All style XML here is invented (no real debate content). The closure rules under test are the
 // OOXML style cross-references basedOn / link (both directions) / next / numStyleLink / styleLink.
 
-import { WholeBodyPackage } from "../src/core/ooxmlPackage";
+import { WholeBodyPackage, __styleMatcherAgreementForTest } from "../src/core/ooxmlPackage";
 import { parseStyleDefs } from "../src/core/outline";
 import { createOfficeWordPort } from "../src/core/officeWordPort";
 import { hide } from "../src/core/invisibility";
 import { mkDoc, para, run, harness, settings } from "./fakeWord";
 import { ALL_FIXTURES } from "./fixtures/engine";
+import { discoverSamples, readDocxParts } from "./realDocs";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const PKG = "http://schemas.microsoft.com/office/2006/xmlPackage";
@@ -28,18 +29,32 @@ const STYLES_CT = "application/vnd.openxmlformats-officedocument.wordprocessingm
 const NUMBERING_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
 const DOC_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
 
-/** A single `<w:style>` element with the given id and inner cross-reference children. */
-function style(id: string, opts: { type?: string; default?: boolean; inner?: string } = {}): string {
+/**
+ * A single `<w:style>` element with the given id. PAIRED by default (`<w:style …>…</w:style>`); pass
+ * `selfClosing: true` for a childless `<w:style …/>` (the self-closing form the loss-2/reg-2 fixtures
+ * exercise). `name` overrides the `<w:name w:val>` text (used by the `$`-bearing-name dollar-safe fixture);
+ * a self-closing element has NO children, so `name`/`inner` are ignored there.
+ */
+function style(
+  id: string,
+  opts: { type?: string; default?: boolean; inner?: string; name?: string; selfClosing?: boolean } = {}
+): string {
   const type = opts.type ?? "paragraph";
   const def = opts.default ? ` w:default="1"` : "";
-  return `<w:style w:type="${type}" w:styleId="${id}"${def}><w:name w:val="${id}"/>${opts.inner ?? ""}</w:style>`;
+  if (opts.selfClosing) return `<w:style w:type="${type}" w:styleId="${id}"${def}/>`;
+  const nameVal = opts.name ?? id;
+  return `<w:style w:type="${type}" w:styleId="${id}"${def}><w:name w:val="${nameVal}"/>${opts.inner ?? ""}</w:style>`;
 }
 
-/** A flat-OPC package with a document body + a styles part (+ optional numbering part). */
+/** A flat-OPC package with a document body + a styles part (+ optional numbering/settings parts). */
 function pkgWith(opts: {
   body: string;
   styles: string;
   numbering?: string;
+  /** Verbatim settings.xml inner markup (e.g. a `<w:clickAndTypeStyle w:val>` ref) — adds a settings part. */
+  settings?: string;
+  /** Override the default `<w:latentStyles w:count="0"/>` (e.g. to carry `<w:lsdException>` children). */
+  latentStyles?: string;
   docNs?: string;
 }): string {
   const numberingPart = opts.numbering
@@ -47,14 +62,21 @@ function pkgWith(opts: {
       `<w:numbering xmlns:w="${W}">${opts.numbering}</w:numbering>` +
       `</pkg:xmlData></pkg:part>`
     : "";
+  const settingsPart = opts.settings
+    ? `<pkg:part pkg:name="/word/settings.xml"><pkg:xmlData>` +
+      `<w:settings xmlns:w="${W}">${opts.settings}</w:settings>` +
+      `</pkg:xmlData></pkg:part>`
+    : "";
+  const latentStyles = opts.latentStyles ?? `<w:latentStyles w:count="0"/>`;
   return (
     `<pkg:package xmlns:pkg="${PKG}">` +
     `<pkg:part pkg:name="/word/styles.xml" pkg:contentType="${STYLES_CT}"><pkg:xmlData>` +
     `<w:styles xmlns:w="${W}"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>` +
-    `<w:latentStyles w:count="0"/>` +
+    latentStyles +
     opts.styles +
     `</w:styles></pkg:xmlData></pkg:part>` +
     numberingPart +
+    settingsPart +
     `<pkg:part pkg:name="/word/document.xml" pkg:contentType="${DOC_CT}"><pkg:xmlData>` +
     `<w:document xmlns:w="${W}"${opts.docNs ?? ""}><w:body>${opts.body}</w:body></w:document>` +
     `</pkg:xmlData></pkg:part>` +
@@ -100,9 +122,24 @@ const RICH_NUMBERING =
 
 const richPackage = pkgWith({ body: RICH_BODY, styles: RICH_STYLES, numbering: RICH_NUMBERING });
 
-/** Every styleId present in a styles XML (the retained set after a prune). */
+/** Every styleId present in a styles XML (the retained set after a prune). PAIRED styles only — the
+ *  production `parseStyleDefs` (shared with outline classification) matches only `<w:style>…</w:style>`. */
 function styleIds(stylesXml: string): Set<string> {
   return new Set(parseStyleDefs(stylesXml).keys());
+}
+
+/** Every styleId present, including SELF-CLOSING `<w:style …/>` — for fixtures that exercise that form
+ *  (the prune retains/drops both; parseStyleDefs alone would miss the self-closing ones). */
+function styleIdsAll(stylesXml: string): Set<string> {
+  const out = new Set<string>();
+  const re = /<w:style\b([^>]*?)\/\s*>|<w:style\b([^>]*)>[\s\S]*?<\/w:style>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(stylesXml)) !== null) {
+    const attrs = m[1] !== undefined ? m[1] : m[2];
+    const id = /\bw:styleId="([^"]+)"/.exec(attrs);
+    if (id) out.add(id[1]);
+  }
+  return out;
 }
 
 /** The five cross-reference target ids declared by a retained style (for the no-dangling assertion). */
@@ -359,5 +396,240 @@ describe("port node-direct commit honors the prune flag", () => {
     expect(committed).toContain(`w:styleId="Orphan1"`);
     expect(committed).toContain(`w:styleId="Orphan2"`);
     expect(committed).toContain(`w:styleId="GhostBase"`);
+  });
+});
+
+// ===========================================================================
+// 7. MATCHER AGREEMENT (FIX-2 / 002-F11) — parseStyleGraph's indexed-id set MUST
+//    equal pruneStylesXml's spanned-element set, including self-closing styles.
+// ===========================================================================
+describe("style-matcher agreement (parseStyleGraph ≡ pruneStylesXml id-sets)", () => {
+  it("the graph id-set and the span id-set are identical (paired + self-closing)", () => {
+    // Mix paired AND self-closing styles. The OLD paired-only regex would skip the self-closing
+    // `<w:style/>` and could fuse it into the next paired element — so its id would be MISSING from the
+    // span set, diverging from the graph set. With the unified iterator they must match exactly.
+    const stylesXml =
+      `<w:styles xmlns:w="${W}">` +
+      style("Normal", { default: true }) + // paired
+      style("SelfA", { selfClosing: true }) + // self-closing — the regression case
+      style("Heading1", { inner: `<w:basedOn w:val="Normal"/>` }) + // paired, right after a self-closing
+      style("SelfB", { type: "character", selfClosing: true }) +
+      `</w:styles>`;
+    const { graphIds, spanIds } = __styleMatcherAgreementForTest(stylesXml);
+    expect(spanIds).toEqual(graphIds);
+    expect(graphIds).toEqual(new Set(["Normal", "SelfA", "Heading1", "SelfB"]));
+  });
+
+  it("`w:default` is truthy for 1/true/on (ST_OnOff) and false otherwise (b3-4)", () => {
+    // A bare `w:default="on"` must seed the default set; an explicit `="0"`/`="off"`/absent must not. The
+    // styleId set is what flows into pkgWith — only the `<w:style>` children, no wrapper.
+    const styles =
+      `<w:style w:type="paragraph" w:styleId="DefOne" w:default="1"/>` +
+      `<w:style w:type="paragraph" w:styleId="DefTrue" w:default="true"/>` +
+      `<w:style w:type="paragraph" w:styleId="DefOn" w:default="on"/>` +
+      `<w:style w:type="paragraph" w:styleId="NotDefZero" w:default="0"/>` +
+      `<w:style w:type="paragraph" w:styleId="NotDefOff" w:default="off"/>` +
+      `<w:style w:type="paragraph" w:styleId="NotDefAbsent"/>`;
+    // A body citing NO style: only the w:default styles (1/true/on) should survive the prune.
+    const body = `<w:p><w:r><w:t xml:space="preserve">x</w:t></w:r></w:p>`;
+    const wb = new WholeBodyPackage(pkgWith({ body, styles }), { pruneStyles: true });
+    wb.pruneStylesToClosure();
+    const kept = styleIdsAll(wb.stylesXmlForTest()); // all self-closing → use the self-closing-aware id helper
+    expect(kept).toEqual(new Set(["DefOne", "DefTrue", "DefOn"]));
+  });
+});
+
+// ===========================================================================
+// 8. SERIALIZE()-BYTE FIXTURES (FIX-5 / tests-1) — assert the COMMITTED bytes, not
+//    the intermediate xmlData, so loss-1 (dollar) + loss-2 (self-closing) are proven.
+// ===========================================================================
+describe("flag ON: serialize()/commitXml() byte-correctness ($-safe, self-closing-safe)", () => {
+  it("a retained style whose w:name contains `$` survives serialize() VERBATIM (loss-1)", () => {
+    // `Price $1` / `$&` / `$$` are exactly the tokens String.replace would mangle in a replacement STRING.
+    // The body cites this style, so it is RETAINED — its bytes must round-trip through the splice unchanged.
+    const dollarName = "Price $1 for $$ and $& tokens";
+    const styles =
+      style("Normal", { default: true }) +
+      style("Dollar", { name: dollarName, inner: `<w:basedOn w:val="Normal"/>` }) +
+      style("Orphan", {});
+    const body = `<w:p><w:pPr><w:pStyle w:val="Dollar"/></w:pPr><w:r><w:t xml:space="preserve">x</w:t></w:r></w:p>`;
+    const pkg = pkgWith({ body, styles });
+    const wb = new WholeBodyPackage(pkg, { pruneStyles: true });
+    const removed = wb.pruneStylesToClosure();
+    expect(removed).toBeGreaterThan(0); // Orphan was dropped
+    const out = wb.serialize();
+    // The dollar-bearing name is present BYTE-FOR-BYTE in the committed package (no `$1`/`$&`/`$$` mangling).
+    expect(out).toContain(`<w:name w:val="${dollarName}"/>`);
+    expect(out).toContain(`w:styleId="Dollar"`);
+    expect(out).not.toContain(`w:styleId="Orphan"`);
+    // And the styles part is well-formed (re-parse round-trips to the same retained ids).
+    expect(styleIds(wb.stylesXmlForTest())).toEqual(new Set(["Normal", "Dollar"]));
+  });
+
+  it("a self-closing `<w:style/>` in the closure is KEPT and the next paired style is not fused away (loss-2)", () => {
+    // SelfKeep is self-closing AND cited by the body; Heading1 (paired) immediately follows it. The old
+    // paired-only regex would skip SelfKeep and start its match at Heading1, fusing the two — dropping the
+    // in-closure SelfKeep. Prove both survive and the orphan self-closing is dropped.
+    const styles =
+      style("Normal", { default: true }) +
+      style("SelfKeep", { selfClosing: true }) + // cited by body, self-closing — must be KEPT
+      style("Heading1", { inner: `<w:basedOn w:val="Normal"/>` }) + // paired, right after the self-closing
+      style("SelfOrphan", { selfClosing: true }); // uncited self-closing — must be DROPPED
+    const body =
+      `<w:p><w:pPr><w:pStyle w:val="SelfKeep"/></w:pPr><w:r><w:t xml:space="preserve">a</w:t></w:r></w:p>` +
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">b</w:t></w:r></w:p>`;
+    const wb = new WholeBodyPackage(pkgWith({ body, styles }), { pruneStyles: true });
+    wb.pruneStylesToClosure();
+    const out = wb.serialize();
+    const kept = styleIdsAll(wb.stylesXmlForTest()); // self-closing styles present → self-closing-aware ids
+    expect(kept).toContain("SelfKeep"); // the self-closing in-closure style is retained
+    expect(kept).toContain("Heading1"); // the following paired style is intact (not fused away)
+    expect(kept).toContain("Normal");
+    expect(kept).not.toContain("SelfOrphan");
+    // Byte-level: the self-closing SelfKeep element is present verbatim in the committed package.
+    expect(out).toContain(`<w:style w:type="paragraph" w:styleId="SelfKeep"/>`);
+    expect(out).not.toContain(`w:styleId="SelfOrphan"`);
+  });
+
+  it("commitXml() is dollar-safe AND carries the FULL unpruned styles (loss-5 compat path)", () => {
+    // The per-paragraph compat commit deliberately stays UNPRUNED (loss-5). commitXml bundles the FULL
+    // styles table (snapshotted at ctor) and round-trips it through xmldom (which XML-escapes `&`, hence no
+    // `&` in this fixture — that is correct XML, not a prune concern). The `$` tokens are the dollar-safety
+    // proof: they must survive verbatim, and every style (incl. the orphan) must still be present.
+    const dollarName = "Cite $0 $$ $1 tokens";
+    const styles =
+      style("Normal", { default: true }) +
+      style("Dollar", { name: dollarName }) +
+      style("Orphan", {});
+    const body = `<w:p><w:pPr><w:pStyle w:val="Dollar"/></w:pPr><w:r><w:t xml:space="preserve">x</w:t></w:r></w:p>`;
+    const wb = new WholeBodyPackage(pkgWith({ body, styles }), { pruneStyles: true });
+    wb.pruneStylesToClosure(); // prunes the SERIALIZE path; the commitXml aux bundle is independent
+    const frag = wb.commitXml(`<w:p xmlns:w="${W}"><w:r><w:t>y</w:t></w:r></w:p>`);
+    expect(frag).toContain(`<w:name w:val="${dollarName}"/>`); // dollar tokens verbatim (no $-mangling)
+    expect(frag).toContain(`w:styleId="Orphan"`); // FULL unpruned table (loss-5: compat path unpruned)
+  });
+});
+
+// ===========================================================================
+// 9. EXTENDED CLOSURE FIXTURES (FIX-6 / b3-3) — self-closing child, latentStyles
+//    with lsdException, settings.xml clickAndTypeStyle ref, tblStyle table style.
+// ===========================================================================
+describe("flag ON: extended closure fixtures (b3-3)", () => {
+  it("a settings.xml clickAndTypeStyle ref seeds the closure (reg-1)", () => {
+    // The body cites NOTHING; the only reference to ClickStyle is settings.xml's <w:clickAndTypeStyle>.
+    const body = `<w:p><w:r><w:t xml:space="preserve">no body style refs</w:t></w:r></w:p>`;
+    const styles =
+      style("Normal", { default: true }) +
+      style("ClickStyle", { inner: `<w:basedOn w:val="Normal"/>` }) +
+      style("Orphan", {});
+    const settingsXml = `<w:clickAndTypeStyle w:val="ClickStyle"/><w:defaultTabStop w:val="720"/>`;
+    const wb = new WholeBodyPackage(pkgWith({ body, styles, settings: settingsXml }), { pruneStyles: true });
+    wb.pruneStylesToClosure();
+    const kept = styleIds(wb.stylesXmlForTest());
+    expect(kept).toContain("ClickStyle"); // seeded by settings.xml — the gap is closed
+    expect(kept).not.toContain("Orphan");
+  });
+
+  it("a tblStyle-cited table style (and its basedOn chain) is kept", () => {
+    const body =
+      `<w:tbl><w:tblPr><w:tblStyle w:val="MyTable"/></w:tblPr>` +
+      `<w:tr><w:tc><w:p><w:r><w:t xml:space="preserve">cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`;
+    const styles =
+      style("Normal", { default: true }) +
+      style("TableBase", { type: "table", inner: `<w:basedOn w:val="Normal"/>` }) +
+      style("MyTable", { type: "table", inner: `<w:basedOn w:val="TableBase"/>` }) +
+      style("Orphan", { type: "table" });
+    const wb = new WholeBodyPackage(pkgWith({ body, styles }), { pruneStyles: true });
+    wb.pruneStylesToClosure();
+    const kept = styleIds(wb.stylesXmlForTest());
+    expect(kept).toContain("MyTable"); // cited via <w:tblStyle>
+    expect(kept).toContain("TableBase"); // via MyTable basedOn
+    expect(kept).toContain("Normal");
+    expect(kept).not.toContain("Orphan");
+  });
+
+  it("a self-closing `<w:style/>` child in the closure + latentStyles with lsdException survive", () => {
+    // latentStyles carrying <w:lsdException> is NON-<w:style> markup — it must round-trip VERBATIM (the
+    // prune only touches <w:style> spans). The self-closing cited style must be kept.
+    const latent =
+      `<w:latentStyles w:count="2"><w:lsdException w:name="Normal"/><w:lsdException w:name="heading 1"/></w:latentStyles>`;
+    const styles =
+      style("Normal", { default: true }) +
+      style("SelfCited", { selfClosing: true }) +
+      style("Orphan", {});
+    const body = `<w:p><w:r><w:rPr><w:rStyle w:val="SelfCited"/></w:rPr><w:t xml:space="preserve">x</w:t></w:r></w:p>`;
+    const wb = new WholeBodyPackage(pkgWith({ body, styles, latentStyles: latent }), { pruneStyles: true });
+    wb.pruneStylesToClosure();
+    const stylesXml = wb.stylesXmlForTest();
+    expect(styleIdsAll(stylesXml)).toEqual(new Set(["Normal", "SelfCited"])); // self-closing-aware
+    // latentStyles + its lsdException children survive byte-for-byte.
+    expect(stylesXml).toContain(latent);
+  });
+});
+
+// ===========================================================================
+// 10. REAL-CORPUS CLOSED-WORLD GATE (FIX-6 / 002-S6 loss-5). Discover a real
+//     styles-bearing .docx, prune ON, assert NO retained part references a removed
+//     styleId. Presence-gated on discoverSamples()>0 — skip-clean when absent.
+// ===========================================================================
+describe("flag ON: real-corpus closed-world closure (002-S6, presence-gated)", () => {
+  const samples = discoverSamples();
+  // Skip-clean when samples/ is absent (CI / a fresh checkout) — a junction supplies them locally.
+  const maybe = samples.length > 0 ? it : it.skip;
+
+  maybe("no retained part references a styleId the prune removed (real styles.xml)", async () => {
+    // Use the smallest sample that actually carries a styles part (the prune is a no-op without one).
+    let chosen: { documentXml: string; stylesXml: string } | null = null;
+    for (const s of samples) {
+      const { documentXml, stylesXml } = await readDocxParts(s.fullPath);
+      if (stylesXml) {
+        chosen = { documentXml, stylesXml };
+        break;
+      }
+    }
+    expect(chosen).not.toBeNull();
+    const { documentXml, stylesXml } = chosen!;
+
+    // Build a flat-OPC package from the REAL document + styles, prune ON, then serialize and re-extract
+    // the pruned styles table. Closed-world assert: every styleId still cited by the (verbatim) document
+    // part is PRESENT in the pruned styles table, and no retained style's basedOn/link/next/numStyleLink/
+    // styleLink dangles at a removed id.
+    const pkg =
+      `<pkg:package xmlns:pkg="${PKG}">` +
+      `<pkg:part pkg:name="/word/styles.xml" pkg:contentType="${STYLES_CT}"><pkg:xmlData>` +
+      stylesXml.replace(/^﻿/, "").replace(/^\s*<\?xml[^>]*\?>\s*/, "") +
+      `</pkg:xmlData></pkg:part>` +
+      `<pkg:part pkg:name="/word/document.xml" pkg:contentType="${DOC_CT}"><pkg:xmlData>` +
+      documentXml.replace(/^﻿/, "").replace(/^\s*<\?xml[^>]*\?>\s*/, "") +
+      `</pkg:xmlData></pkg:part></pkg:package>`;
+
+    const wb = new WholeBodyPackage(pkg, { pruneStyles: true });
+    wb.pruneStylesToClosure();
+    const prunedStyles = wb.stylesXmlForTest();
+    const kept = styleIds(prunedStyles);
+    expect(kept.size).toBeGreaterThan(0);
+
+    // (a) every pStyle/rStyle/tblStyle the document.xml still cites is retained (no needed style dropped).
+    const out = wb.serialize();
+    const docPart = /<pkg:part pkg:name="\/word\/document\.xml"[\s\S]*?<\/pkg:part>/.exec(out)![0];
+    for (const tag of ["pStyle", "rStyle", "tblStyle"]) {
+      const re = new RegExp(`<w:${tag}\\b[^>]*\\bw:val="([^"]+)"`, "g");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(docPart)) !== null) {
+        expect(kept).toContain(m[1]); // a cited style was never pruned away
+      }
+    }
+
+    // (b) no retained style's cross-references dangle at a removed id (closed-world).
+    const styleRe = /<w:style\b[^>]*\bw:styleId="([^"]+)"[^>]*>([\s\S]*?)<\/w:style>/g;
+    let sm: RegExpExecArray | null;
+    let checked = 0;
+    while ((sm = styleRe.exec(prunedStyles)) !== null) {
+      for (const target of refTargets(sm[2])) {
+        checked++;
+        expect(kept).toContain(target);
+      }
+    }
+    expect(checked).toBeGreaterThan(0); // the closed-world assertion ran on real edges
   });
 });

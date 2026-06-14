@@ -57,19 +57,47 @@ export interface FakeDoc {
   manifest: { id: string; xml: string } | null;
   tcMode: TrackChangesMode;
   nextId: number;
+  /**
+   * When true, `bodyOoxml()` bundles a `/word/settings.xml` part whose `<w:settings>` carries
+   * `<w:trackChanges/>` ONLY while `tcMode !== "Off"` (Loop 002 B2 model). This mirrors the live host's
+   * verbatim-settings carry: a package read under Track Changes ON bundles `w:trackChanges` in settings, so
+   * the auto-toggle path must DISCARD that primed read and re-read after toggling TC off — the re-read then
+   * has a settings part with NO `w:trackChanges`. Default false so every other test's read package stays
+   * byte-identical (the settings part is opt-in per FakeDoc).
+   */
+  modelSettings: boolean;
 }
 
-export function mkDoc(paragraphs: FakePara[], tc: TrackChangesMode = "Off"): FakeDoc {
-  return { paragraphs, manifest: null, tcMode: tc, nextId: 1 };
+export function mkDoc(
+  paragraphs: FakePara[],
+  tc: TrackChangesMode = "Off",
+  opts: { modelSettings?: boolean } = {}
+): FakeDoc {
+  return { paragraphs, manifest: null, tcMode: tc, nextId: 1, modelSettings: opts.modelSettings ?? false };
 }
 
-/** A flat-OPC whole-body package built from the backing paragraphs. */
-export function buildPackage(paras: FakePara[]): string {
+/**
+ * A flat-OPC whole-body package built from the backing paragraphs. When `tcMode` is supplied (the B2
+ * settings model), a `/word/settings.xml` part is appended; it carries `<w:trackChanges/>` ONLY while
+ * `tcMode !== "Off"` — exactly Word's behavior (a package serialized under TC-on bundles `w:trackChanges`
+ * in settings; with TC off it does not). Omitting `tcMode` (the default for every other test) yields the
+ * byte-identical document-only package as before — the settings part never appears.
+ */
+export function buildPackage(paras: FakePara[], tcMode?: TrackChangesMode): string {
+  const settingsPart =
+    tcMode === undefined
+      ? ""
+      : `<pkg:part pkg:name="/word/settings.xml"><pkg:xmlData>` +
+        `<w:settings xmlns:w="${W_NS}">${tcMode === "Off" ? "" : "<w:trackChanges/>"}` +
+        `<w:defaultTabStop w:val="720"/></w:settings>` +
+        `</pkg:xmlData></pkg:part>`;
   return (
     `<pkg:package xmlns:pkg="${PKG_NS}"><pkg:part pkg:name="/word/document.xml"><pkg:xmlData>` +
     `<w:document xmlns:w="${W_NS}"><w:body>${paras.map((p) => p.xml).join("")}` +
     `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:body></w:document>` +
-    `</pkg:xmlData></pkg:part></pkg:package>`
+    `</pkg:xmlData></pkg:part>` +
+    settingsPart +
+    `</pkg:package>`
   );
 }
 
@@ -108,7 +136,13 @@ class FakeContext {
   }
 
   bodyOoxml(): string {
-    return this.bodyOoxmlOverride ?? buildPackage(this.doc.paragraphs);
+    // B2 settings model: when the doc opts in, bundle a settings part that reflects the LIVE tcMode (so a
+    // read under TC-on carries `w:trackChanges`, a read after the auto-toggle-off does not). Otherwise the
+    // document-only package, byte-identical to before.
+    return (
+      this.bodyOoxmlOverride ??
+      buildPackage(this.doc.paragraphs, this.doc.modelSettings ? this.doc.tcMode : undefined)
+    );
   }
 
   async sync(): Promise<void> {
