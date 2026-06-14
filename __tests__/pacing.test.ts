@@ -150,15 +150,20 @@ describe("clamp-free yield tier chain", () => {
       cancel: { isCancelled: () => cancelled },
       budgetMs: 0, // yield on the very first tick
       yieldFn: () => {
-        // Schedule the "click" on the MessageChannel task source so it lands during the yield
-        // window — modeling a real browser Cancel click delivered while the host is yielded.
-        const clickChannel = new MessageChannel();
-        clickChannel.port1.onmessage = () => {
+        // Model a Cancel arriving DURING the yield by queuing the "click" as a microtask: it runs
+        // while the pacer is suspended awaiting the production MessageChannel round-trip, BEFORE that
+        // macrotask resolves the yield. Deterministic on every host (a microtask always precedes the
+        // next macrotask), unlike racing a SECOND MessageChannel — cross-channel message delivery
+        // order is impl-defined in Node and actually flips between Node 20 and Node 24, which made the
+        // old version pass locally on 24 yet starve (resolve, not reject) in CI on 20. What this still
+        // pins is the tier-agnostic S-008 contract: the production MC `create()` round-trip returns
+        // control such that the pacer's POST-yield `isCancelled()` re-check observes a cancel that
+        // landed after the pre-yield check. Real task-source interleaving is a browser property,
+        // covered by the setTimeout-tier e2e above (same-phase FIFO, deterministic in Node) and the
+        // live xlarge Cancel wet check.
+        queueMicrotask(() => {
           cancelled = true;
-          clickChannel.port1.close();
-          clickChannel.port2.close();
-        };
-        clickChannel.port2.postMessage(0);
+        });
         return mcYield!();
       }
     });
