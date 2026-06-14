@@ -185,6 +185,21 @@ export interface ShowAllResult {
   paragraphsSkipped: number;
 }
 
+/**
+ * The two ENGINE-OWNED stage durations of a Hide, reported by the orchestrator to the port so the
+ * port can fold them into the single per-op stage-timing line (Loop 002 A1 / 002-S7). They are the
+ * only stages the pure engine (`invisibility.ts`) brackets itself — every other stage (read sync,
+ * package parse, serialize, commit sync) is bracketed inside the host adapter, which owns the clock.
+ * Kept as raw milliseconds (not a tracer call) so the pure engine stays tracer-free: it measures the
+ * two phases with the clock the port hands it and reports the numbers; the port does the emitting.
+ */
+export interface EngineStageTimings {
+  /** Phase A — the read-only `decideParagraph` classify loop (no mutation). */
+  classifyMs: number;
+  /** Phase B — the `applyVisibilityInPlace` apply loop (mutates live nodes in place). */
+  applyMs: number;
+}
+
 /** Options shared by the mutating orchestrators. */
 export interface HideOptions {
   /**
@@ -272,6 +287,23 @@ export interface WordPort {
    * keeps no such cross-call read state (the in-memory fakes) may omit it; the engine no-ops then.
    */
   discardPreparedWrite?(): void;
+  /**
+   * OPTIONAL (Loop 002 A1 / 002-S7 — Step-0 instrumentation). The monotonic clock the port times its
+   * own stages with (the tracer's clock). The engine borrows it to bracket the two stages IT owns —
+   * Phase A classify, Phase B apply — so every stage in the aggregate timing line is read from ONE
+   * clock (deterministic under a test's injected fake clock). A port that doesn't instrument may omit
+   * it; the engine then skips its own stage timing entirely (no `recordEngineStages` call), so the
+   * win is purely additive and never on the correctness path.
+   */
+  now?(): number;
+  /**
+   * OPTIONAL (Loop 002 A1 / 002-S7). Hand the port the two ENGINE-owned stage durations (Phase A
+   * classify, Phase B apply), measured by the engine with the port's own `now()`. The port folds
+   * them into the one per-op `debug`-level stage-timing line it emits at the end of the commit (the
+   * last stage on the node-direct path), so the aggregate carries every stage from a single clock. A
+   * port without instrumentation may omit this; the engine then makes no such call.
+   */
+  recordEngineStages?(timings: EngineStageTimings): void;
 }
 
 // ===========================================================================

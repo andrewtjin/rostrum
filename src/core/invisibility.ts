@@ -181,7 +181,17 @@ async function classifyApplyCommit(
   paras: RawParagraph[],
   opts: HideOptions
 ): Promise<{ scanned: number; changed: number; skipped: number }> {
-  // ── PHASE A — read-only classify (paced). Build each paragraph's pure decision WITHOUT
+  // Step-0 instrumentation (Loop 002 A1 / 002-S7): the engine owns exactly TWO stages of the per-op
+    // timing line — Phase A classify and Phase B apply. It brackets each with the PORT's clock
+    // (`port.now()`, the tracer clock) so every stage in the aggregate is read from one source, then
+    // reports the two raw durations to the port via `recordEngineStages` (the port emits the line at
+    // commit). The engine stays tracer-free: it touches a clock and reports numbers, never the tracer.
+    // When the port doesn't instrument (the in-memory fakes / engine-direct callers omit `now`), these
+    // are no-ops and zero is reported — purely additive, never on the correctness path.
+    const clock = port.now?.bind(port);
+    const tStartA = clock?.() ?? 0;
+
+    // ── PHASE A — read-only classify (paced). Build each paragraph's pure decision WITHOUT
     // mutating its tree. A node-backed paragraph (`p.parsed`, the pure whole-body read) is read
     // through its LIVE node (zero parse); every other paragraph parses its own string ONCE — the
     // compat shim `p.parsed ?? new ParsedParagraph(p.ooxml)`, so `parseCount.test.ts`'s meaning is
@@ -211,6 +221,9 @@ async function classifyApplyCommit(
         skipped++;
       }
     }
+
+    // Phase A boundary: its duration is the classify stage; the next reading opens Phase B (apply).
+    const tEndA = clock?.() ?? 0;
 
     // ── PHASE B — apply (paced). Mutate each paragraph IN PLACE (node mode) or serialize a new
     // fragment (string/compat mode). CONTRACT (C / 002-F4): ANY throw here aborts the WHOLE op
@@ -253,6 +266,12 @@ async function classifyApplyCommit(
       port.discardPreparedWrite?.();
       throw e;
     }
+
+    // Report the two engine-owned stage durations to the port (Loop 002 A1 / 002-S7). Done only AFTER
+    // a clean Phase B (a throw above aborts the op and emits nothing). `tEndA` is the Phase A/B
+    // boundary; `clock()` here closes Phase B. The port folds these into the aggregate it emits at the
+    // end of the commit. No-op when the port omits the optional reporter (the in-memory fakes).
+    port.recordEngineStages?.({ classifyMs: tEndA - tStartA, applyMs: (clock?.() ?? 0) - tEndA });
 
   await port.writeParagraphs(updates);
   await saveManifest(port, {

@@ -360,6 +360,18 @@ export class Logger {
     return this.op;
   }
 
+  /**
+   * The tracer's clock — the SAME monotonic source `span()` brackets its `durationMs` with.
+   * Exposed so a host adapter can take per-stage `now()` readings AT the actual stage boundaries
+   * (read sync ↔ parse ↔ serialize ↔ commit sync) and emit ONE aggregate `debug()` line built from
+   * those deltas (Loop 002 A1 / 002-S7), WITHOUT opening a span per stage (a span-end is info-level
+   * and stamps `durationMs`, which the aggregate must NOT carry). Routing through the tracer means a
+   * test's injected fake clock drives these readings deterministically, exactly like it drives spans.
+   */
+  now(): number {
+    return this.tracer.now();
+  }
+
   debug(msg: string, data?: unknown): void {
     this.tracer.record("debug", this.namespace, msg, data, this.op);
   }
