@@ -154,6 +154,16 @@ export interface OfficeWordPortOptions {
    * bookmarks) is only confirmable on a live host, so it stays opt-in until that wet-test passes.
    */
   pureWholeBody?: boolean;
+  /**
+   * P7 referenced-closure styles prune (Loop 002 B3) — DEFAULT FALSE, the shipped behavior. A
+   * code-level runtime flag (NOT a manifest/build flag, so the manifest stays byte-identical, scope-4).
+   * When false the node-direct commit serializes the styles part VERBATIM (002-F6 byte-identity). When
+   * true the node-direct commit calls `WholeBodyPackage.pruneStylesToClosure()` between the in-place
+   * splice and `serialize()`, shrinking the styles part to its referenced closure — a WRITE-SIDE size
+   * win (perf-1). GO is a WET decision (PLAN §5): only the node-direct whole-body insert is pruned; the
+   * per-paragraph/compat commit path is deliberately left UNPRUNED (loss-5).
+   */
+  pruneStyles?: boolean;
   /** Defaults to `{ mode: "number", numberBase: "oneBased" }`. */
   outline?: Partial<OutlineConfig>;
   /** Paragraphs loaded per `sync()` during the read phase. Default 200. */
@@ -294,6 +304,12 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private readonly strategy: CommitStrategy;
   /** Avenue ⑦ — read+commit the whole body with no proxies/alignment (the default Hide path). */
   private readonly pureWholeBody: boolean;
+  /**
+   * P7 referenced-closure styles prune flag (Loop 002 B3) — DEFAULT false. Threaded into the
+   * `WholeBodyPackage` the read builds, and consulted by the node-direct commit to shrink the styles
+   * part before `serialize()`. Default-off keeps the shipped serialize byte-identical (002-F6).
+   */
+  private readonly pruneStyles: boolean;
   private readonly outline: OutlineConfig;
   private readonly chunkSize: number;
   private readonly onProgress?: (info: ProgressInfo) => void;
@@ -331,6 +347,8 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   constructor(options: OfficeWordPortOptions = {}) {
     this.run = options.runner ?? defaultRunner;
     this.pureWholeBody = options.pureWholeBody ?? false;
+    // P7 (Loop 002 B3) styles-prune flag: default OFF so the shipped serialize is byte-identical (002-F6).
+    this.pruneStyles = options.pruneStyles ?? false;
     // Avenue ⑦ commits with ONE whole-body insertOoxml, so it implies the whole-body strategy
     // regardless of any commitStrategy passed — keeping read and commit consistent.
     this.strategy = this.pureWholeBody ? "whole-body" : options.commitStrategy ?? "per-paragraph";
@@ -523,7 +541,9 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     // parseMs brackets the WholeBodyPackage ctor (document.xml only, post-A2 — ONE parse).
     const tParseStart = this.clock();
     try {
-      pkg = new WholeBodyPackage(bodyOoxml.value);
+      // P7 (002-S6): thread the prune flag so the node-direct commit can shrink the styles part before
+      // serialize(). Default-OFF leaves the part verbatim (002-F6); the ctor never DOM-parses it either way.
+      pkg = new WholeBodyPackage(bodyOoxml.value, { pruneStyles: this.pruneStyles });
     } catch (e) {
       op.warn("pure whole-body parse failed — falling back to the proxy read path", describeError(e));
       // Falling back to the proxy path: it is NOT node-direct, so drop the node-direct stage timings —
@@ -1141,8 +1161,15 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
             // and the mutations are already present. We deliberately do NOT call `pkg.replace()` (no
             // re-parse, no re-import of an identical node) — that is the per-paragraph serialize P1
             // deletes — and we ignore each update's placeholder `ooxml`.
-            // serializeMs brackets `pkg.serialize()` — the whole-package stitch (Step-0 / 002-S7).
+            // P7 (Loop 002 B3 / 002-S6): with the flag ON, shrink the styles part to its referenced
+            // closure HERE — AFTER the in-place splice (so cite-repair-injected rStyle refs are seeded)
+            // and BEFORE serialize() (so the stitch emits the pruned bytes). A NO-OP when the flag is OFF
+            // (the shipped default — 002-F6 keeps serialize byte-identical) or when there is no styles
+            // part. Idempotent, so a reused lastRead.pkg re-pruning is safe. Bracketed inside serializeMs
+            // because it is part of producing the write-side package (perf-1 books the write side only).
             const tSerializeStart = this.clock();
+            const prunedBytes = this.lastRead!.pkg.pruneStylesToClosure();
+            if (prunedBytes > 0) op.debug("P7 styles prune shrank the styles part", { bytes: prunedBytes });
             const serialized = this.lastRead!.pkg.serialize();
             if (timings) timings.serializeMs = this.clock() - tSerializeStart;
             doc.body.insertOoxml(serialized, "Replace");

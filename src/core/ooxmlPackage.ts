@@ -536,9 +536,206 @@ function extractXmlData(partXml: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// P7 — referenced-closure styles prune (Loop 002 B3, DEFAULT-OFF runtime flag).
+//
+// WHY (PLAN §2 B3 / perf-1 / CASES 002-S6/F6). Word's `styles.xml` carries the FULL latent/default
+// style table (~2.15MB on a real ndca doc) regardless of how few styles the body actually uses. The
+// node-direct Hide re-serializes the whole package back to the host, so every byte of that styles
+// part is on the WRITE side. When the prune flag is ON, we shrink the styles part to the transitive
+// closure of the styles REACHABLE from the retained content — a write-side size win — while keeping
+// the document body, `docDefaults`, `latentStyles`, and the `<w:styles>` root verbatim so the
+// rendered formatting is unchanged. When the flag is OFF (the shipped default) NONE of this runs and
+// the part stays byte-identical to today (002-F6).
+//
+// CLOSED-WORLD CORRECTNESS (loss-5). The closure is computed by SEEDING from every content part
+// (document.xml + numbering backlinks + footnotes/headers/footers, post-splice) plus all `w:default`
+// styles, then EXPANDING by a transitive fixpoint over every style cross-reference
+// (basedOn / link both directions / next / numStyleLink / styleLink). A retained style therefore
+// never dangles: any id it points at is, by construction, also in the closure.
+//
+// REGEX, not DOM, for the heavy part — consistent with `parseStyleDefs`/`outline.ts` (the styles
+// part is flat and well-formed as Word emits it). Seeds scan the (small) content substrings the same
+// way. The ONE structural operation — removing whole `<w:style>` elements — is done by re-emitting
+// only the retained `<w:style>…</w:style>` spans and the verbatim non-style remainder, so docDefaults
+// / latentStyles / root attributes are preserved byte-for-byte.
+// ---------------------------------------------------------------------------
+
+/** One style's outgoing cross-references, parsed from its `<w:style>` inner XML (for the closure walk). */
+interface StyleRefs {
+  /** `<w:basedOn w:val>` — the parent this style inherits from. */
+  basedOn: string | null;
+  /** `<w:link w:val>` — the paired para/char style. Retained in BOTH directions (a linked pair). */
+  link: string | null;
+  /** `<w:next w:val>` — the style applied to the NEXT paragraph after one in this style. */
+  next: string | null;
+  /** `<w:numStyleLink w:val>` — points a numbering style at the style that owns the real numbering. */
+  numStyleLink: string | null;
+  /** `<w:styleLink w:val>` — the reverse of numStyleLink (the numbering-owner points back). */
+  styleLink: string | null;
+}
+
+/** Read the FIRST `<w:TAG … w:val="…">` value inside a `<w:style>` inner XML, or null when absent. */
+function styleRefVal(inner: string, tag: string): string | null {
+  // Attribute-order tolerant (mirrors outline.ts parseStyleDefs C-2): never assume `w:val` is first.
+  const m = new RegExp(`<w:${tag}\\b[^>]*\\bw:val="([^"]+)"`).exec(inner);
+  return m ? m[1] : null;
+}
+
+/**
+ * Parse the styles part into `styleId → StyleRefs` plus the set of `w:default="1"` styleIds. Regex over
+ * each `<w:style>` element (same matcher shape as `parseStyleDefs`), so it sees exactly the styles the
+ * resolver sees. A style with no cross-references still gets an (all-null) entry so the closure walk can
+ * terminate cleanly at it.
+ */
+function parseStyleGraph(stylesXml: string): {
+  refs: Map<string, StyleRefs>;
+  defaults: Set<string>;
+} {
+  const refs = new Map<string, StyleRefs>();
+  const defaults = new Set<string>();
+  // Capture the style's open tag (group 1) separately from its inner XML (group 2): `w:default` lives
+  // on the open tag, the cross-references live in the inner XML.
+  const styleRe = /<w:style\b([^>]*)\bw:styleId="([^"]+)"([^>]*)>([\s\S]*?)<\/w:style>/g;
+  let m: RegExpExecArray | null;
+  while ((m = styleRe.exec(stylesXml)) !== null) {
+    const openAttrsBefore = m[1];
+    const id = m[2];
+    const openAttrsAfter = m[3];
+    const inner = m[4];
+    if (/\bw:default="(?:1|true)"/.test(openAttrsBefore + openAttrsAfter)) defaults.add(id);
+    refs.set(id, {
+      basedOn: styleRefVal(inner, "basedOn"),
+      link: styleRefVal(inner, "link"),
+      next: styleRefVal(inner, "next"),
+      numStyleLink: styleRefVal(inner, "numStyleLink"),
+      styleLink: styleRefVal(inner, "styleLink")
+    });
+  }
+  return { refs, defaults };
+}
+
+/** Every `w:val` of the given style-reference tags found anywhere in a content substring. */
+function collectStyleValRefs(xml: string, tags: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const tag of tags) {
+    const re = new RegExp(`<w:${tag}\\b[^>]*\\bw:val="([^"]+)"`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml)) !== null) out.add(m[1]);
+  }
+  return out;
+}
+
+/**
+ * The content-part style references that SEED the closure: paragraph/character/table style ids cited in
+ * document.xml and any footnotes/headers/footers, PLUS the numbering backlinks (a `w:lvl`'s `w:pStyle`
+ * and its `w:rPr`'s `w:rStyle` — the verified gap where ndca styles are referenced ONLY through
+ * numbering). All three tags are scanned in every content part: numbering's own `w:pStyle`/`w:rStyle`
+ * are exactly the backlinks we need, and scanning document.xml for them is harmless (it has them too).
+ * Computed POST-splice so a cite-repair-injected net-new `w:rStyle` is included (loss-5).
+ */
+const CONTENT_STYLE_REF_TAGS = ["pStyle", "rStyle", "tblStyle"] as const;
+
+/**
+ * True when a non-document, non-styles part can carry style REFERENCES that must seed the closure:
+ * `numbering.xml` (the `w:lvl` backlinks — the verified ndca gap), and the auxiliary story parts
+ * `footnotes` / `endnotes` / `header*` / `footer*` (their `<w:p>`/`<w:r>` cite styles the same way
+ * the body does). Recognized by part NAME (Word's conventional `/word/<name>.xml`) — the durable,
+ * cheap signal. `settings`/`theme`/`fontTable`/rels parts carry no `w:pStyle`/`w:rStyle`, so excluding
+ * them keeps the seed scan tight (and harmless if a stray ref ever appeared — it would only RETAIN
+ * more, never drop a needed style).
+ */
+function isStyleReferencingPart(part: PackagePart): boolean {
+  return /\/word\/(numbering|footnotes|endnotes|header\d*|footer\d*)\.xml$/.test(part.name);
+}
+
+/**
+ * Expand a seed set to its transitive closure over the style graph (FIXPOINT, not one-hop). From each
+ * reached style follow basedOn / link / next / numStyleLink / styleLink AND the REVERSE link edge (a
+ * linked para/char pair is retained whichever half is reached). A worklist to fixpoint; cycle-safe
+ * because a style is enqueued only the first time it enters the closure.
+ */
+function expandStyleClosure(seeds: Iterable<string>, refs: Map<string, StyleRefs>): Set<string> {
+  // Reverse link adjacency: if A declares `<w:link w:val="B">`, reaching B must also retain A.
+  const linkedFrom = new Map<string, string[]>();
+  for (const [id, r] of refs) {
+    if (r.link) {
+      const arr = linkedFrom.get(r.link);
+      if (arr) arr.push(id);
+      else linkedFrom.set(r.link, [id]);
+    }
+  }
+  const closure = new Set<string>();
+  const work: string[] = [];
+  const push = (id: string | null | undefined): void => {
+    if (id && !closure.has(id)) {
+      closure.add(id);
+      work.push(id);
+    }
+  };
+  for (const s of seeds) push(s);
+  while (work.length) {
+    const id = work.pop()!;
+    const r = refs.get(id);
+    if (r) {
+      push(r.basedOn);
+      push(r.link);
+      push(r.next);
+      push(r.numStyleLink);
+      push(r.styleLink);
+    }
+    // Reverse link edge (both directions of a linked pair).
+    const back = linkedFrom.get(id);
+    if (back) for (const b of back) push(b);
+  }
+  return closure;
+}
+
+/**
+ * Re-emit a `<w:styles>` part keeping ONLY the `<w:style>` children whose styleId is in `keep`, with
+ * every NON-`<w:style>` byte (the `<w:styles …>` root open tag + its attrs/namespaces, `docDefaults`,
+ * `latentStyles`, inter-element whitespace, the `</w:styles>` close) preserved VERBATIM. Works by
+ * walking the part as a string: each `<w:style …>…</w:style>` span is dropped unless its id is kept;
+ * everything between/around the style spans is copied byte-for-byte. A `<w:style>` with no styleId is
+ * always kept (it can't be referenced, so dropping it could change rendering — be conservative).
+ */
+function pruneStylesXml(stylesXml: string, keep: Set<string>): string {
+  const styleRe = /<w:style\b[^>]*?>[\s\S]*?<\/w:style>/g;
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = styleRe.exec(stylesXml)) !== null) {
+    // Copy the verbatim bytes BEFORE this style element (root open tag, docDefaults, whitespace, …).
+    out += stylesXml.slice(last, m.index);
+    const span = m[0];
+    const idMatch = /\bw:styleId="([^"]+)"/.exec(span);
+    const id = idMatch ? idMatch[1] : null;
+    if (id === null || keep.has(id)) out += span; // keep retained (or unidentifiable) styles verbatim
+    last = m.index + span.length;
+  }
+  out += stylesXml.slice(last); // the verbatim tail (latentStyles, </w:styles>, …)
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Whole-body package: parse once, hand out per-paragraph fragments, splice edits
 // back into the same tree, re-serialize.
 // ---------------------------------------------------------------------------
+
+/**
+ * Construction-time options for `WholeBodyPackage`. The ONLY option today is the P7 (Loop 002 B3)
+ * `pruneStyles` runtime flag — a code-level, DEFAULT-OFF opt-in (NOT a manifest/build flag, so the
+ * manifest stays byte-identical, scope-4). Kept as an interface (not a positional bool) so future
+ * package-level options are additive and self-documenting at call sites.
+ */
+export interface WholeBodyPackageOptions {
+  /**
+   * P7 referenced-closure styles prune (DEFAULT FALSE). When false (the shipped default), the styles
+   * part is emitted VERBATIM and never DOM-parsed (002-F6 byte-identity). When true, the commit hook
+   * may call `pruneStylesToClosure()` to shrink the styles part to the styles actually reachable from
+   * the retained content — a WRITE-SIDE size reduction (perf-1). GO is a WET decision (see PLAN §5).
+   */
+  pruneStyles?: boolean;
+}
 
 /**
  * A parsed whole-body flat-OPC package that the adapter caches between its read
@@ -589,8 +786,30 @@ export class WholeBodyPackage {
   private auxParsed: { relsById: Map<string, string>; auxParts: string; auxRels: string } | null = null;
   /** Captured aux/rels part substrings (verbatim) used to build `auxParsed` on demand. */
   private readonly auxPartSubstrings: string[];
+  /**
+   * P7 (Loop 002 B3) — the DEFAULT-OFF runtime flag enabling `pruneStylesToClosure()`. A code-level
+   * option (NOT a manifest/build flag — scope-4 keeps the manifest byte-identical), default false so
+   * the SHIPPED path emits the styles part VERBATIM and never DOM-parses it (002-F6). When true, the
+   * commit hook may shrink the styles part to its referenced closure between splice and `serialize()`.
+   */
+  private readonly pruneStyles: boolean;
+  /**
+   * P7 — the index of the `<w:styles>` part within `segments.parts` (the SAME part `extractStylesSubstring`
+   * found, keyed to a `<w:styles>` ROOT, NOT a content-type). `pruneStylesToClosure()` REPLACES that
+   * part's verbatim `full` substring with the pruned bytes so `serialize()`'s in-order stitch emits the
+   * shrunk part. `-1` when there is no styles part (or the input isn't segmentable) → prune is a no-op.
+   */
+  private readonly stylesPartIndex: number;
+  /**
+   * P7 — guards prune IDEMPOTENCE + correct re-seed (002-S6). Set once the styles part has been pruned
+   * so a second `pruneStylesToClosure()` (e.g. a reused `lastRead.pkg`) is a no-op rather than re-parsing
+   * an already-pruned part. Re-seeding correctness is preserved because the FIRST prune computes the
+   * closure over the (post-splice) document part, which the prune never mutates.
+   */
+  private stylesPruned = false;
 
-  constructor(packageXml: string) {
+  constructor(packageXml: string, options: WholeBodyPackageOptions = {}) {
+    this.pruneStyles = options.pruneStyles ?? false;
     // A2: cut the package at `<pkg:part>` boundaries by string scan; DOM-parse ONLY document.xml.
     // A raw document.xml / bare `<w:p>` fragment isn't a `<pkg:package>` → `segments` is null and we
     // parse the whole input exactly as before (byte-identical degrade).
@@ -645,6 +864,12 @@ export class WholeBodyPackage {
     const stylesXml = this.extractStylesSubstring();
     this.stylesPresent = stylesXml.length > 0;
     this.styleDefs = parseStyleDefs(stylesXml);
+    // P7 (Loop 002 B3): remember WHICH part is the styles part so `pruneStylesToClosure()` can REPLACE
+    // its verbatim `full` substring in place (the `serialize()` stitch then emits the pruned bytes).
+    // Keyed to the SAME `<w:styles>` ROOT signal `extractStylesSubstring` uses, so the two never diverge.
+    this.stylesPartIndex = this.segments
+      ? this.segments.parts.findIndex((p) => /<w:styles[\s>]/.test(p.xmlData))
+      : -1;
 
     // Capture the small aux/rels part substrings (verbatim) for the LAZY `paragraphXml`/`commitXml`
     // path — NOT parsed here, so the node-direct read ctor stays document-only.
@@ -1001,5 +1226,78 @@ export class WholeBodyPackage {
       }
     }
     return out + tail;
+  }
+
+  /**
+   * Whether this package will actually prune (the flag is ON, the input is a segmentable flat-OPC
+   * package, AND it carries a `<w:styles>` part). Exposed so the commit hook / tests can assert that a
+   * flag-OFF or styles-less package is left untouched without reaching into private state.
+   */
+  get willPruneStyles(): boolean {
+    return this.pruneStyles && this.stylesPartIndex >= 0;
+  }
+
+  /**
+   * The styles part's CURRENT verbatim `<w:styles>…</w:styles>` xmlData substring (post-prune if
+   * `pruneStylesToClosure()` ran), or "" when there is no styles part. Read-only view for the
+   * closure-correctness + byte-reduction tests; never used on the hot path.
+   */
+  stylesXmlForTest(): string {
+    if (this.stylesPartIndex < 0 || !this.segments) return "";
+    return this.segments.parts[this.stylesPartIndex].xmlData;
+  }
+
+  /**
+   * P7 — shrink the styles part to the transitive closure of the styles REACHABLE from the retained
+   * content, in place (DEFAULT-OFF flag; CASES 002-S6). A NO-OP when the flag is off, the input is not
+   * a segmentable flat-OPC package, there is no styles part, or a prior call already pruned this package
+   * (idempotence — re-seeding off the SAME post-splice document yields the same closure).
+   *
+   * THE HOOK CONTRACT. Call this AFTER the node-direct splice (the in-place `<w:vanish>`/bridge
+   * mutations to `this.paras[i]`) and BEFORE `serialize()`. Seeds are computed POST-splice so a
+   * cite-repair-injected net-new `w:rStyle` is captured (loss-5); the prune mutates ONLY the styles
+   * part's captured `full`/`xmlData` substring, which `serialize()` then emits in place — the document
+   * body, every other part, and the package framing are untouched (002-F1 on the body holds).
+   *
+   * Returns the byte delta `(before − after)` of the styles part (≥ 0) — write-side evidence (perf-1),
+   * 0 when nothing was pruned.
+   */
+  pruneStylesToClosure(): number {
+    // Flag OFF / nothing to prune / already pruned → leave the verbatim substring untouched (002-F6).
+    if (!this.pruneStyles || this.stylesPartIndex < 0 || this.stylesPruned || !this.segments) return 0;
+    this.stylesPruned = true; // mark first so a re-entrant/repeat call is a guaranteed no-op (idempotence)
+
+    const stylesPart = this.segments.parts[this.stylesPartIndex];
+    const stylesXml = stylesPart.xmlData;
+    if (!stylesXml) return 0;
+
+    // DOM-free parse of the full style table — same regex the resolver trusts (this is the ONLY place
+    // the styles part is read structurally, and ONLY when the flag is on; flag-OFF never gets here).
+    const { refs, defaults } = parseStyleGraph(stylesXml);
+
+    // SEEDS: every content part's style references (post-splice) + all `w:default` styles.
+    const seeds = new Set<string>(defaults);
+    // document.xml — the POST-SPLICE body (serialize the mutated subtree so injected refs count).
+    for (const id of collectStyleValRefs(serialize(this.docElement), CONTENT_STYLE_REF_TAGS)) seeds.add(id);
+    // numbering / footnotes / endnotes / headers / footers — verbatim part substrings (untouched by the
+    // splice). Each is scanned for the same three style-reference tags: numbering's `w:lvl` backlinks
+    // (`w:pStyle` + the `w:rStyle` inside its `w:rPr`) are exactly the gap-closing refs (PLAN §2 B3).
+    for (const part of this.segments.parts) {
+      if (part === stylesPart || part.name === "/word/document.xml") continue;
+      if (!isStyleReferencingPart(part)) continue;
+      for (const id of collectStyleValRefs(part.xmlData, CONTENT_STYLE_REF_TAGS)) seeds.add(id);
+    }
+
+    // EXPAND to the transitive fixpoint, then PRUNE every `<w:style>` not in the closure.
+    const closure = expandStyleClosure(seeds, refs);
+    const pruned = pruneStylesXml(stylesXml, closure);
+    if (pruned === stylesXml) return 0; // nothing removable — keep the byte-identical substring
+
+    // REPLACE the captured substrings so `serialize()`'s in-order stitch emits the shrunk part. We swap
+    // the `xmlData` inside the part's `full` wrapper, leaving the `<pkg:part …><pkg:xmlData>` head and
+    // `</pkg:xmlData></pkg:part>` tail byte-identical (only the styles XML between them changes).
+    const newFull = stylesPart.full.replace(stylesXml, pruned);
+    this.segments.parts[this.stylesPartIndex] = { ...stylesPart, full: newFull, xmlData: pruned };
+    return stylesXml.length - pruned.length;
   }
 }
