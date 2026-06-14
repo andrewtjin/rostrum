@@ -43,6 +43,7 @@
 //    `WholeBodyPackage`, not a proxy. `context.trackedObjects` is therefore unneeded.
 
 import {
+  EngineStageTimings,
   ParagraphUpdate,
   RangeRead,
   RangeScopedPort,
@@ -153,6 +154,16 @@ export interface OfficeWordPortOptions {
    * bookmarks) is only confirmable on a live host, so it stays opt-in until that wet-test passes.
    */
   pureWholeBody?: boolean;
+  /**
+   * P7 referenced-closure styles prune (Loop 002 B3) — DEFAULT FALSE, the shipped behavior. A
+   * code-level runtime flag (NOT a manifest/build flag, so the manifest stays byte-identical, scope-4).
+   * When false the node-direct commit serializes the styles part VERBATIM (002-F6 byte-identity). When
+   * true the node-direct commit calls `WholeBodyPackage.pruneStylesToClosure()` between the in-place
+   * splice and `serialize()`, shrinking the styles part to its referenced closure — a WRITE-SIDE size
+   * win (perf-1). GO is a WET decision (PLAN §5): only the node-direct whole-body insert is pruned; the
+   * per-paragraph/compat commit path is deliberately left UNPRUNED (loss-5).
+   */
+  pruneStyles?: boolean;
   /** Defaults to `{ mode: "number", numberBase: "oneBased" }`. */
   outline?: Partial<OutlineConfig>;
   /** Paragraphs loaded per `sync()` during the read phase. Default 200. */
@@ -172,6 +183,13 @@ export interface OfficeWordPortOptions {
   pacer?: Pacer;
   /** Logger to use; defaults to the shared tracer's "adapter" namespace. */
   logger?: Logger;
+  /**
+   * Step-0 instrumentation clock (Loop 002 A1 / 002-S7). The monotonic source the port times its
+   * per-stage costs with. Defaults to the LOGGER's `now()` so the readings share the tracer's clock —
+   * a test that injects a fake-clock tracer drives the stage durations deterministically. Injectable
+   * on its own for benchmarks; never on the correctness path.
+   */
+  now?: () => number;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +214,16 @@ export const defaultWordRunner: WordRunner = (batch) => {
 
 const defaultRunner = defaultWordRunner;
 
+/**
+ * The placeholder `ooxml` on a node-direct `RawParagraph` (Loop 002 B1). The engine reads such a
+ * paragraph through its `.parsed` node handle, never `.ooxml`, and the node-direct commit serializes
+ * the WHOLE cached package (the `<w:p>` was mutated in place) — so a per-paragraph string is both
+ * unused and a cost we deliberately drop. A bare valid one-`<w:p>` fragment keeps the type total and
+ * any defensive read well-formed.
+ */
+const NODE_BACKED_OOXML =
+  '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>';
+
 // ---------------------------------------------------------------------------
 // Internal read state shared between the read and the (buffered) commit
 // ---------------------------------------------------------------------------
@@ -205,6 +233,14 @@ interface ReadState {
   strategy: "range" | "pkg";
   /** Cached whole-body package to splice into (only when strategy === "pkg"). */
   pkg: WholeBodyPackage | null;
+  /**
+   * True for the LOOP 002 node-direct read (`readBatchPure` handing node-backed paragraphs): the
+   * engine mutated this package's `<w:p>` nodes IN PLACE during Phase B, so the commit must NOT
+   * re-`replace()` — it serializes the WHOLE package once (the mutations are already spliced by
+   * reference) and the per-paragraph `ParagraphUpdate.ooxml` is a placeholder, never consulted. A
+   * non-node-direct `pkg` read still re-splices via `replace()` (the proxy/compat path).
+   */
+  nodeDirect: boolean;
   /** Paragraph count the read observed, used to range-check buffered updates. */
   count: number;
   /**
@@ -229,6 +265,36 @@ interface ReadState {
 /** Manifest commit intent passed into the atomic `commit`. */
 type ManifestAction = { kind: "set"; xml: string } | { kind: "delete" } | { kind: "none" };
 
+/**
+ * Step-0 per-stage timing accumulator (Loop 002 A1 / 002-S7). Holds the millisecond cost of each
+ * engine stage as the node-direct Hide crosses its boundaries — the read paths fill the read/parse
+ * fields, the engine reports classify/apply via `recordEngineStages`, and the commit fills
+ * serialize/commit just before emitting ONE `debug` line carrying the whole struct. Fields map to the
+ * LIVE node-direct reality (parse ONCE, mutate in place, serialize the whole package once), so there
+ * is no per-paragraph splice stage. `engineStart` is the port's clock reading at the start of the
+ * read (`engineTotalMs` = commit-end − engineStart); the rest default to 0 so a stage that doesn't
+ * apply on a given path (e.g. `tcGateMs`, ~0 post-B2 because the TC read is fused into the read sync)
+ * is honestly reported as absent/zero rather than fabricated.
+ */
+interface StageTimings {
+  /** Port-clock reading when the read began; anchors `engineTotalMs`. */
+  engineStart: number;
+  /** The prefetched TC-gate decision cost (post-B2 ≈ 0 — the read happens in the read sync). */
+  tcGateMs: number;
+  /** `body.getOoxml()` sync (+ the fused TC prime) — the one read round-trip. */
+  readSyncMs: number;
+  /** The `WholeBodyPackage` ctor parse (document.xml only, post-A2 — ONE parse). */
+  parseMs: number;
+  /** Phase A — the read-only `decideParagraph` classify loop (reported by the engine). */
+  classifyMs: number;
+  /** Phase B — the `applyVisibilityInPlace` apply loop (reported by the engine). */
+  applyMs: number;
+  /** `pkg.serialize()` — the whole-package stitch at commit. */
+  serializeMs: number;
+  /** The commit sync: the `insertOoxml("Replace")` + manifest write round-trip. */
+  commitSyncMs: number;
+}
+
 // ---------------------------------------------------------------------------
 // The adapter
 // ---------------------------------------------------------------------------
@@ -238,6 +304,12 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private readonly strategy: CommitStrategy;
   /** Avenue ⑦ — read+commit the whole body with no proxies/alignment (the default Hide path). */
   private readonly pureWholeBody: boolean;
+  /**
+   * P7 referenced-closure styles prune flag (Loop 002 B3) — DEFAULT false. Threaded into the
+   * `WholeBodyPackage` the read builds, and consulted by the node-direct commit to shrink the styles
+   * part before `serialize()`. Default-off keeps the shipped serialize byte-identical (002-F6).
+   */
+  private readonly pruneStyles: boolean;
   private readonly outline: OutlineConfig;
   private readonly chunkSize: number;
   private readonly onProgress?: (info: ProgressInfo) => void;
@@ -245,17 +317,38 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   /** Ticked per paragraph in the pure read; defaults to a never-yielding wrap of `cancel`. */
   private readonly pacer: Pacer;
   private readonly log: Logger;
+  /** Step-0 stage-timing clock (Loop 002 A1 / 002-S7); shares the tracer's clock by default. */
+  private readonly clock: () => number;
 
   /** Updates buffered by `writeParagraphs`, flushed atomically by the next manifest op. */
   private pending: ParagraphUpdate[] | null = null;
   /** State from the most recent `readParagraphs`, consumed by `commit`. */
   private lastRead: ReadState | null = null;
+  /**
+   * The Track-Changes mode observed in the FIRST sync of the most recent `readParagraphs` (Loop 002 B2
+   * / 002-S4 read fusion). Loaded alongside the body OOXML on that same sync, so a clean Hide spends NO
+   * extra Word.run reading TC — the engine's prefetched-mode gate consumes this instead. `null` until a
+   * read primes it, and re-nulled at the START of every read so a stale value from a prior op can never
+   * leak into a later gate decision.
+   */
+  private lastReadTrackChanges: TrackChangesMode | null = null;
   /** Last observed manifest part id — advisory/diagnostic only (lookups go by namespace). */
   private manifestPartId: string | null = null;
+  /**
+   * Step-0 per-stage timing accumulator (Loop 002 A1 / 002-S7). Allocated at the START of each read,
+   * filled as the node-direct Hide crosses its stage boundaries (read sync + parse here; classify +
+   * apply via `recordEngineStages`; serialize + commit sync in `commit`), then emitted as ONE
+   * `debug`-level line at the end of the commit. `null` until a read primes it; only the node-direct
+   * read primes it (the only path whose stages all live in this one cached package), so the proxy and
+   * range paths never emit the line. Re-nulled by `discardPreparedWrite` so an aborted op emits none.
+   */
+  private stageTimings: StageTimings | null = null;
 
   constructor(options: OfficeWordPortOptions = {}) {
     this.run = options.runner ?? defaultRunner;
     this.pureWholeBody = options.pureWholeBody ?? false;
+    // P7 (Loop 002 B3) styles-prune flag: default OFF so the shipped serialize is byte-identical (002-F6).
+    this.pruneStyles = options.pruneStyles ?? false;
     // Avenue ⑦ commits with ONE whole-body insertOoxml, so it implies the whole-body strategy
     // regardless of any commitStrategy passed — keeping read and commit consistent.
     this.strategy = this.pureWholeBody ? "whole-body" : options.commitStrategy ?? "per-paragraph";
@@ -271,6 +364,9 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     this.pacer =
       options.pacer ?? createPacer({ cancel: options.cancel, budgetMs: Number.POSITIVE_INFINITY });
     this.log = options.logger ?? rootLogger("adapter");
+    // Step-0 stage-timing clock: prefer an injected one, else the logger's tracer clock (so a
+    // fake-clock tracer in tests drives the stage durations), else `Date.now` as a last resort.
+    this.clock = options.now ?? (() => this.log.now());
     this.log.debug("officeWordPort created", {
       strategy: this.strategy,
       pureWholeBody: this.pureWholeBody,
@@ -323,17 +419,58 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
   // ----- Read ---------------------------------------------------------------
 
+  /**
+   * The Track-Changes mode prefetched by the most recent `readParagraphs` (Loop 002 B2 / 002-S4), or
+   * `null` if no read has happened since construction. The Hide engine consumes this through the
+   * prefetched-mode TC gate so a clean Hide pays NO separate Word.run for the TC read — the read sync
+   * already carried it. A `null` here means "no primed value"; the engine then falls back to the
+   * standard gate (its own TC read), so correctness never depends on the prime being present.
+   */
+  getPrimedTrackChangesMode(): TrackChangesMode | null {
+    return this.lastReadTrackChanges;
+  }
+
+  /**
+   * Step-0 instrumentation clock (Loop 002 A1 / 002-S7). The engine borrows this to bracket the two
+   * stages IT owns (Phase A classify, Phase B apply) so every stage in the aggregate timing line is
+   * read from the SAME clock the port times its own stages with — deterministic under a test's fake
+   * clock. Never on the correctness path: a non-instrumenting caller simply doesn't call it.
+   */
+  now(): number {
+    return this.clock();
+  }
+
+  /**
+   * Fold the two engine-owned stage durations (Phase A classify, Phase B apply) into the Step-0
+   * stage-timing accumulator (Loop 002 A1 / 002-S7). The engine calls this after a clean Phase B and
+   * before the commit; the port emits the full line at the end of the commit. A no-op when no read
+   * primed the accumulator (only the node-direct read does), so a stray call can never emit a line.
+   */
+  recordEngineStages(timings: EngineStageTimings): void {
+    if (!this.stageTimings) return;
+    this.stageTimings.classifyMs = timings.classifyMs;
+    this.stageTimings.applyMs = timings.applyMs;
+  }
+
   async readParagraphs(): Promise<RawParagraph[]> {
     const op = this.log.child("read");
     const span = op.span("readParagraphs", { strategy: this.strategy, pure: this.pureWholeBody });
+    // Null any TC mode primed by a prior read BEFORE this read begins: a stale value must never leak
+    // into a later gate decision. The read paths below re-prime it inside their first sync.
+    this.lastReadTrackChanges = null;
+    // Null any Step-0 stage timings primed by a prior read (Loop 002 A1 / 002-S7). Only the node-direct
+    // read (`readBatchPure`) re-primes it; the proxy/range paths leave it null and emit no timing line.
+    this.stageTimings = null;
     try {
       const result = await this.run(async (ctx) =>
         this.pureWholeBody ? this.readBatchPure(ctx, op) : this.readBatch(ctx, op)
       );
       this.lastRead = result.state;
+      this.lastReadTrackChanges = result.trackChanges;
       span.end({
         count: result.paragraphs.length,
         source: result.state.strategy,
+        trackChanges: result.trackChanges,
         outlineRawSample: result.outlineSample
       });
       return result.paragraphs;
@@ -367,18 +504,56 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private async readBatchPure(
     ctx: any,
     op: Logger
-  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown }> {
-    const body = ctx.document.body;
+  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown; trackChanges: TrackChangesMode }> {
+    const doc: any = ctx.document;
+    const body = doc.body;
+    // Step-0 instrumentation (Loop 002 A1 / 002-S7): open the stage-timing accumulator on the
+    // node-direct path. `engineStart` anchors `engineTotalMs`; `readSyncMs` brackets the one read
+    // round-trip (`getOoxml` + the fused TC prime). Filled further at parse/classify/apply/serialize/
+    // commit boundaries, then emitted as ONE `debug` line at the end of the commit.
+    const timings: StageTimings = {
+      engineStart: this.clock(),
+      tcGateMs: 0,
+      readSyncMs: 0,
+      parseMs: 0,
+      classifyMs: 0,
+      applyMs: 0,
+      serializeMs: 0,
+      commitSyncMs: 0
+    };
+    this.stageTimings = timings;
+    const tReadSyncStart = this.clock();
     const bodyOoxml = body.getOoxml();
-    await ctx.sync(); // the ONLY read sync: the whole-body OOXML
+    // Loop 002 B2 (002-S4) — PREFETCH the Track-Changes mode in this same first sync, fusing what was a
+    // dedicated TC-read Word.run into the read. The engine's prefetched-mode gate consumes it, so a
+    // clean Hide costs 2 runs (read + commit) instead of 3 (TC read + read + commit).
+    doc.load("changeTrackingMode");
+    await ctx.sync(); // the ONLY read sync: the whole-body OOXML + the TC mode
+    // readSyncMs ends here: the host round-trip that delivered the body OOXML + TC mode is done. The TC
+    // gate decision itself (`tcGateMs`) is the cheap normalize below — post-B2 the actual TC READ was
+    // fused into this sync, so the gate cost captured here is ~0, recorded honestly (not folded away).
+    timings.readSyncMs = this.clock() - tReadSyncStart;
+    const tTcGateStart = this.clock();
+    const trackChanges = normalizeTcMode(String(doc.changeTrackingMode), op);
+    timings.tcGateMs = this.clock() - tTcGateStart;
 
     let pkg: WholeBodyPackage;
+    // parseMs brackets the WholeBodyPackage ctor (document.xml only, post-A2 — ONE parse).
+    const tParseStart = this.clock();
     try {
-      pkg = new WholeBodyPackage(bodyOoxml.value);
+      // P7 (002-S6): thread the prune flag so the node-direct commit can shrink the styles part before
+      // serialize(). Default-OFF leaves the part verbatim (002-F6); the ctor never DOM-parses it either way.
+      pkg = new WholeBodyPackage(bodyOoxml.value, { pruneStyles: this.pruneStyles });
     } catch (e) {
       op.warn("pure whole-body parse failed — falling back to the proxy read path", describeError(e));
-      return this.readBatch(ctx, op);
+      // Falling back to the proxy path: it is NOT node-direct, so drop the node-direct stage timings —
+      // a fallback read must not later emit a node-direct timing line. The fallback re-reads the body
+      // via the proxy path but has ALREADY primed TC in this sync; pass it through so the fallback's
+      // own (second) TC load is unnecessary — preserve the prime.
+      this.stageTimings = null;
+      return { ...(await this.readBatch(ctx, op)), trackChanges };
     }
+    timings.parseMs = this.clock() - tParseStart;
 
     // Review C-3: the package has a styles part but it parsed to ZERO style defs (an unreadable
     // serialization shape). Outline resolution would then mis-classify every style-derived heading
@@ -386,7 +561,9 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     // fall back to the proven proxy read (which reads outline from `Paragraph.outlineLevel`).
     if (pkg.styleParseSuspect) {
       op.warn("pure whole-body: styles.xml present but unparseable — falling back to the proxy read path");
-      return this.readBatch(ctx, op);
+      // Same as the parse-fail fallback: the proxy path isn't node-direct → drop the stage timings.
+      this.stageTimings = null;
+      return { ...(await this.readBatch(ctx, op)), trackChanges };
     }
 
     const total = pkg.count;
@@ -400,7 +577,13 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
       await this.pacer.tick();
       const headingLevel = pkg.headingLevel(i);
       const inTable = pkg.inTable(i);
-      out.push({ index: i, headingLevel, inTable, ooxml: pkg.paragraphXml(i) });
+      // LOOP 002 B1 — node-direct: hand the engine a `ParsedParagraph` over the package's LIVE `<w:p>`
+      // node (zero per-paragraph serialize→parse — the win 002-S1 names). The engine reads its run
+      // views and mutates `<w:vanish/>` IN PLACE on this same node, then this package serializes once.
+      // `ooxml` is a placeholder: with `.parsed` set, the engine never reads it, and the node-direct
+      // commit serializes the whole package (never a per-paragraph fragment), so we DROP the
+      // `paragraphXml(i)` serialize the proxy path pays here.
+      out.push({ index: i, headingLevel, inTable, ooxml: NODE_BACKED_OOXML, parsed: pkg.parsedParagraph(i) });
       if (outlineSample === null && headingLevel !== null) {
         outlineSample = { index: i, headingLevel, inTable, source: "package-styles" };
       }
@@ -412,11 +595,12 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     // Identity mapping + cleanAlign: the package is self-consistent, so engineIndex === packageIndex
     // and the whole-body commit re-serializes exactly what we read (only <w:vanish/> changed).
     const pkgIndex = Array.from({ length: total }, (_, i) => i);
-    op.debug("pure whole-body read assembled", { paragraphs: total, source: "package-styles" });
+    op.debug("pure whole-body read assembled (node-direct)", { paragraphs: total, source: "package-styles" });
     return {
       paragraphs: out,
-      state: { strategy: "pkg", pkg, count: total, pkgIndex, cleanAlign: true },
-      outlineSample
+      state: { strategy: "pkg", pkg, count: total, pkgIndex, cleanAlign: true, nodeDirect: true },
+      outlineSample,
+      trackChanges
     };
   }
 
@@ -436,12 +620,17 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
   private async readBatch(
     ctx: any,
     op: Logger
-  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown }> {
-    const body = ctx.document.body;
+  ): Promise<{ paragraphs: RawParagraph[]; state: ReadState; outlineSample: unknown; trackChanges: TrackChangesMode }> {
+    const doc: any = ctx.document;
+    const body = doc.body;
     const paras = body.paragraphs;
     paras.load("items");
     const bodyOoxml = body.getOoxml(); // ALWAYS: one whole-body read
-    await ctx.sync(); // sync 1: items + whole-body OOXML
+    // Loop 002 B2 (002-S4) — PREFETCH the Track-Changes mode in this same first sync (see readBatchPure).
+    // Fuses the dedicated TC-read run into the read, so the proxy-path Hide also costs one fewer run.
+    doc.load("changeTrackingMode");
+    await ctx.sync(); // sync 1: items + whole-body OOXML + the TC mode
+    const trackChanges = normalizeTcMode(String(doc.changeTrackingMode), op);
 
     const total: number = paras.items.length;
     op.debug("paragraph collection materialized", { total });
@@ -565,8 +754,12 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     });
     return {
       paragraphs: out,
-      state: { strategy, pkg, count: total, pkgIndex: mapping, cleanAlign },
-      outlineSample
+      // nodeDirect:false — the proxy read serializes per-paragraph fragments and commits via
+      // `replace()` (it aligns the package to LIVE proxies, where in-place node mutation can't be
+      // trusted under a ±1 artifact). Only the pure `readBatchPure` path is node-direct.
+      state: { strategy, pkg, count: total, pkgIndex: mapping, cleanAlign, nodeDirect: false },
+      outlineSample,
+      trackChanges
     };
   }
 
@@ -574,10 +767,17 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
   async writeParagraphs(updates: ParagraphUpdate[]): Promise<void> {
     const op = this.log.child("write");
+    // On the LOOP 002 node-direct path the update `ooxml` is a placeholder (the `<w:p>` was already
+    // mutated IN PLACE inside the cached package and the commit serializes the whole package, never a
+    // per-paragraph fragment), so its single-`<w:p>` validity is moot — and `assertSingleParagraph`
+    // parses each fragment, which would re-introduce the very per-paragraph parse P1 deletes (it scales
+    // with the changed-paragraph count, ~489 on ExFlex). Skip the fragment guard on that path; the
+    // index range-check still runs (it never parses).
+    const nodeDirect = this.lastRead?.nodeDirect === true;
     // Validate eagerly, BEFORE any host mutation: every fragment must hold exactly
     // one <w:p> (audit #5), and every index must be within the last read.
     for (const u of updates) {
-      assertSingleParagraph(u.ooxml, `writeParagraphs @${u.index}`);
+      if (!nodeDirect) assertSingleParagraph(u.ooxml, `writeParagraphs @${u.index}`);
       if (this.lastRead && (u.index < 0 || u.index >= this.lastRead.count)) {
         throw new RangeError(
           `writeParagraphs: update index ${u.index} is out of range (document had ` +
@@ -592,6 +792,30 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     op.debug("buffered paragraph updates (await manifest op to flush atomically)", {
       count: updates.length
     });
+  }
+
+  /**
+   * Discard any prepared write state (Loop 002 B1 — CONTRACT C / 002-F4). Called by the engine when
+   * Phase B of a Hide ABORTS (a throwing `applyVisibilityInPlace`, or a cancel) AFTER it began mutating
+   * the cached package's live `<w:p>` nodes but BEFORE any host write. Because the node-direct path
+   * mutates `lastRead.pkg` in place, that package is now HALF-MUTATED in memory; nulling `lastRead`
+   * (and any `pending` buffer) guarantees no later `commit`/manifest op can ever serialize it, and the
+   * NEXT operation re-reads the unchanged on-disk document from scratch. The on-disk doc is untouched
+   * (nothing was inserted), so this leaves it byte-identical with the manifest unarmed. Idempotent.
+   */
+  discardPreparedWrite(): void {
+    if (this.lastRead || this.pending) {
+      this.log.child("abort").debug("discarding prepared write (Phase-B abort) — re-read on next op", {
+        hadRead: !!this.lastRead,
+        hadPending: this.pending ? this.pending.length : 0
+      });
+    }
+    this.lastRead = null;
+    this.pending = null;
+    // Drop any Step-0 stage timings too (Loop 002 A1 / 002-S7): an aborted Phase-B op never reaches
+    // the commit that would emit the line, so the half-filled accumulator must not survive into the
+    // next op (which re-primes its own on read).
+    this.stageTimings = null;
   }
 
   // ----- Reveal (fast Show All) --------------------------------------------
@@ -910,6 +1134,13 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
     // (underline, character box, font size) survives; without a pkg (pure range read) the engine
     // fragment is already Word's full, styled package and is committed as-is.
     const pkg = this.lastRead?.pkg ?? null;
+    // Step-0 instrumentation (Loop 002 A1 / 002-S7): the node-direct commit is the LAST stage of the
+    // engine op, so this is where serialize + commit-sync are bracketed and the one aggregate line is
+    // emitted. Only the node-direct path primes `stageTimings` (see `readBatchPure`); a non-node-direct
+    // commit leaves it null and emits nothing. `commitSyncStart` is captured just before sync 2 inside
+    // the batch so it measures only the host round-trip, not the manifest-existence sync above it.
+    const timings = this.lastRead?.nodeDirect ? this.stageTimings : null;
+    let commitSyncStart = 0;
     const span = op.span(label, { paragraphs: updates.length, manifest: manifest.kind, usePkg });
     try {
       await this.run(async (ctx) => {
@@ -923,7 +1154,29 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 
         // --- paragraph edits ---
         if (updates.length) {
-          if (usePkg && this.lastRead!.pkg) {
+          if (usePkg && this.lastRead!.pkg && this.lastRead!.nodeDirect) {
+            // LOOP 002 B1 — node-direct commit. The engine already mutated each changed paragraph's
+            // `<w:p>` IN PLACE inside THIS cached package (the `ParsedParagraph` handles wrap the
+            // package's own nodes), so there is NOTHING to splice: serialize the whole package once
+            // and the mutations are already present. We deliberately do NOT call `pkg.replace()` (no
+            // re-parse, no re-import of an identical node) — that is the per-paragraph serialize P1
+            // deletes — and we ignore each update's placeholder `ooxml`.
+            // P7 (Loop 002 B3 / 002-S6): with the flag ON, shrink the styles part to its referenced
+            // closure HERE — AFTER the in-place splice (so cite-repair-injected rStyle refs are seeded)
+            // and BEFORE serialize() (so the stitch emits the pruned bytes). A NO-OP when the flag is OFF
+            // (the shipped default — 002-F6 keeps serialize byte-identical) or when there is no styles
+            // part. Idempotent, so a reused lastRead.pkg re-pruning is safe. Bracketed inside serializeMs
+            // because it is part of producing the write-side package (perf-1 books the write side only).
+            const tSerializeStart = this.clock();
+            const prunedBytes = this.lastRead!.pkg.pruneStylesToClosure();
+            if (prunedBytes > 0) op.debug("P7 styles prune shrank the styles part", { bytes: prunedBytes });
+            const serialized = this.lastRead!.pkg.serialize();
+            if (timings) timings.serializeMs = this.clock() - tSerializeStart;
+            doc.body.insertOoxml(serialized, "Replace");
+            op.debug("node-direct whole-body insertOoxml queued (no per-paragraph splice)", {
+              changed: updates.length
+            });
+          } else if (usePkg && this.lastRead!.pkg) {
             const pkg = this.lastRead!.pkg;
             const map = this.lastRead!.pkgIndex;
             // Map engine index (proxy order) → package story index via the read's
@@ -985,9 +1238,34 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
         }
 
         this.onProgress?.({ phase: "commit", done: updates.length, total: updates.length });
+        // commitSyncMs brackets ONLY this host round-trip (the insertOoxml + manifest write), not the
+        // manifest-existence sync 1 above it (Step-0 / 002-S7). Captured inside the batch, just before.
+        commitSyncStart = this.clock();
         await ctx.sync(); // sync 2: THE atomic commit (edits + manifest together)
       });
       span.end();
+      // Step-0 instrumentation (Loop 002 A1 / 002-S7): the node-direct op is now fully committed — its
+      // LAST stage is done — so finalize commitSyncMs + engineTotalMs and emit the ONE aggregate line.
+      // It is a single `op.debug()` (NOT a span-end): the per-stage millisecond struct is observable at
+      // `debug` level only (default `info` drops it, so production is unaffected), and crucially it
+      // carries NO `durationMs` — the span-end fingerprint — which pins the line to `debug`, not a span
+      // (002-S7 / tests-6). `engineTotalMs` is the end-to-end engine span: read start → commit end.
+      if (timings) {
+        timings.commitSyncMs = this.clock() - commitSyncStart;
+        op.debug("engine stage timing", {
+          tcGateMs: round1(timings.tcGateMs),
+          readSyncMs: round1(timings.readSyncMs),
+          parseMs: round1(timings.parseMs),
+          classifyMs: round1(timings.classifyMs),
+          applyMs: round1(timings.applyMs),
+          serializeMs: round1(timings.serializeMs),
+          commitSyncMs: round1(timings.commitSyncMs),
+          engineTotalMs: round1(this.clock() - timings.engineStart)
+        });
+        // Consume the accumulator so a later non-Hide commit (e.g. a manifest-only clear) can't re-emit
+        // a stale line; the next read re-primes its own.
+        this.stageTimings = null;
+      }
     } catch (e) {
       // The buffer was already cleared; surface a clear, contextual failure.
       // DIAGNOSTICS (Stage 4.2): a host `insertOoxml` rejection ("problem with its contents",
@@ -1034,6 +1312,16 @@ class OfficeWordPort implements CiteRepairCapablePort, RangeScopedPort {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Round a millisecond reading to one decimal for the Step-0 stage-timing line (Loop 002 A1 / 002-S7).
+ * The raw clock can be sub-millisecond (performance.now-backed) or integer (Date.now); one decimal
+ * keeps the line readable without discarding a small-but-real per-stage cost (a parse that takes
+ * 0.4ms should not print as 0). A pure number→number transform — no tracer, no side effects.
+ */
+function round1(ms: number): number {
+  return Math.round(ms * 10) / 10;
+}
 
 /** Validate the host's reported TC mode; default to "Off" on anything unexpected. */
 function normalizeTcMode(mode: string, op: Logger): TrackChangesMode {

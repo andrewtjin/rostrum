@@ -210,6 +210,112 @@ describe("external-change re-sync (refreshFromDocument)", () => {
   });
 });
 
+describe("re-entrancy guard — interleaved ops cannot overlap (002-F8)", () => {
+  // 002-F8: B1's node-direct Hide holds a parsed, partially-mutated DOM in the port's `lastRead.pkg`
+  // across the read→commit window. A SECOND concurrent op interleaving there is the half-mutated-package
+  // losslessness exposure (002-F1/F4). `runMutation`/`applyStyles` already SET `inFlight`; the CHECK
+  // ported here REFUSES the second op before it starts any engine work. The block surfaces through the
+  // existing `status:"error"` "still running" channel (same as CondenseController.runRangeOp), so the
+  // ribbon/pane render the kept-open pop-out the codebase already has (S-009), with no new UI.
+
+  // A runner that, ONCE armed, holds the next Word.run (op A) open at a gate so op B is invoked while A
+  // is provably in flight, then releases A. `arm()` is called AFTER init (so init's own runs pass
+  // through); the next run after arming parks until `release()`. `engineReads()` counts whole-body reads
+  // = engine invocations. (Init runs are not engine reads — it reads the manifest, not body OOXML.)
+  function gatedHarness(doc: FakeDoc) {
+    const h = harness(doc);
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    let armed = false;
+    let parked = false;
+    const runner = async <T,>(b: (c: Word.RequestContext) => Promise<T>): Promise<T> => {
+      if (armed && !parked) {
+        parked = true; // park only the FIRST run after arming (op A); later runs pass through
+        await gate;
+      }
+      return h.runner(b);
+    };
+    const engineReads = (): number => h.ctx.commitLog.filter((c) => c.op === "body.getOoxml").length;
+    return {
+      h,
+      runner,
+      release,
+      engineReads,
+      arm: (): void => {
+        armed = true;
+      }
+    };
+  }
+
+  it("blocks a second Hide invoked while the first is in flight; the first still completes", async () => {
+    const { h, runner, release, engineReads, arm } = gatedHarness(
+      mkDoc([para(run("Heading"), { outlineNumber: 1 }), para(run("card body"))])
+    );
+    const ctrl = new RostrumController({
+      features: FULL,
+      runner,
+      storage: memStorage(),
+      pureWholeBody: false, // proxy path (proxy-outline fixture) — same path the other legacy tests use
+      logger: h.tracer.logger("pane")
+    });
+    await ctrl.init();
+    arm(); // from here, the next Word.run (op A's) parks at the gate
+
+    // Op A: do NOT await. `inFlight` is set synchronously in runMutation before the engine is awaited,
+    // and the gated runner parks A's first Word.run, so A is genuinely in flight from here on.
+    const opA = ctrl.hide();
+
+    // Op B: invoked WHILE A is in flight → must be refused with the blocked outcome and run NO engine
+    // work (no second concurrent mutation). Awaiting B resolves immediately (it never touches the host).
+    const outB = await ctrl.hide();
+    expect(outB).toEqual({
+      status: "error",
+      message: "Another Rostrum operation is still running — let it finish first."
+    });
+    // The guard fired before any engine work for B: A has not even read yet (still parked at the gate),
+    // so the read count is still 0 — B definitively did not start a second mutation.
+    expect(engineReads()).toBe(0);
+
+    // Release A and let it finish: it completes normally (exactly one engine read+commit), arming the doc.
+    release();
+    const outA = await opA;
+    expect(outA.status).toBe("ok");
+    if (outA.status === "ok") expect(outA.message).toMatch(/Hid 1 of 2 paragraphs/);
+    expect(engineReads()).toBe(1); // exactly ONE whole-body read total — A's; B never read
+    expect(ctrl.status().armed).toBe(true);
+
+    // After A settles the guard is clear again — a subsequent op runs normally (flag cleared in finally).
+    const outC = await ctrl.showAll();
+    expect(outC.status).toBe("ok");
+    expect(ctrl.status().armed).toBe(false);
+  });
+
+  it("blocks applyStyles while a Hide is in flight (the guard covers applyStyles too)", async () => {
+    const { h, runner, release, arm } = gatedHarness(
+      mkDoc([para(run("Heading"), { outlineNumber: 1 }), para(run("card body"))])
+    );
+    const ctrl = new RostrumController({
+      features: FULL,
+      runner,
+      storage: memStorage(),
+      pureWholeBody: false,
+      logger: h.tracer.logger("pane")
+    });
+    await ctrl.init();
+    arm();
+
+    const opA = ctrl.hide(); // parked at the gate, in flight
+    const outB = await ctrl.applyStyles(); // second op, different verb → still blocked
+    expect(outB).toEqual({
+      status: "error",
+      message: "Another Rostrum operation is still running — let it finish first."
+    });
+
+    release();
+    expect((await opA).status).toBe("ok");
+  });
+});
+
 describe("Show All — single whole-doc reveal (performance default)", () => {
   it("reveals via ONE whole-doc font.hidden clear, not a per-paragraph loop", async () => {
     // The default commit strategy is whole-body, so Show All is one whole-doc font.hidden clear.

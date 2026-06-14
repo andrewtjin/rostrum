@@ -25,6 +25,7 @@
 
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { parseStyleDefs, outlineNumberFromProps, type StyleDef } from "./outline";
+import { ParsedParagraph } from "./ooxml";
 
 // xmldom's node types vary across versions; we keep public signatures fully typed
 // (string in/out, number/null) and use a localized `any` for node handles — the
@@ -419,22 +420,388 @@ function collectAuxRels(doc: any): string {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// P4-REVISED — string-level flat-OPC part segmentation (Loop 002 A2).
+//
+// WHY (perf-1 / PLAN §2 A2). The ctor used to DOM-parse the WHOLE flat-OPC package — the
+// document part PLUS the styles part (≈1.27MB on a real debate doc), numbering, theme, rels,
+// settings — into one xmldom tree, even though the node-direct Hide only ever MUTATES the
+// document part. That whole-package parse is the dominant read-side ctor cost. A2 cuts the
+// package at `<pkg:part>` boundaries with a linear string scan, DOM-parses ONLY the document
+// part (so its `<w:p>` nodes can still be mutated in place + re-serialized — the CORE-3
+// contract), and keeps every other part as a VERBATIM substring. `serialize()` stitches the
+// captured substrings back in ORIGINAL ORDER with the document part swapped for the
+// re-serialized (mutation-bearing) `<w:document>` subtree.
+//
+// WHY THIS IS BYTE-IDENTICAL TO TODAY (002-S2/F2). The synthetic fixtures are authored in
+// xmldom's canonical round-trip form, so `serialize(parse(fixture)) === fixture` and each
+// part's verbatim substring already EQUALS xmldom's standalone serialization of that part.
+// Re-serializing only the `<w:document>` subtree reproduces its bytes exactly (xmldom never
+// walks above a prefixed start node — the same property `paragraphXml` relies on). So the
+// stitched output equals today's whole-DOM `serialize()` byte-for-byte. On REAL docs (no byte
+// control) keeping non-document parts verbatim is a FIDELITY IMPROVEMENT over xmldom
+// re-serialization, and the document part still DOM-reserializes identically to today.
+// ---------------------------------------------------------------------------
+
+/** `<w:t>` content is entity-escaped, so a literal `</pkg:part>` can never appear inside text. */
+const PART_OPEN = "<pkg:part";
+const PART_CLOSE = "</pkg:part>";
+
+/** One captured `<pkg:part>` of a flat-OPC package — its verbatim bytes plus the pieces A2 needs. */
+interface PackagePart {
+  /** `pkg:name` attribute value (e.g. `/word/document.xml`), or "" if absent. */
+  name: string;
+  /** `pkg:contentType` attribute value, or "" if absent. */
+  contentType: string;
+  /** The part's ENTIRE `<pkg:part …>…</pkg:part>` substring, verbatim from the input. */
+  full: string;
+  /** The inner content of this part's `<pkg:xmlData>` (the actual part XML), or "" if none. */
+  xmlData: string;
+}
+
 /**
- * The serialized `<w:styles>` part from a whole-body package (`word/styles.xml`), or "" when the
- * package carries none. `body.getOoxml()` always bundles it; the PURE whole-body classify path
- * (avenue ⑦) needs it to resolve outline levels through the `basedOn` cascade WITHOUT a Word proxy
- * (the host reports `canGetStyles:false`). `<w:styles>` is unique in the package, so a single
- * `getElementsByTagName` lookup is unambiguous; `parseStyleDefs` then regex-scans the result.
+ * A flat-OPC package cut into its `<pkg:package>` head, ordered parts, and tail — purely by
+ * string scanning, no DOM parse. `head` is everything up to (and including) the package
+ * element's open tag; `tail` is `</pkg:package>` plus any trailing bytes. The `between` array
+ * holds the bytes between consecutive parts (empty for the canonical fixtures, but captured so
+ * any whitespace/XML-decl in a real package round-trips verbatim). `null` when the input is NOT
+ * a flat-OPC package (a raw `document.xml` or a bare `<w:p>` fragment) — those degrade to the
+ * pre-segmentation whole-input DOM parse, unchanged.
  */
-function extractStylesXml(doc: any): string {
-  const styles = doc.getElementsByTagName("w:styles");
-  return styles && styles.length > 0 ? serialize(styles.item(0)) : "";
+interface SegmentedPackage {
+  head: string;
+  parts: PackagePart[];
+  /** `between[k]` = bytes after parts[k-1] and before parts[k]; `between[0]` = bytes after head. */
+  between: string[];
+  tail: string;
+}
+
+/** Read a quoted attribute value from a `<pkg:part …>` open tag substring (returns "" if absent). */
+function attrValue(openTag: string, attr: string): string {
+  const m = new RegExp(`\\b${attr}="([^"]*)"`).exec(openTag);
+  return m ? m[1] : "";
+}
+
+/**
+ * Cut a flat-OPC package string into `{ head, parts, between, tail }` with a single linear scan.
+ * `<pkg:part>` is never nested and `w:t` text is entity-escaped, so matching `<pkg:part`→
+ * `</pkg:part>` linearly is unambiguous. Returns null when the string is not a `<pkg:package>`
+ * (a raw document.xml / bare fragment), signalling the caller to fall back to a whole-input parse.
+ */
+function segmentPackage(packageXml: string): SegmentedPackage | null {
+  const pkgOpen = packageXml.indexOf("<pkg:package");
+  if (pkgOpen < 0) return null; // not a flat-OPC package — caller parses the whole input
+  // End of the `<pkg:package …>` open tag. Attribute values are quoted and can't contain a raw
+  // `>` (XML rule), so the first `>` after the tag name closes the open tag.
+  const headEnd = packageXml.indexOf(">", pkgOpen);
+  if (headEnd < 0) return null;
+  const head = packageXml.slice(0, headEnd + 1);
+
+  const parts: PackagePart[] = [];
+  const between: string[] = [];
+  let cursor = headEnd + 1;
+  for (;;) {
+    const open = packageXml.indexOf(PART_OPEN, cursor);
+    if (open < 0) break;
+    between.push(packageXml.slice(cursor, open)); // bytes since the previous part (or head)
+    const close = packageXml.indexOf(PART_CLOSE, open);
+    if (close < 0) return null; // malformed — let the whole-input parse surface the error
+    const fullEnd = close + PART_CLOSE.length;
+    const full = packageXml.slice(open, fullEnd);
+    const openTagEnd = full.indexOf(">");
+    const openTag = openTagEnd >= 0 ? full.slice(0, openTagEnd + 1) : full;
+    parts.push({
+      name: attrValue(openTag, "pkg:name"),
+      contentType: attrValue(openTag, "pkg:contentType"),
+      full,
+      xmlData: extractXmlData(full)
+    });
+    cursor = fullEnd;
+  }
+  // Nothing matched `<pkg:part>` despite a `<pkg:package>` — treat as non-segmentable so the
+  // caller's whole-input parse keeps today's behavior (and surfaces any real malformation).
+  if (parts.length === 0) return null;
+  const tail = packageXml.slice(cursor);
+  return { head, parts, between, tail };
+}
+
+/** The inner content of a part's `<pkg:xmlData>…</pkg:xmlData>` (the part's own XML), or "". */
+function extractXmlData(partXml: string): string {
+  const open = partXml.indexOf("<pkg:xmlData");
+  if (open < 0) return "";
+  const openEnd = partXml.indexOf(">", open);
+  const close = partXml.lastIndexOf("</pkg:xmlData>");
+  if (openEnd < 0 || close < 0 || close < openEnd) return "";
+  return partXml.slice(openEnd + 1, close);
+}
+
+// ---------------------------------------------------------------------------
+// P7 — referenced-closure styles prune (Loop 002 B3, DEFAULT-OFF runtime flag).
+//
+// WHY (PLAN §2 B3 / perf-1 / CASES 002-S6/F6). Word's `styles.xml` carries the FULL latent/default
+// style table (~2.15MB on a real ndca doc) regardless of how few styles the body actually uses. The
+// node-direct Hide re-serializes the whole package back to the host, so every byte of that styles
+// part is on the WRITE side. When the prune flag is ON, we shrink the styles part to the transitive
+// closure of the styles REACHABLE from the retained content — a write-side size win — while keeping
+// the document body, `docDefaults`, `latentStyles`, and the `<w:styles>` root verbatim so the
+// rendered formatting is unchanged. When the flag is OFF (the shipped default) NONE of this runs and
+// the part stays byte-identical to today (002-F6).
+//
+// CLOSED-WORLD CORRECTNESS (loss-5). The closure is computed by SEEDING from every content part
+// (document.xml + numbering backlinks + footnotes/headers/footers, post-splice) plus all `w:default`
+// styles, then EXPANDING by a transitive fixpoint over every style cross-reference
+// (basedOn / link both directions / next / numStyleLink / styleLink). A retained style therefore
+// never dangles: any id it points at is, by construction, also in the closure.
+//
+// REGEX, not DOM, for the heavy part — consistent with `parseStyleDefs`/`outline.ts` (the styles
+// part is flat and well-formed as Word emits it). Seeds scan the (small) content substrings the same
+// way. The ONE structural operation — removing whole `<w:style>` elements — is done by re-emitting
+// only the retained `<w:style>…</w:style>` spans and the verbatim non-style remainder, so docDefaults
+// / latentStyles / root attributes are preserved byte-for-byte.
+// ---------------------------------------------------------------------------
+
+/** One style's outgoing cross-references, parsed from its `<w:style>` inner XML (for the closure walk). */
+interface StyleRefs {
+  /** `<w:basedOn w:val>` — the parent this style inherits from. */
+  basedOn: string | null;
+  /** `<w:link w:val>` — the paired para/char style. Retained in BOTH directions (a linked pair). */
+  link: string | null;
+  /** `<w:next w:val>` — the style applied to the NEXT paragraph after one in this style. */
+  next: string | null;
+  /** `<w:numStyleLink w:val>` — points a numbering style at the style that owns the real numbering. */
+  numStyleLink: string | null;
+  /** `<w:styleLink w:val>` — the reverse of numStyleLink (the numbering-owner points back). */
+  styleLink: string | null;
+}
+
+/** Read the FIRST `<w:TAG … w:val="…">` value inside a `<w:style>` inner XML, or null when absent. */
+function styleRefVal(inner: string, tag: string): string | null {
+  // Attribute-order tolerant (mirrors outline.ts parseStyleDefs C-2): never assume `w:val` is first.
+  const m = new RegExp(`<w:${tag}\\b[^>]*\\bw:val="([^"]+)"`).exec(inner);
+  return m ? m[1] : null;
+}
+
+/** One `<w:style>` element located in a styles part: its full source span plus its parsed open-tag/inner. */
+interface StyleSpan {
+  /** styleId of this element, or null when the `<w:style>` carries no `w:styleId` (un-referenceable). */
+  id: string | null;
+  /** The element's verbatim source bytes — paired `<w:style …>…</w:style>` OR self-closing `<w:style …/>`. */
+  span: string;
+  /** The open-tag attribute text (where `w:default`/`w:type`/`w:styleId` live). */
+  openAttrs: string;
+  /** The inner XML between the open and close tags ("" for a self-closing element — it has no children). */
+  inner: string;
+}
+
+/**
+ * Iterate EVERY `<w:style>` element in a styles part, in source order, matching BOTH forms a producer can
+ * emit: the self-closing `<w:style …/>` (no children — e.g. a bare default/latent reference) AND the
+ * paired `<w:style …>…</w:style>`. Each element is keyed on its OWN `w:styleId` so a self-closing style
+ * can never fuse with the next paired one (the loss-2/reg-2 corruption: the old paired-only regex skipped
+ * over a `<w:style …/>` and let an in-closure style be dropped).
+ *
+ * SINGLE SOURCE OF TRUTH: both `parseStyleGraph` (the indexed-id set) and `pruneStylesXml` (the spanned-
+ * element set) walk styles through THIS iterator, so the two sets are IDENTICAL by construction — there is
+ * no second regex to drift (the `stylesPrune` self-test asserts this agreement, incl. self-closing). Aligns
+ * with `outline.ts parseStyleDefs`'s paired matcher and additionally covers the self-closing form.
+ *
+ * The regex tries the self-closing alternative FIRST (`\/\s*>`) so a `<w:style …/>` is never mis-read as the
+ * open tag of a paired element. `w:styleId` is captured attribute-order-tolerantly (it need not be first).
+ */
+function* iterateStyleSpans(stylesXml: string): Generator<StyleSpan> {
+  // Alt 1 (self-closing): `<w:style …/>` — open-tag attrs in group 1, no inner.
+  // Alt 2 (paired):       `<w:style …>…</w:style>` — open-tag attrs in group 2, inner in group 3.
+  const styleRe = /<w:style\b([^>]*?)\/\s*>|<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g;
+  let m: RegExpExecArray | null;
+  while ((m = styleRe.exec(stylesXml)) !== null) {
+    const selfClosing = m[1] !== undefined;
+    const openAttrs = selfClosing ? m[1] : m[2];
+    const inner = selfClosing ? "" : m[3];
+    const idMatch = /\bw:styleId="([^"]+)"/.exec(openAttrs);
+    yield { id: idMatch ? idMatch[1] : null, span: m[0], openAttrs, inner };
+  }
+}
+
+/**
+ * Parse the styles part into `styleId → StyleRefs` plus the set of default styleIds (`w:default` truthy).
+ * Walks the SAME `iterateStyleSpans` iterator `pruneStylesXml` uses, so the indexed-id set equals the
+ * spanned-element set (no drift; self-test enforced). A style with no cross-references still gets an
+ * (all-null) entry so the closure walk can terminate cleanly at it.
+ */
+function parseStyleGraph(stylesXml: string): {
+  refs: Map<string, StyleRefs>;
+  defaults: Set<string>;
+} {
+  const refs = new Map<string, StyleRefs>();
+  const defaults = new Set<string>();
+  for (const { id, openAttrs, inner } of iterateStyleSpans(stylesXml)) {
+    if (id === null) continue; // an un-id'd style can't be referenced or seeded — no graph node for it
+    // `w:default` is ST_OnOff: truthy is any of "1"/"true"/"on" (b3-4 — Word also emits the bare "on").
+    if (/\bw:default="(?:1|true|on)"/.test(openAttrs)) defaults.add(id);
+    refs.set(id, {
+      basedOn: styleRefVal(inner, "basedOn"),
+      link: styleRefVal(inner, "link"),
+      next: styleRefVal(inner, "next"),
+      numStyleLink: styleRefVal(inner, "numStyleLink"),
+      styleLink: styleRefVal(inner, "styleLink")
+    });
+  }
+  return { refs, defaults };
+}
+
+/** Every `w:val` of the given style-reference tags found anywhere in a content substring. */
+function collectStyleValRefs(xml: string, tags: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const tag of tags) {
+    const re = new RegExp(`<w:${tag}\\b[^>]*\\bw:val="([^"]+)"`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml)) !== null) out.add(m[1]);
+  }
+  return out;
+}
+
+/**
+ * The content-part style references that SEED the closure — every OOXML element that names a style by
+ * `w:val` from OUTSIDE a `<w:style>` definition:
+ *   * `pStyle` / `rStyle` — paragraph/character style cites in document.xml, footnotes/endnotes, headers/
+ *     footers, AND numbering's `w:lvl` backlinks (the `w:lvl`'s own `w:pStyle` and its `w:rPr`'s `w:rStyle`
+ *     — the verified ndca gap where a style is referenced ONLY through numbering).
+ *   * `tblStyle` — a `<w:tbl>`'s applied table style (its conditional `<w:tblStylePr>` formatting lives
+ *     INSIDE the style def, so it is NOT a ref — verified: that is a child of `<w:style>`, walked as inner
+ *     bytes, never seeded here).
+ *   * `clickAndTypeStyle` — settings.xml's `<w:clickAndTypeStyle w:val>`: the paragraph style Word applies
+ *     when the user click-and-types into empty body space (reg-1). It is the ONLY style ref that lives in
+ *     settings.xml, so settings.xml is added to `isStyleReferencingPart` to be scanned for it.
+ * Scanning every tag in every content part is harmless (a part lacking a tag just yields no matches) and is
+ * computed POST-splice so a cite-repair-injected net-new `w:rStyle` is included (loss-5).
+ *
+ * DELIBERATELY EXCLUDED (audited, not refs that would drop a needed style): `<w:pPrChange>`/`<w:rPrChange>`
+ * carry FORMATTING snapshots (`<w:pPr>`/`<w:rPr>`), not a `pStyle`/`rStyle` `w:val` of their own beyond the
+ * nested ones our `pStyle`/`rStyle` scan already catches; glossary/`docPart` content lives in a SEPARATE
+ * part (glossary/document.xml) with its OWN styles part, not this one, so it cannot reference these styles.
+ */
+const CONTENT_STYLE_REF_TAGS = ["pStyle", "rStyle", "tblStyle", "clickAndTypeStyle"] as const;
+
+/**
+ * True when a non-document, non-styles part can carry style REFERENCES that must seed the closure:
+ * `numbering.xml` (the `w:lvl` backlinks — the verified ndca gap), the auxiliary story parts
+ * `footnotes` / `endnotes` / `header*` / `footer*` (their `<w:p>`/`<w:r>` cite styles the same way the
+ * body does), AND `settings.xml` (its `<w:clickAndTypeStyle w:val>` paragraph-style ref — reg-1). Recognized
+ * by part NAME (Word's conventional `/word/<name>.xml`) — the durable, cheap signal. `theme`/`fontTable`/
+ * rels parts carry NO style `w:val` ref (audited), so excluding them keeps the seed scan tight (and is
+ * harmless if a stray ref ever appeared — a wider seed only RETAINS more, never drops a needed style).
+ */
+function isStyleReferencingPart(part: PackagePart): boolean {
+  return /\/word\/(numbering|footnotes|endnotes|header\d*|footer\d*|settings)\.xml$/.test(part.name);
+}
+
+/**
+ * Expand a seed set to its transitive closure over the style graph (FIXPOINT, not one-hop). From each
+ * reached style follow basedOn / link / next / numStyleLink / styleLink AND the REVERSE link edge (a
+ * linked para/char pair is retained whichever half is reached). A worklist to fixpoint; cycle-safe
+ * because a style is enqueued only the first time it enters the closure.
+ */
+function expandStyleClosure(seeds: Iterable<string>, refs: Map<string, StyleRefs>): Set<string> {
+  // Reverse link adjacency: if A declares `<w:link w:val="B">`, reaching B must also retain A.
+  const linkedFrom = new Map<string, string[]>();
+  for (const [id, r] of refs) {
+    if (r.link) {
+      const arr = linkedFrom.get(r.link);
+      if (arr) arr.push(id);
+      else linkedFrom.set(r.link, [id]);
+    }
+  }
+  const closure = new Set<string>();
+  const work: string[] = [];
+  const push = (id: string | null | undefined): void => {
+    if (id && !closure.has(id)) {
+      closure.add(id);
+      work.push(id);
+    }
+  };
+  for (const s of seeds) push(s);
+  while (work.length) {
+    const id = work.pop()!;
+    const r = refs.get(id);
+    if (r) {
+      push(r.basedOn);
+      push(r.link);
+      push(r.next);
+      push(r.numStyleLink);
+      push(r.styleLink);
+    }
+    // Reverse link edge (both directions of a linked pair).
+    const back = linkedFrom.get(id);
+    if (back) for (const b of back) push(b);
+  }
+  return closure;
+}
+
+/**
+ * Re-emit a `<w:styles>` part keeping ONLY the `<w:style>` children whose styleId is in `keep`, with
+ * every NON-`<w:style>` byte (the `<w:styles …>` root open tag + its attrs/namespaces, `docDefaults`,
+ * `latentStyles`, inter-element whitespace, the `</w:styles>` close) preserved VERBATIM. Walks the part
+ * via the SAME `iterateStyleSpans` iterator `parseStyleGraph` uses (so the dropped-element set matches the
+ * indexed-id set exactly — self-closing `<w:style …/>` and paired `<w:style …>…</w:style>` are both
+ * handled, each keyed on its OWN styleId; the old paired-only regex skipped over self-closing styles and
+ * could fuse one into the next, dropping an in-closure style — loss-2/reg-2). Each kept span is COPIED by
+ * substring offset (`stylesXml.slice`), never via `String.replace`, so a style whose bytes contain `$`
+ * is dollar-safe by construction. A `<w:style>` with no styleId is always kept (it can't be referenced, so
+ * dropping it could change rendering — be conservative).
+ */
+function pruneStylesXml(stylesXml: string, keep: Set<string>): string {
+  let out = "";
+  let last = 0;
+  for (const { id, span } of iterateStyleSpans(stylesXml)) {
+    const index = stylesXml.indexOf(span, last); // each span's offset (in order — `last` advances monotonically)
+    // Copy the verbatim bytes BEFORE this style element (root open tag, docDefaults, whitespace, …).
+    out += stylesXml.slice(last, index);
+    if (id === null || keep.has(id)) out += span; // keep retained (or unidentifiable) styles verbatim
+    last = index + span.length;
+  }
+  out += stylesXml.slice(last); // the verbatim tail (latentStyles, </w:styles>, …)
+  return out;
+}
+
+/**
+ * TEST-ONLY: the two id-sets that MUST agree for the prune to be sound (FIX-2 / 002-F11). `graphIds` is the
+ * set `parseStyleGraph` indexes (the closure graph's nodes); `spanIds` is the set of styleIds whose
+ * `<w:style>` SPANS `pruneStylesXml` would drop/keep. If they ever diverge, an in-closure style could be
+ * indexed-but-never-spanned (silently retained-as-dead) or spanned-but-never-indexed (dropped despite being
+ * reachable). Both now walk the SAME `iterateStyleSpans` iterator, so they are identical by construction —
+ * this helper lets a unit test PROVE that, including for self-closing `<w:style …/>` elements. Underscore-
+ * prefixed so it reads as internal; not part of the public package surface.
+ */
+export function __styleMatcherAgreementForTest(stylesXml: string): {
+  graphIds: Set<string>;
+  spanIds: Set<string>;
+} {
+  const { refs } = parseStyleGraph(stylesXml);
+  const spanIds = new Set<string>();
+  for (const { id } of iterateStyleSpans(stylesXml)) if (id !== null) spanIds.add(id);
+  return { graphIds: new Set(refs.keys()), spanIds };
 }
 
 // ---------------------------------------------------------------------------
 // Whole-body package: parse once, hand out per-paragraph fragments, splice edits
 // back into the same tree, re-serialize.
 // ---------------------------------------------------------------------------
+
+/**
+ * Construction-time options for `WholeBodyPackage`. The ONLY option today is the P7 (Loop 002 B3)
+ * `pruneStyles` runtime flag — a code-level, DEFAULT-OFF opt-in (NOT a manifest/build flag, so the
+ * manifest stays byte-identical, scope-4). Kept as an interface (not a positional bool) so future
+ * package-level options are additive and self-documenting at call sites.
+ */
+export interface WholeBodyPackageOptions {
+  /**
+   * P7 referenced-closure styles prune (DEFAULT FALSE). When false (the shipped default), the styles
+   * part is emitted VERBATIM and never DOM-parsed (002-F6 byte-identity). When true, the commit hook
+   * may call `pruneStylesToClosure()` to shrink the styles part to the styles actually reachable from
+   * the retained content — a WRITE-SIDE size reduction (perf-1). GO is a WET decision (see PLAN §5).
+   */
+  pruneStyles?: boolean;
+}
 
 /**
  * A parsed whole-body flat-OPC package that the adapter caches between its read
@@ -449,41 +816,190 @@ function extractStylesXml(doc: any): string {
  * `paragraphs.items[i]` (the alignment guard) before trusting per-index metadata.
  */
 export class WholeBodyPackage {
+  /**
+   * The DOM-parsed DOCUMENT part — its root is `<w:document>` when the input is a flat-OPC package
+   * (A2 parses ONLY this part), or the whole-input root for a raw document.xml / bare `<w:p>`
+   * fragment. Its `<w:p>` nodes (`this.paras`) are mutated in place by the node-direct Hide and
+   * re-serialized by `serialize()` — the CORE-3 contract.
+   */
   private readonly doc: any;
   private readonly scope: any;
   private readonly paras: any[];
+  /** The `<w:document>` element to re-serialize on `serialize()` (the document part's subtree). */
+  private readonly docElement: any;
   /** The real `<w:document>` start-tag attrs (xmlns:* + mc:Ignorable), re-applied per fragment. */
   private readonly docAttrs: string;
-  /** relationship id → `<Relationship/>` XML, so a fragment can carry the rels it references. */
-  private readonly relsById: Map<string, string>;
-  /** Serialized styles/numbering/theme `<pkg:part>`s, bundled into the COMMIT fragment only. */
-  private readonly auxParts: string;
-  /** Serialized styles/numbering/theme `<Relationship>`s for the commit fragment's doc rels. */
-  private readonly auxRels: string;
   /** styleId → outline definition, parsed once from the package's styles.xml (for `headingLevel`). */
   private readonly styleDefs: Map<string, StyleDef>;
   /** Whether the package actually carried a `<w:styles>` part (to distinguish "absent" from "unparseable"). */
   private readonly stylesPresent: boolean;
+  /**
+   * The flat-OPC segmentation (null for a raw document.xml / bare fragment, which serialize via the
+   * whole-input DOM directly). When present, `serialize()` stitches the verbatim part substrings in
+   * original order with the document part swapped for the re-serialized `<w:document>` subtree.
+   */
+  private readonly segments: SegmentedPackage | null;
+  /** Index of the document part within `segments.parts`, and the bytes around its `<w:document>`. */
+  private readonly docPartIndex: number;
+  private readonly docHead: string; // the document part's bytes before `<w:document`
+  private readonly docTail: string; // the document part's bytes from `</w:document>` onward
+  /**
+   * The small auxiliary parts (rels + styles/numbering/theme) the COMMIT/READ fragments need, parsed
+   * LAZILY on first access — so the node-direct read ctor never DOM-parses the 1.27MB styles part (or
+   * numbering/theme). `paragraphXml`/`commitXml` are off the node-direct hot path, so deferring this
+   * is free there and books the read-side ctor-parse reduction (perf-1). Memoized via the fields below.
+   */
+  private auxParsed: { relsById: Map<string, string>; auxParts: string; auxRels: string } | null = null;
+  /** Captured aux/rels part substrings (verbatim) used to build `auxParsed` on demand. */
+  private readonly auxPartSubstrings: string[];
+  /**
+   * P7 (Loop 002 B3) — the DEFAULT-OFF runtime flag enabling `pruneStylesToClosure()`. A code-level
+   * option (NOT a manifest/build flag — scope-4 keeps the manifest byte-identical), default false so
+   * the SHIPPED path emits the styles part VERBATIM and never DOM-parses it (002-F6). When true, the
+   * commit hook may shrink the styles part to its referenced closure between splice and `serialize()`.
+   */
+  private readonly pruneStyles: boolean;
+  /**
+   * P7 — the index of the `<w:styles>` part within `segments.parts` (the SAME part `extractStylesSubstring`
+   * found, keyed to a `<w:styles>` ROOT, NOT a content-type). `pruneStylesToClosure()` REPLACES that
+   * part's verbatim `full` substring with the pruned bytes so `serialize()`'s in-order stitch emits the
+   * shrunk part. `-1` when there is no styles part (or the input isn't segmentable) → prune is a no-op.
+   */
+  private readonly stylesPartIndex: number;
+  /**
+   * P7 — guards prune IDEMPOTENCE + correct re-seed (002-S6). Set once the styles part has been pruned
+   * so a second `pruneStylesToClosure()` (e.g. a reused `lastRead.pkg`) is a no-op rather than re-parsing
+   * an already-pruned part. Re-seeding correctness is preserved because the FIRST prune computes the
+   * closure over the (post-splice) document part, which the prune never mutates.
+   */
+  private stylesPruned = false;
 
-  constructor(packageXml: string) {
-    this.doc = parse(packageXml);
+  constructor(packageXml: string, options: WholeBodyPackageOptions = {}) {
+    this.pruneStyles = options.pruneStyles ?? false;
+    // A2: cut the package at `<pkg:part>` boundaries by string scan; DOM-parse ONLY document.xml.
+    // A raw document.xml / bare `<w:p>` fragment isn't a `<pkg:package>` → `segments` is null and we
+    // parse the whole input exactly as before (byte-identical degrade).
+    this.segments = segmentPackage(packageXml);
+    const docPartIndex = this.segments
+      ? this.segments.parts.findIndex((p) => p.name === "/word/document.xml")
+      : -1;
+    // A `<pkg:package>` is only safely segmentable when its `/word/document.xml` part exists AND
+    // carries non-empty `<pkg:xmlData>` content (the `<w:document>` we must parse + re-serialize).
+    // A self-closing/empty `<pkg:xmlData>` would make `indexOf("")` return 0 and corrupt the stitch,
+    // so we fall back to the whole-input parse there — byte-identical to today on that odd shape.
+    const docXmlData = docPartIndex >= 0 ? this.segments!.parts[docPartIndex].xmlData : "";
+    const segmentable = this.segments !== null && docPartIndex >= 0 && docXmlData.length > 0;
+    this.docPartIndex = segmentable ? docPartIndex : -1;
+
+    if (segmentable) {
+      const docPart = this.segments!.parts[docPartIndex];
+      // Parse ONLY the document part's xmlData (its single root `<w:document>` — or a bare root for an
+      // unusual fixture). Capture the verbatim bytes around that root within `docPart.full` (the
+      // `<pkg:part …><pkg:xmlData>` head and `</pkg:xmlData></pkg:part>` tail) so `serialize()` can
+      // splice the re-serialized (mutation-bearing) root back without touching the wrapper. The
+      // boundary is the xmlData inner: `docPart.xmlData` is exactly the root element's source (non-empty,
+      // guaranteed by `segmentable` above), and `<pkg:xmlData>` wraps exactly one element, so
+      // reserializing the parsed root reproduces it.
+      const xdStart = docPart.full.indexOf(docXmlData);
+      this.docHead = docPart.full.slice(0, xdStart);
+      this.docTail = docPart.full.slice(xdStart + docXmlData.length);
+      this.doc = parse(docXmlData);
+    } else {
+      // Not segmentable — today's behavior exactly: DOM-parse the whole input.
+      this.docHead = "";
+      this.docTail = "";
+      this.doc = parse(packageXml);
+    }
+
     this.scope = bodyScope(this.doc);
     // STORY paragraphs only (exclude textbox-nested) so indices align 1:1 with Office.js
     // `body.paragraphs` — the ① half of the Stage 4.1 whole-body alignment fix.
     this.paras = storyParagraphsIn(this.scope);
-    // Captured ONCE so every fragment we hand out is the host's own namespace/MC context and
-    // carries any relationship it references — accepted by the live host's insertOoxml (4.2).
+    // The `<w:document>` element to re-serialize: the parsed document part's root when it IS a
+    // `<w:document>`, else the whole-input document element (raw document.xml / synthetic fixtures).
+    const docs = this.doc.getElementsByTagName("w:document");
+    this.docElement = docs && docs.length > 0 ? docs.item(0) : this.doc.documentElement;
+    // Captured ONCE so every fragment we hand out is the host's own namespace/MC context.
     this.docAttrs = documentAttrs(this.doc);
-    this.relsById = collectRelationships(this.doc);
-    // The style/numbering/theme parts + their rels, captured ONCE (identical for every paragraph)
-    // and bundled into `commitXml` so style-inherited formatting survives the per-paragraph commit.
-    this.auxParts = collectAuxParts(this.doc);
-    this.auxRels = collectAuxRels(this.doc);
-    // Parsed ONCE for the pure whole-body classify path (avenue ⑦): resolve a paragraph's outline
-    // level from the package's OWN styles.xml instead of a Word proxy (`canGetStyles:false`).
-    const stylesXml = extractStylesXml(this.doc);
+
+    // STYLES: feed the styles part's xmlData SUBSTRING straight to the regex-only resolver — NEVER
+    // DOM-parse it (the read-side win: the styles part is the largest single part). When not
+    // segmentable, recover the styles substring from the parsed document tree's sibling parts is
+    // impossible (only document.xml was parsed) — but a raw document.xml carries no styles part at
+    // all, so `stylesXml` is "" there, exactly as `extractStylesXml` returned before.
+    const stylesXml = this.extractStylesSubstring();
     this.stylesPresent = stylesXml.length > 0;
     this.styleDefs = parseStyleDefs(stylesXml);
+    // P7 (Loop 002 B3): remember WHICH part is the styles part so `pruneStylesToClosure()` can REPLACE
+    // its verbatim `full` substring in place (the `serialize()` stitch then emits the pruned bytes).
+    // Keyed to the SAME `<w:styles>` ROOT signal `extractStylesSubstring` uses, so the two never diverge.
+    this.stylesPartIndex = this.segments
+      ? this.segments.parts.findIndex((p) => /<w:styles[\s>]/.test(p.xmlData))
+      : -1;
+
+    // Capture the small aux/rels part substrings (verbatim) for the LAZY `paragraphXml`/`commitXml`
+    // path — NOT parsed here, so the node-direct read ctor stays document-only.
+    this.auxPartSubstrings = segmentable
+      ? this.segments!.parts.filter((_, k) => k !== docPartIndex).map((p) => p.full)
+      : [];
+  }
+
+  /**
+   * The styles part's xmlData SUBSTRING (the `<w:styles>…</w:styles>` XML), or "" when none.
+   * Regex-only: A2 never DOM-parses styles.xml (perf-1, the largest part). Keyed to a `<w:styles>`
+   * ROOT — exactly the old `extractStylesXml` semantics (`getElementsByTagName("w:styles")`), so a
+   * styles part is recognized by its ROOT element, NOT by a particular `pkg:contentType` (a producer
+   * may omit/differ on the attribute). For a non-segmentable input (raw document.xml) there is no
+   * styles part, so "" — matching the old code which returned "" for a doc with no `<w:styles>`.
+   * `styleParseSuspect` then keys to that root being present-but-zero-defs.
+   */
+  private extractStylesSubstring(): string {
+    if (!this.segments) return "";
+    // A `<w:styles` open tag in a part's xmlData marks the styles part (the part is named
+    // `/word/styles.xml` and/or carries the styles content-type, but the ROOT is the durable signal).
+    const part = this.segments.parts.find((p) => /<w:styles[\s>]/.test(p.xmlData));
+    return part ? part.xmlData : "";
+  }
+
+  /**
+   * Build (once, memoized) the aux artifacts the per-paragraph fragments need: the rel-id map, the
+   * serialized styles/numbering/theme `<pkg:part>`s, and their `<Relationship>`s. Parses ONLY the
+   * small rels + aux part substrings through xmldom and reuses the existing `collect*` helpers, so
+   * the output is BYTE-IDENTICAL to the pre-segmentation path (same nodes, same xmldom serialization
+   * — including the `xmlns`/`xmlns:pkg` decls xmldom re-emits when serializing a part standalone).
+   * Deferred off the node-direct hot path (which never calls paragraphXml/commitXml).
+   */
+  private aux(): { relsById: Map<string, string>; auxParts: string; auxRels: string } {
+    if (this.auxParsed) return this.auxParsed;
+    // The DOM the `collect*` helpers scan. On the segmented path it is a TINY synthetic package of
+    // just the rels + aux part substrings (so the styles/document parts are never re-parsed here); on
+    // the non-segmentable path it is `this.doc` itself — the WHOLE-INPUT parse the old ctor scanned,
+    // so a raw document.xml / bare fragment / pkg-without-document-part collects EXACTLY what
+    // `collectRelationships(this.doc)`/`collectAuxParts`/`collectAuxRels` returned before (preserving
+    // the byte-identical-degrade contract even if such an input carried inline `<Relationship>`s).
+    const auxDoc =
+      this.docPartIndex < 0
+        ? this.doc
+        : parse(`<pkg:package xmlns:pkg="${PKG_NS}">${this.auxPartSubstrings.join("")}</pkg:package>`);
+    this.auxParsed = {
+      relsById: collectRelationships(auxDoc),
+      auxParts: collectAuxParts(auxDoc),
+      auxRels: collectAuxRels(auxDoc)
+    };
+    return this.auxParsed;
+  }
+
+  /** relationship id → `<Relationship/>` XML (lazy). */
+  private get relsById(): Map<string, string> {
+    return this.aux().relsById;
+  }
+  /** Serialized styles/numbering/theme `<pkg:part>`s, bundled into the COMMIT fragment only (lazy). */
+  private get auxParts(): string {
+    return this.aux().auxParts;
+  }
+  /** Serialized styles/numbering/theme `<Relationship>`s for the commit fragment's doc rels (lazy). */
+  private get auxRels(): string {
+    return this.aux().auxRels;
   }
 
   /**
@@ -649,6 +1165,26 @@ export class WholeBodyPackage {
   }
 
   /**
+   * The i-th story paragraph as a node-backed `ParsedParagraph` (Loop 002 B1 — the ANCHOR of the
+   * node-direct hide path). Constructs `ParsedParagraph.fromNode` over the SAME live `<w:p>` node this
+   * package already snapshotted at construction (`this.paras[i]`) and the SAME owner document — ZERO
+   * string parse and ZERO serialize (contrast `paragraphXml(i)`, which clones+serializes+rewraps the node
+   * into a standalone flat-OPC package). The engine reads its `RunView[]` and mutates `<w:vanish>` IN
+   * PLACE via `applyVisibilityInPlace`; this package then `serialize()`s the whole body once, with the
+   * mutated node already in the tree. Because the node IS the package's node, the pure commit needs NO
+   * `replace()` — the mutation is already spliced in by reference. The `cleanAlign` identity mapping the
+   * pure read produces guarantees engine index === this index, so the caller indexes directly.
+   *
+   * `fromNode` requires a `<w:p>` owned by `this.doc`; `this.paras[i]` is exactly that (it was selected
+   * from `this.doc` at construction and is mutated in place, never re-imported), so the contract holds.
+   */
+  parsedParagraph(i: number): ParsedParagraph {
+    const node = this.paras[i];
+    if (!node) throw new RangeError(`paragraph index ${i} out of range (count ${this.count})`);
+    return ParsedParagraph.fromNode(this.doc, node);
+  }
+
+  /**
    * Wrap the engine's EDITED single-paragraph fragment for the per-paragraph
    * `Paragraph.insertOoxml(…, "Replace")` commit, INCLUDING the document's style / numbering /
    * theme parts so that any formatting the paragraph INHERITS from a referenced style — underline,
@@ -724,8 +1260,116 @@ export class WholeBodyPackage {
     this.paras[i] = imported;
   }
 
-  /** Serialize the whole package for `body.insertOoxml(pkg, "Replace")`. */
+  /**
+   * Serialize the whole package for `body.insertOoxml(pkg, "Replace")`.
+   *
+   * A2 (segmented input): stitch the captured part substrings in ORIGINAL ORDER, with the document
+   * part swapped for `docHead + serialize(<w:document> subtree) + docTail`. The `<w:document>`
+   * subtree carries the engine's in-place `<w:vanish>`/bridge mutations to `this.paras[i]` (the
+   * CORE-3 contract); every OTHER part is re-emitted VERBATIM from the input. This is byte-identical
+   * to the pre-segmentation whole-DOM `serialize()` on the canonical fixtures (each verbatim part
+   * substring already equals xmldom's standalone serialization of that part, and the document subtree
+   * re-serializes identically), and on real docs it preserves Word's own non-document bytes exactly
+   * (a fidelity improvement) while the document part DOM-reserializes as before.
+   *
+   * Non-segmentable input (raw document.xml / bare fragment): exactly today — serialize the one
+   * parsed tree.
+   */
   serialize(): string {
-    return serialize(this.doc);
+    if (!this.segments || this.docPartIndex < 0) return serialize(this.doc);
+    const { head, parts, between, tail } = this.segments;
+    let out = head;
+    for (let k = 0; k < parts.length; k++) {
+      out += between[k] ?? ""; // verbatim inter-part bytes (empty for canonical packages)
+      if (k === this.docPartIndex) {
+        // The document part: verbatim wrapper bytes around the re-serialized (mutation-bearing)
+        // `<w:document>` subtree. docHead/docTail are the `<pkg:part …><pkg:xmlData>` and
+        // `</pkg:xmlData></pkg:part>` bytes captured at construction; serialize(docElement) carries
+        // the engine's in-place vanish/bridge edits.
+        out += this.docHead + serialize(this.docElement) + this.docTail;
+      } else {
+        out += parts[k].full; // every non-document part, byte-for-byte from the input
+      }
+    }
+    return out + tail;
+  }
+
+  /**
+   * Whether this package will actually prune (the flag is ON, the input is a segmentable flat-OPC
+   * package, AND it carries a `<w:styles>` part). Exposed so the commit hook / tests can assert that a
+   * flag-OFF or styles-less package is left untouched without reaching into private state.
+   */
+  get willPruneStyles(): boolean {
+    return this.pruneStyles && this.stylesPartIndex >= 0;
+  }
+
+  /**
+   * The styles part's CURRENT verbatim `<w:styles>…</w:styles>` xmlData substring (post-prune if
+   * `pruneStylesToClosure()` ran), or "" when there is no styles part. Read-only view for the
+   * closure-correctness + byte-reduction tests; never used on the hot path.
+   */
+  stylesXmlForTest(): string {
+    if (this.stylesPartIndex < 0 || !this.segments) return "";
+    return this.segments.parts[this.stylesPartIndex].xmlData;
+  }
+
+  /**
+   * P7 — shrink the styles part to the transitive closure of the styles REACHABLE from the retained
+   * content, in place (DEFAULT-OFF flag; CASES 002-S6). A NO-OP when the flag is off, the input is not
+   * a segmentable flat-OPC package, there is no styles part, or a prior call already pruned this package
+   * (idempotence — re-seeding off the SAME post-splice document yields the same closure).
+   *
+   * THE HOOK CONTRACT. Call this AFTER the node-direct splice (the in-place `<w:vanish>`/bridge
+   * mutations to `this.paras[i]`) and BEFORE `serialize()`. Seeds are computed POST-splice so a
+   * cite-repair-injected net-new `w:rStyle` is captured (loss-5); the prune mutates ONLY the styles
+   * part's captured `full`/`xmlData` substring, which `serialize()` then emits in place — the document
+   * body, every other part, and the package framing are untouched (002-F1 on the body holds).
+   *
+   * Returns the byte delta `(before − after)` of the styles part (≥ 0) — write-side evidence (perf-1),
+   * 0 when nothing was pruned.
+   */
+  pruneStylesToClosure(): number {
+    // Flag OFF / nothing to prune / already pruned → leave the verbatim substring untouched (002-F6).
+    if (!this.pruneStyles || this.stylesPartIndex < 0 || this.stylesPruned || !this.segments) return 0;
+    this.stylesPruned = true; // mark first so a re-entrant/repeat call is a guaranteed no-op (idempotence)
+
+    const stylesPart = this.segments.parts[this.stylesPartIndex];
+    const stylesXml = stylesPart.xmlData;
+    if (!stylesXml) return 0;
+
+    // DOM-free parse of the full style table — same regex the resolver trusts (this is the ONLY place
+    // the styles part is read structurally, and ONLY when the flag is on; flag-OFF never gets here).
+    const { refs, defaults } = parseStyleGraph(stylesXml);
+
+    // SEEDS: every content part's style references (post-splice) + all `w:default` styles.
+    const seeds = new Set<string>(defaults);
+    // document.xml — the POST-SPLICE body (serialize the mutated subtree so injected refs count).
+    for (const id of collectStyleValRefs(serialize(this.docElement), CONTENT_STYLE_REF_TAGS)) seeds.add(id);
+    // numbering / footnotes / endnotes / headers / footers — verbatim part substrings (untouched by the
+    // splice). Each is scanned for the same three style-reference tags: numbering's `w:lvl` backlinks
+    // (`w:pStyle` + the `w:rStyle` inside its `w:rPr`) are exactly the gap-closing refs (PLAN §2 B3).
+    for (const part of this.segments.parts) {
+      if (part === stylesPart || part.name === "/word/document.xml") continue;
+      if (!isStyleReferencingPart(part)) continue;
+      for (const id of collectStyleValRefs(part.xmlData, CONTENT_STYLE_REF_TAGS)) seeds.add(id);
+    }
+
+    // EXPAND to the transitive fixpoint, then PRUNE every `<w:style>` not in the closure.
+    const closure = expandStyleClosure(seeds, refs);
+    const pruned = pruneStylesXml(stylesXml, closure);
+    if (pruned === stylesXml) return 0; // nothing removable — keep the byte-identical substring
+
+    // REPLACE the captured substrings so `serialize()`'s in-order stitch emits the shrunk part. We swap
+    // the `xmlData` inside the part's `full` wrapper, leaving the `<pkg:part …><pkg:xmlData>` head and
+    // `</pkg:xmlData></pkg:part>` tail byte-identical (only the styles XML between them changes).
+    //
+    // DOLLAR-SAFE (loss-1): pass `pruned` through a replacement FUNCTION, not as a replacement STRING.
+    // `String.prototype.replace` interprets `$&`/`$1`/`$$`/`$\`` in a replacement STRING, so a retained
+    // style whose name/bytes contain `$` (e.g. `<w:name w:val="Price $1"/>`) would corrupt the spliced
+    // part. A function replacement returns its value verbatim — no `$` substitution. The search arg is the
+    // literal `stylesXml` string (not a regex), so it matches the one exact occurrence inside `full`.
+    const newFull = stylesPart.full.replace(stylesXml, () => pruned);
+    this.segments.parts[this.stylesPartIndex] = { ...stylesPart, full: newFull, xmlData: pruned };
+    return stylesXml.length - pruned.length;
   }
 }

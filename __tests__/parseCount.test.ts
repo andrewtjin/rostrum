@@ -47,8 +47,10 @@ jest.mock("@xmldom/xmldom", () => {
   return { ...actual, DOMParser: CountingDOMParser };
 });
 
-import { classifyParagraph } from "../src/core/invisibility";
-import { readRuns } from "../src/core/ooxml";
+import { classifyParagraph, hide } from "../src/core/invisibility";
+import { DOMParser } from "@xmldom/xmldom";
+import { ParsedParagraph, readRuns, legacyRunViewsForTest } from "../src/core/ooxml";
+import { computeRunKeepFlags, planCrossGapSeparators } from "../src/core/keepers";
 import {
   ParagraphShrinkPlan,
   applyFragmentShrink,
@@ -56,8 +58,9 @@ import {
   readFragmentParagraphs
 } from "../src/core/ooxmlCondense";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
+import { createOfficeWordPort } from "../src/core/officeWordPort";
 import { shrinkFragment, unshrinkFragment } from "../src/core/shrink";
-import { settings } from "./fakeWord";
+import { buildPackage, harness, mkDoc, para as fakePara, run as fakeRun, settings } from "./fakeWord";
 import { RawParagraph, ShrinkOptions } from "../src/core/types";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -267,5 +270,114 @@ describe("WholeBodyPackage.replace parses the fragment exactly once (perf invari
     parseCount = 0;
     expect(() => wb.replace(5, bodyP("x"))).toThrow(RangeError);
     expect(parseCount).toBe(0); // index check stays first — bad indices never cost a parse
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 002-S1 SUB-GATE (tests-4): the NODE-DIRECT path parses NOTHING.
+//
+// The compat shim `p.parsed ?? new ParsedParagraph(p.ooxml)` makes every fixture WITHOUT `.parsed`
+// take the string branch → still exactly one parse → the blocks above stay green while `fromNode` is
+// NEVER hit. So those blocks alone do NOT prove the Loop-002 win. This block exercises the node path
+// directly: parse a package ONCE (the cost the node path is meant to PAY ONCE for the whole body, not
+// per paragraph), then build `ParsedParagraph.fromNode` over each live <w:p> and run
+// `applyVisibilityInPlace` — and assert ZERO further `parseFromString` calls. 002-S1 names exactly this
+// ("parseCount===0 on the node-direct path") as the falsifiable proof the win is real. It also asserts
+// the node read is six-field-(+hasInternalPart)-identical to the string-path read, so a zero-parse path
+// that produced WRONG views could never pass.
+// ---------------------------------------------------------------------------
+describe("node-direct path (fromNode + applyVisibilityInPlace) parses ZERO times (002-S1 sub-gate)", () => {
+  /** Parse a fragment with the same fatal-only policy the engine uses (counted by the spy). */
+  const parseFrag = (xml: string): any =>
+    new DOMParser({
+      onError: (level: string, message: string) => {
+        if (level === "fatalError") throw new Error(message);
+      }
+    }).parseFromString(xml, "text/xml");
+  /** The body's first <w:p>, mirroring ooxml.ts firstParagraph scoping. */
+  const firstP = (doc: any): any => {
+    const bodies = doc.getElementsByTagName("w:body");
+    const scope = bodies && bodies.length > 0 ? bodies.item(0) : doc;
+    const ps = scope.getElementsByTagName("w:p");
+    return ps && ps.length > 0 ? ps.item(0) : null;
+  };
+
+  it("fromNode reads + applyVisibilityInPlace mutate with parseCount === 0 after the one setup parse", () => {
+    // A multi-run body paragraph: two highlighted keepers around a hidden gap (the bridge-split shape).
+    const xml = para(run("gives", hl("cyan")) + run(" Russia leverage over ") + run("Europe", hl("cyan")));
+    const doc = parseFrag(xml); // the ONE expected parse — counted, then reset below
+    const pEl = firstP(doc);
+
+    parseCount = 0; // from here the node path must add nothing
+    const pp = ParsedParagraph.fromNode(doc, pEl);
+    expect(parseCount).toBe(0); // fromNode parses nothing
+
+    const keep = computeRunKeepFlags(pp.runs, KEEP.keepColors);
+    const { extraKeep, splits } = planCrossGapSeparators(pp.runs, keep);
+    for (const i of extraKeep) keep[i] = true;
+    const res = pp.applyVisibilityInPlace({ hideFlags: keep.map((k) => !k), hideParaMark: false, splits });
+
+    expect(parseCount).toBe(0); // applyVisibilityInPlace (incl. bridge split) parses nothing
+    expect(res.changed).toBe(true); // and the edit still landed
+    // Six-field identity vs the string path (proves zero-parse didn't mean wrong/empty views).
+    const stringView = legacyRunViewsForTest(xml);
+    // Re-read fresh node views from a clean parse to compare pre-mutation reads (the string path reads
+    // the unmutated input, so compare against a fresh fromNode over a fresh parse of the same input).
+    const docFresh = parseFrag(xml);
+    expect(ParsedParagraph.fromNode(docFresh, firstP(docFresh)).runs).toEqual(stringView);
+  });
+
+  it("the string ctor still parses exactly once (compat invariant unchanged by the node path)", () => {
+    const xml = para(run("entirely unhighlighted card body text"));
+    parseCount = 0;
+    const pp = new ParsedParagraph(xml); // string mode → one parse
+    expect(parseCount).toBe(1);
+    expect(pp.runs).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 002-S1 — the WHOLE-BODY node-direct Hide parses the package exactly ONCE (tests-4, hide level).
+//
+// The block above proves the `fromNode` PRIMITIVE parses nothing. This proves the WIRED default Hide
+// path (officeWordPort `pureWholeBody:true` → invisibility two-phase loop → node-direct commit) parses
+// the body ONCE — the `WholeBodyPackage` ctor — and NOT per paragraph. The falsifiable scaling claim:
+// with N body paragraphs the engine-side parse count stays 1, not 1+N. (The fake host's `insertOoxml`
+// re-parses the committed package to MODEL Word's import — that re-parse is harness machinery, not
+// engine cost; we exclude it by counting only up to the commit's host call via a body-insert hook.)
+// ---------------------------------------------------------------------------
+describe("node-direct WHOLE-BODY Hide parses the body package exactly ONCE (002-S1, scaling-proof)", () => {
+  /** A body of N hideable paragraphs + one kept heading, wired through the pure node-direct port. */
+  const runPureHide = async (bodyParaCount: number): Promise<number> => {
+    const paras = [
+      fakePara(fakeRun("Heading"), { outlineNumber: 1 }),
+      ...Array.from({ length: bodyParaCount }, (_, i) => fakePara(fakeRun(`body card number ${i}`)))
+    ];
+    const doc = mkDoc(paras);
+    // Freeze the body OOXML so getOoxml returns one well-formed package (and the count aligns).
+    const h = harness(doc, buildPackage(paras));
+    // Count engine parses ONLY (stop before the fake host models its own import re-parse): hook the
+    // whole-body insertOoxml and snapshot the count at the moment the engine hands the package over.
+    const body: any = (h.ctx as any).document.body;
+    const realInsert = body.insertOoxml.bind(body);
+    let atCommit = -1;
+    body.insertOoxml = (xml: string, loc?: string): void => {
+      if (atCommit < 0) atCommit = parseCount; // engine parses up to the host call
+      realInsert(xml, loc);
+    };
+    const port = createOfficeWordPort({ runner: h.runner, pureWholeBody: true, logger: h.tracer.logger("adapter") });
+    parseCount = 0;
+    await hide(port, settings(["yellow"]));
+    return atCommit;
+  };
+
+  it("parses ONCE for a small body — the package ctor, zero per-paragraph parses", async () => {
+    expect(await runPureHide(3)).toBe(1);
+  });
+
+  it("STILL parses ONCE for a 10× larger body — the parse count does not scale with paragraphs", async () => {
+    // If any per-paragraph serialize→parse had crept back in (e.g. via writeParagraphs' fragment
+    // guard, or a stray `replace()`), this would be ~1+N. The node-direct path keeps it at 1.
+    expect(await runPureHide(30)).toBe(1);
   });
 });

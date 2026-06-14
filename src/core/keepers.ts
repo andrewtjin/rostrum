@@ -65,10 +65,55 @@ export function paragraphHasCiteRun(runs: readonly RunView[]): boolean {
 // ("non\u2010US"), non-breaking hyphen U+2011 ("Secretary\u2011General"), soft hyphen U+00AD (invisible,
 // mid-word); underscore U+005F (identifiers/filenames); ampersand U+0026 ("R&D", "AT&T"); and the
 // math/unit/URL symbols (= # $ \u00B0 + \u00D7 ^ \u2212 \u2026). Those JOIN tokens; they don't separate words.
-const WHITESPACE = /[\t\n\v\f\r\u2013\u2014/]|\p{Zs}/u;
+//
+// PERFORMANCE (A3 / 002-F9). `isWhitespace` is called once per CHARACTER of every run's text on the
+// engine's hot path (`computeRunKeepFlags` scans every whitespace-only run; `hasWordChar` scans for the
+// first word char). A `\p{Zs}` Unicode-property regex `.test()` per char is the dominant per-char cost.
+// EVERY separator the engine actually meets in debate prose is ASCII \u2014 space (0x20), tab/newline/etc.
+// (0x09\u20130x0D), and slash (0x2F) \u2014 so we answer those with a branch-free `charCodeAt` lookup and only
+// fall through to the regex for the rare codepoints ABOVE 0x7F (NBSP 0xA0, the figure/thin/narrow/
+// four-per-em spaces, and the EN/EM dashes). The fast path and the fallback together reproduce the OLD
+// `WHITESPACE` regex EXACTLY for every Unicode codepoint (proven by the exhaustive sweep in
+// keepers.test.ts: every Zs + Cc + dash/slash + sampled astral + every lone surrogate 0xD800\u20130xDFFF).
+//
+// SURROGATE SAFETY (002-F9). `isWhitespace` receives ONE code point at a time (callers iterate with the
+// spread `[...text]`, which yields a 2-unit string for an astral char and a 1-unit string for a lone
+// surrogate). `charCodeAt(0)` reads the FIRST UTF-16 unit: for an ASCII char that is its full code; for
+// any astral char (high surrogate 0xD800\u20130xDBFF) or lone surrogate the first unit is \u2265 0x80, so the
+// fast path never false-matches it \u2014 control flows to the regex, which sees the same string the old
+// predicate saw. No surrogate is ever a separator (none is Zs/Cc/dash/slash), and both paths agree on that.
 
+// The >0x7F FALLBACK: the OLD regex minus its ASCII members (which the fast path now owns). It must still
+// match EVERY non-ASCII separator the old `WHITESPACE` did: all of `\p{Zs}` (NBSP, figure/thin/narrow/
+// four-per-em/\u2026 spaces) and the EN/EM dashes (U+2013/U+2014). Anchored-free `.test` is fine \u2014 callers
+// pass a single code point. (The ASCII `\t\n\v\f\r/` and 0x20 are handled by the fast path, never here.)
+const WHITESPACE_NON_ASCII = /[\u2013\u2014]|\p{Zs}/u;
+
+/**
+ * True when `ch` (a SINGLE code point) is an exposable word separator. ASCII fast path first
+ * (0x09\u20130x0D, 0x20, 0x2F \u2014 the only separators in real prose), regex fallback for codepoints > 0x7F.
+ * Byte-for-byte equivalent to the legacy `\p{Zs}`+Cc+dash/slash regex on every codepoint (sweep-proven).
+ */
 function isWhitespace(ch: string): boolean {
-  return WHITESPACE.test(ch);
+  // First UTF-16 unit. For a lone/leading surrogate this is \u2265 0xD800 (\u2265 0x80), so it skips the fast
+  // path and the regex (correctly) returns false \u2014 no surrogate is a separator.
+  const code = ch.charCodeAt(0);
+  if (code <= 0x7f) {
+    // ASCII fast path: tab\u2013CR (0x09\u20130x0D), space (0x20), slash (0x2F). Nothing else \u2264 0x7F separates.
+    return (code >= 0x09 && code <= 0x0d) || code === 0x20 || code === 0x2f;
+  }
+  // > 0x7F: NBSP / figure / thin / narrow / four-per-em / \u2026 spaces (\p{Zs}) and the EN/EM dashes.
+  return WHITESPACE_NON_ASCII.test(ch);
+}
+
+/**
+ * TEST-ONLY export of the exposable-separator predicate, so the exhaustive code-point sweep (002-F9)
+ * can run the new `charCodeAt` fast path against the legacy `\p{Zs}`+Cc+dash/slash regex per codepoint.
+ * Production code calls `isWhitespace` directly; this is a thin alias purely to make the private
+ * predicate reachable from `keepers` tests without widening the module's real surface.
+ */
+export function isExposableSeparatorForTest(ch: string): boolean {
+  return isWhitespace(ch);
 }
 
 /**

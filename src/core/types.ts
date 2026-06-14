@@ -39,6 +39,17 @@ export interface RawParagraph {
   inTable: boolean;
   /** OOXML for this paragraph (flat-OPC package or bare `<w:p>` fragment). */
   ooxml: string;
+  /**
+   * Opaque handle for the P1 node-direct path (Loop 002): a paragraph already parsed into
+   * a live, attached DOM node so the hide pass can read + mutate it WITHOUT the
+   * per-paragraph serialize→parse the string `ooxml` forces. Optional and ADDITIVE — the
+   * compat shim is `p.parsed ?? new ParsedParagraph(p.ooxml)`, so every existing caller
+   * (which never sets it) keeps the exact string-parse behavior and `parseCount.test.ts`
+   * keeps its meaning. Typed `unknown` to avoid a premature circular import
+   * (`ParsedParagraph` lives in ooxml.ts, which imports this module); the P1 implementer
+   * narrows it at the one site that consumes it. No behavior depends on it until then.
+   */
+  parsed?: unknown;
 }
 
 /**
@@ -89,6 +100,24 @@ export interface RunView {
    * embedded objects). Conservative over-keep per decision #16.
    */
   eligible: boolean;
+  /**
+   * True when the run carries an embedded INTERNAL PART — a `<w:drawing>`, `<w:object>`, or
+   * `<w:pict>` anywhere in its subtree (an inline image, OLE object, or VML picture). This is a
+   * STRICT SUBSET of the ineligibility signal (`eligible` is additionally false for fields and
+   * footnote/endnote refs, which carry no part), surfaced separately so the node-direct hide path
+   * can recognize "this paragraph references a media part" WITHOUT the per-paragraph serialize the
+   * string path used (Loop 002 B1 rider): an internal-part paragraph must never be re-serialized,
+   * or it silently re-pays the cost P1 deletes. Read by the same fused traversal that fills the
+   * other fields, so it costs nothing extra.
+   *
+   * SCOPE (read before relying on this for the keep-whole decision): this flag is PER-RUN — it is true
+   * only when the part sits inside THIS `<w:r>`'s subtree. The paragraph-level keep-whole decision uses
+   * `ParsedParagraph.hasInternalPart` instead, a WHOLE-`<w:p>` scan that matches the string path's
+   * whole-paragraph probe (`HAS_INTERNAL_PART.test(p.ooxml)`) byte-for-byte — including a drawing/object/
+   * pict that sits OUTSIDE every run (bare under `<w:p>` or in `<w:pPr>`/`<w:rPr>`), which this per-run
+   * flag necessarily misses. Use this field for per-run logic; use the accessor for the paragraph keep.
+   */
+  hasInternalPart: boolean;
 }
 
 /**
@@ -156,6 +185,21 @@ export interface ShowAllResult {
   paragraphsSkipped: number;
 }
 
+/**
+ * The two ENGINE-OWNED stage durations of a Hide, reported by the orchestrator to the port so the
+ * port can fold them into the single per-op stage-timing line (Loop 002 A1 / 002-S7). They are the
+ * only stages the pure engine (`invisibility.ts`) brackets itself — every other stage (read sync,
+ * package parse, serialize, commit sync) is bracketed inside the host adapter, which owns the clock.
+ * Kept as raw milliseconds (not a tracer call) so the pure engine stays tracer-free: it measures the
+ * two phases with the clock the port hands it and reports the numbers; the port does the emitting.
+ */
+export interface EngineStageTimings {
+  /** Phase A — the read-only `decideParagraph` classify loop (no mutation). */
+  classifyMs: number;
+  /** Phase B — the `applyVisibilityInPlace` apply loop (mutates live nodes in place). */
+  applyMs: number;
+}
+
 /** Options shared by the mutating orchestrators. */
 export interface HideOptions {
   /**
@@ -209,6 +253,15 @@ export interface WordPort {
   setChangeTrackingMode(mode: TrackChangesMode): Promise<void>;
   /** Enumerate body-story paragraphs (footnotes/headers/etc. excluded — decision #16). */
   readParagraphs(): Promise<RawParagraph[]>;
+  /**
+   * OPTIONAL (Loop 002 B2 / 002-S4 read fusion). The Track-Changes mode the most recent
+   * `readParagraphs` prefetched in its FIRST sync, or `null` when no read has primed one. The Hide
+   * engine consumes this through the prefetched-mode TC gate so a clean Hide spends NO separate
+   * Word.run on the TC read (3 runs → 2). A port that doesn't fuse the read (the in-memory fakes) may
+   * omit it OR return `null`; the engine then falls back to the standard gate (its own TC read), so
+   * correctness never depends on the prime being present.
+   */
+  getPrimedTrackChangesMode?(): TrackChangesMode | null;
   /** Replace the OOXML of the given paragraphs (batched + synced by the adapter). */
   writeParagraphs(updates: ParagraphUpdate[]): Promise<void>;
   /**
@@ -226,6 +279,31 @@ export interface WordPort {
   writeManifest(xml: string): Promise<void>;
   /** Remove the Rostrum manifest custom XML part (no-op when absent). */
   clearManifest(): Promise<void>;
+  /**
+   * OPTIONAL (Loop 002 B1 — CONTRACT C / 002-F4). Discard any prepared write state so the next op
+   * re-reads the unchanged on-disk document. The engine calls this when Phase B of a Hide ABORTS
+   * after it began mutating the cached whole-body package's live nodes IN PLACE but before any host
+   * write — nulling the half-mutated package so no later commit can ever serialize it. A port that
+   * keeps no such cross-call read state (the in-memory fakes) may omit it; the engine no-ops then.
+   */
+  discardPreparedWrite?(): void;
+  /**
+   * OPTIONAL (Loop 002 A1 / 002-S7 — Step-0 instrumentation). The monotonic clock the port times its
+   * own stages with (the tracer's clock). The engine borrows it to bracket the two stages IT owns —
+   * Phase A classify, Phase B apply — so every stage in the aggregate timing line is read from ONE
+   * clock (deterministic under a test's injected fake clock). A port that doesn't instrument may omit
+   * it; the engine then skips its own stage timing entirely (no `recordEngineStages` call), so the
+   * win is purely additive and never on the correctness path.
+   */
+  now?(): number;
+  /**
+   * OPTIONAL (Loop 002 A1 / 002-S7). Hand the port the two ENGINE-owned stage durations (Phase A
+   * classify, Phase B apply), measured by the engine with the port's own `now()`. The port folds
+   * them into the one per-op `debug`-level stage-timing line it emits at the end of the commit (the
+   * last stage on the node-direct path), so the aggregate carries every stage from a single clock. A
+   * port without instrumentation may omit this; the engine then makes no such call.
+   */
+  recordEngineStages?(timings: EngineStageTimings): void;
 }
 
 // ===========================================================================

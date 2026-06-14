@@ -17,6 +17,7 @@ function rv(text: string, over: Partial<RunView> = {}): RunView {
     underline: false,
     hidden: false,
     eligible: true,
+    hasInternalPart: false,
     ...over
   };
 }

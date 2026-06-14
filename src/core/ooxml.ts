@@ -169,6 +169,85 @@ function runIsEligible(runEl: any): boolean {
   return true;
 }
 
+/** The internal-part tags — a STRICT SUBSET of INELIGIBLE_RUN_TAGS (no field/footnote refs). */
+const INTERNAL_PART_TAGS = ["w:drawing", "w:object", "w:pict"];
+
+/**
+ * Build the complete `RunView` for one `<w:r>` in ONE fused full-depth traversal (A3), replacing the
+ * legacy four separate scans (`runText` walk + `runIsEligible`'s seven `getElementsByTagName` subtree
+ * scans + the highlight/cite/underline/vanish rPr reads + a `hasInternalPart` probe). The single DFS
+ * over the run subtree simultaneously (a) accumulates the visible text by the EXACT `runText` rules
+ * (`<w:t>` verbatim, `<w:tab>`→"\t", `<w:br>`/`<w:cr>`→"\n", recurse through anything else and never
+ * into those leaves) and (b) flags, by nodeName, any INELIGIBLE tag and any INTERNAL_PART tag anywhere
+ * in the subtree — which is what `getElementsByTagName` saw, so `eligible`/`hasInternalPart` are
+ * byte-identical to the legacy reads. The rPr is a direct child, so highlight/cite/underline/vanish are
+ * read straight off it (no extra walk). The `<w:fldSimple>` ancestor rule (an ancestor scan, not a
+ * subtree scan) stays separate, exactly as `runIsEligible` did it. `index` is supplied by the caller.
+ *
+ * EXACTNESS NOTE (why this matches the legacy six-field reads precisely): `getElementsByTagName(tag)`
+ * inspects the WHOLE subtree including under `<w:rPr>`; our DFS visits every descendant element too, so
+ * a (pathological) ineligible tag nested anywhere is caught identically. Text accumulation visits the
+ * same nodes `runText` did in the same document order, so the strings are equal character-for-character.
+ */
+function buildRunView(runEl: any, index: number): RunView {
+  let text = "";
+  let eligibleByTag = true; // false once any INELIGIBLE tag is seen (mirrors runIsEligible's tag loop)
+  let hasInternalPart = false;
+
+  // One DFS over the run subtree. We stop recursing at the text-leaf nodes (w:t/w:tab/w:br/w:cr) exactly
+  // as runText does, and we inspect EVERY visited element's name for the ineligible/internal-part sets.
+  const walk = (node: any): void => {
+    const kids = node.childNodes;
+    if (!kids) return;
+    for (let i = 0; i < kids.length; i++) {
+      const k = kids.item(i);
+      if (k.nodeType !== ELEMENT_NODE) continue;
+      const name = k.nodeName;
+      // Tag classification (whole-subtree, == getElementsByTagName semantics).
+      if (eligibleByTag && INELIGIBLE_RUN_TAGS.indexOf(name) !== -1) eligibleByTag = false;
+      if (!hasInternalPart && INTERNAL_PART_TAGS.indexOf(name) !== -1) hasInternalPart = true;
+      // Text accumulation (the runText rules — leaves terminate the walk on that branch).
+      if (name === "w:t") {
+        text += k.textContent != null ? k.textContent : "";
+      } else if (name === "w:tab") {
+        text += "\t";
+      } else if (name === "w:br" || name === "w:cr") {
+        text += "\n";
+      } else {
+        walk(k); // rPr, hyperlink wrappers, fldSimple, drawing internals, … — recurse for tag scan + text
+      }
+    }
+  };
+  walk(runEl);
+
+  // The fldSimple ancestor rule (ancestor scan up to <w:p>) — only relevant when no ineligible tag was
+  // already found, but we run it whenever tag-eligibility survived, matching runIsEligible's order.
+  let eligible = eligibleByTag;
+  if (eligible) {
+    let ancestor = runEl.parentNode;
+    while (ancestor && ancestor.nodeName !== "w:p") {
+      if (ancestor.nodeName === "w:fldSimple") {
+        eligible = false;
+        break;
+      }
+      ancestor = ancestor.parentNode;
+    }
+  }
+
+  // rPr is a direct child — read the formatting signals straight off it (no second walk).
+  const rPr = runRPr(runEl);
+  return {
+    index,
+    text,
+    highlight: runHighlight(runEl),
+    citeStyled: runIsCite(runEl),
+    underline: runUnderline(runEl),
+    hidden: vanishIsOn(rPr),
+    eligible,
+    hasInternalPart
+  };
+}
+
 /**
  * Get the run's `<w:rPr>`, creating it as the first child if absent. OOXML
  * requires rPr to lead the run's content, so a freshly created one is inserted
@@ -364,6 +443,21 @@ function exposeInteriorSpace(doc: any, runEl: any, offset: number): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * The full per-paragraph hide decision the node-direct apply consumes (Loop 002 B1). It is exactly the
+ * three arguments `applyVisibility` already takes, packaged as one object so the wiring agent (CORE-3)
+ * passes a single plan from the Phase-A classify into the Phase-B in-place apply. `hideFlags` is aligned
+ * to `runs` order (index i hides run i); `splits` (bridge separators) is optional and defaults to none.
+ */
+export interface VisibilityPlan {
+  /** Per-run hide flags, aligned to `runs`/`readRuns` document order. */
+  hideFlags: boolean[];
+  /** Hide the paragraph mark (`<w:pPr><w:rPr><w:vanish/>`) for the condensed view. */
+  hideParaMark: boolean;
+  /** Bridge-space exposures so kept chunks separated by hidden prose don't fuse (default: none). */
+  splits?: readonly BridgeSplit[];
+}
+
+/**
  * A paragraph's OOXML parsed ONCE into a reusable tree.
  *
  * WHY THIS EXISTS (performance — the engine's hot path). The hide pass needs BOTH
@@ -397,32 +491,111 @@ export class ParsedParagraph {
    * construction and apply, so it is identical.
    */
   private readonly runEls: any[];
-  /** The original OOXML, returned unchanged when a mutation is a no-op (no reserialize). */
-  private readonly original: string;
+  /**
+   * The original OOXML, returned unchanged when a STRING-mode mutation is a no-op (no reserialize).
+   * NULL in node mode (`fromNode`): a node-backed paragraph never serializes itself — its owner
+   * (`ooxmlPackage.ts`) serializes the whole package once — so there is no per-paragraph "original"
+   * string to fall back to, and `applyVisibilityInPlace` reports `changed` only (never an `xml`).
+   */
+  private readonly original: string | null;
   /** Flat run views in document order — the pure read the keeper policy consumes. */
   readonly runs: RunView[];
 
+  /**
+   * True when this is a NODE-backed instance (`fromNode`): it never serializes itself, and the
+   * orchestrator must apply visibility through the in-place methods (`applyVisibilityInPlace` /
+   * `makeAllVisibleInPlace`), NOT the serializing string-mode ones (which throw in node mode —
+   * CONTRACT A). The two-phase Hide reads this to pick the apply method per paragraph, keeping the
+   * node/string branch decision on the instance itself rather than re-deriving it from `RawParagraph`.
+   */
+  get isNodeBacked(): boolean {
+    return this.original === null;
+  }
+
+  /**
+   * True when an embedded INTERNAL PART — a `<w:drawing>`, `<w:object>`, or `<w:pict>` — sits ANYWHERE
+   * in the WHOLE `<w:p>` subtree, NOT just inside a `<w:r>`. This is the paragraph-level keep-whole probe
+   * the hide decision consumes (an internal-part paragraph is kept whole — decision #16 — because a
+   * per-paragraph OOXML write would dangle the part's `r:embed` and the live host rejects it).
+   *
+   * WHY WHOLE-PARAGRAPH, NOT per-run (the Review A asymmetry fix). The string path classifies with a
+   * WHOLE-PARAGRAPH probe (`HAS_INTERNAL_PART.test(p.ooxml)`), so the node path must match it byte-for-
+   * byte to converge. The per-run `RunView.hasInternalPart` (still kept, correct per-run) only scans
+   * WITHIN each `<w:r>` subtree, so it MISSES a drawing/object/pict that sits bare under `<w:p>` or inside
+   * `<w:pPr>`/`<w:rPr>` — outside every run. Scanning the whole `<w:p>` here (`getElementsByTagName` over
+   * the same `INTERNAL_PART_TAGS`) closes that divergence: the node decision now matches the string probe
+   * on every shape, including the (schema-unreachable from real Word, but real) drawing-outside-run case.
+   *
+   * Works for both modes: `fromNode` and the string ctor each hold `pEl`, so the scan is identical. A
+   * node-less instance (no `<w:p>`) reports false. This is a pure read (no mutation, no serialize), so it
+   * is safe on a node-backed instance and in a parseCount===0 assertion.
+   */
+  get hasInternalPart(): boolean {
+    if (!this.pEl) return false;
+    for (const tag of INTERNAL_PART_TAGS) {
+      const hits = this.pEl.getElementsByTagName(tag);
+      if (hits && hits.length > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * String mode (the legacy path, byte-for-byte unchanged): parse the package ONCE and read +
+   * mutate through that tree. `readRuns`/`applyRunVisibility`/`makeAllVisible` and every existing
+   * caller use this; `parseCount.test.ts`'s "exactly one parse" meaning is preserved because this is
+   * the ONLY constructor that calls `parse()`. Use `ParsedParagraph.fromNode` for the zero-parse
+   * node-direct path (Loop 002 B1).
+   */
   constructor(paragraphOoxml: string) {
     this.original = paragraphOoxml;
     this.doc = parse(paragraphOoxml);
     this.pEl = firstParagraph(this.doc);
     this.runEls = [];
     this.runs = [];
-    if (this.pEl) {
-      const runList = this.pEl.getElementsByTagName("w:r");
-      for (let i = 0; i < runList.length; i++) {
-        const r = runList.item(i);
-        this.runEls.push(r);
-        this.runs.push({
-          index: i,
-          text: runText(r),
-          highlight: runHighlight(r),
-          citeStyled: runIsCite(r),
-          underline: runUnderline(r),
-          hidden: vanishIsOn(runRPr(r)),
-          eligible: runIsEligible(r)
-        });
-      }
+    this.extractRuns();
+  }
+
+  /**
+   * Node mode (Loop 002 B1 — the ANCHOR): construct over an ALREADY-ATTACHED `<w:p>` Element and its
+   * live owner document with ZERO string parse. The package was parsed ONCE by `ooxmlPackage.ts`; we
+   * reuse that exact live node + document so the hide pass reads and mutates the persistent tree in
+   * place, deleting the per-paragraph serialize→parse the string path forces (the win 002-S1 names,
+   * falsifiable as "parseCount===0 on the node-direct path"). The run extraction is the SAME fused
+   * walk the string ctor uses, so the `RunView[]` is six-field-(plus-hasInternalPart)-identical.
+   *
+   * Mutations go through `applyVisibilityInPlace` (NOT `applyVisibility`, which serializes): they edit
+   * the attached nodes and the owner serializes the whole package later. `pEl` must be a `<w:p>` owned
+   * by `doc` (the caller guarantees this); we do not re-scope or re-find it.
+   */
+  static fromNode(doc: any, pEl: any): ParsedParagraph {
+    // Object.create bypasses the string constructor's parse() — the whole point of node mode. We then
+    // populate the same private fields the string ctor sets, sharing extractRuns() for the run views.
+    const inst: ParsedParagraph = Object.create(ParsedParagraph.prototype);
+    // Assign the readonly fields once here (legal at construction-time via the any-cast on a fresh
+    // instance); after this the instance is immutable in the same way a constructed one is.
+    const w = inst as any;
+    w.doc = doc;
+    w.pEl = pEl ?? null;
+    w.original = null; // node mode never serializes itself — see the field comment.
+    w.runEls = [];
+    w.runs = [];
+    inst.extractRuns();
+    return inst;
+  }
+
+  /**
+   * Populate `runEls` + `runs` from `pEl` via ONE fused full-depth traversal per `<w:r>` (A3). Shared by
+   * both modes so the node path's views are identical to the string path's. Snapshots the run elements in
+   * document order BEFORE any mutation, so the apply methods index correctly even after bridge splits
+   * insert new `<w:r>` siblings (which would otherwise shift a live NodeList mid-pass).
+   */
+  private extractRuns(): void {
+    if (!this.pEl) return;
+    const runList = this.pEl.getElementsByTagName("w:r");
+    for (let i = 0; i < runList.length; i++) {
+      const r = runList.item(i);
+      (this.runEls as any[]).push(r);
+      (this.runs as RunView[]).push(buildRunView(r, i));
     }
   }
 
@@ -437,7 +610,19 @@ export class ParsedParagraph {
     hideParaMark: boolean,
     splits: readonly BridgeSplit[] = []
   ): { xml: string; changed: boolean } {
-    if (!this.pEl) return { xml: this.original, changed: false };
+    // CONTRACT (A) — node-mode guard. A node-backed instance (`fromNode`, `original===null`) never
+    // serializes itself: its owner package serializes the whole body once. `applyVisibility` ends by
+    // returning `serialize(doc)` only on change but `this.original` on a no-op — which would emit
+    // `null` as the "unchanged" paragraph OOXML and silently corrupt the commit. The node path MUST
+    // call `applyVisibilityInPlace` instead, so refuse the string-mode method here rather than emit null.
+    if (this.original === null) {
+      throw new Error(
+        "ParsedParagraph.applyVisibility called on a node-mode instance — use applyVisibilityInPlace " +
+          "(a node-backed paragraph never serializes itself; its owner serializes the whole package)."
+      );
+    }
+    // String-mode only (the wrappers call it on a string-constructed instance), so `original` is set.
+    if (!this.pEl) return { xml: this.original as string, changed: false };
     const { doc, pEl, runEls } = this;
 
     let changed = false;
@@ -476,7 +661,64 @@ export class ParsedParagraph {
       if (markRPr && setVanish(doc, markRPr, false)) changed = true;
     }
 
-    return changed ? { xml: serialize(doc), changed: true } : { xml: this.original, changed: false };
+    return changed
+      ? { xml: serialize(doc), changed: true }
+      : { xml: this.original as string, changed: false };
+  }
+
+  /**
+   * Node-direct visibility apply (Loop 002 B1): the SAME `<w:vanish>` toggles + bridge splits as
+   * `applyVisibility`, but performed IN PLACE on the live attached nodes and returning ONLY whether the
+   * DOM changed — it NEVER serializes. The owner package (`ooxmlPackage.ts`) serializes the whole body
+   * once after the pass, so paying a per-paragraph serialize here would defeat the entire optimization.
+   *
+   * It reuses the EXACT same primitives the string path uses — `ensureRPr`/`setVanish`/`ensureMarkRPr`/
+   * `exposeBoundarySpace`/`exposeInteriorSpace`, all of which build nodes with `doc.createElement("w:…")`
+   * (NOT `createElementNS`; loss-3: a namespaced node serializes a redundant `xmlns:w` the semantic oracle
+   * flags as an out-of-position delta). The interior-split "after" run clones the source rPr VERBATIM
+   * (the oracle checks rPr-minus-vanish equality). Because `setVanish` is convergent and the show branch
+   * never synthesizes an rPr, re-applying the same plan is a no-op → `changed:false` (idempotent).
+   *
+   * On a node-less instance (no `<w:p>`) it is a safe no-op. Any throw from a primitive propagates to the
+   * caller UNCAUGHT — Phase B's whole-op abort contract (002-F4) depends on it surfacing, not being
+   * swallowed; this method does not try/catch.
+   */
+  applyVisibilityInPlace(plan: VisibilityPlan): { changed: boolean } {
+    if (!this.pEl) return { changed: false };
+    const { doc, pEl, runEls } = this;
+    const { hideFlags, hideParaMark, splits = [] } = plan;
+
+    let changed = false;
+    const n = Math.min(runEls.length, hideFlags.length);
+    for (let i = 0; i < n; i++) {
+      if (hideFlags[i]) {
+        if (setVanish(doc, ensureRPr(doc, runEls[i]), true)) changed = true;
+      } else {
+        // Show: never synthesize an rPr just to mark visible (keeps Re-hide idempotent); only clear
+        // an existing vanish. Identical to applyVisibility's show branch.
+        const rPr = runRPr(runEls[i]);
+        if (rPr && setVanish(doc, rPr, false)) changed = true;
+      }
+    }
+
+    // Bridge splits AFTER vanish (moved space inherits the now-hidden run's rPr minus vanish).
+    for (const sp of splits) {
+      if (sp.index < 0 || sp.index >= runEls.length) continue;
+      const did =
+        sp.side === "interior"
+          ? exposeInteriorSpace(doc, runEls[sp.index], sp.offset == null ? -1 : sp.offset)
+          : exposeBoundarySpace(doc, runEls[sp.index], sp.side);
+      if (did) changed = true;
+    }
+
+    if (hideParaMark) {
+      if (setVanish(doc, ensureMarkRPr(doc, pEl), true)) changed = true;
+    } else {
+      const markRPr = existingMarkRPr(pEl);
+      if (markRPr && setVanish(doc, markRPr, false)) changed = true;
+    }
+
+    return { changed };
   }
 
   /**
@@ -486,7 +728,17 @@ export class ParsedParagraph {
    * is documented and warned once (decision #10).
    */
   makeAllVisible(): { xml: string; changed: boolean } {
-    if (!this.pEl) return { xml: this.original, changed: false };
+    // CONTRACT (A) — node-mode guard (see applyVisibility). A node-backed instance would return
+    // `this.original` (null) on a no-op reveal, emitting null OOXML; the node path must use
+    // `makeAllVisibleInPlace`. Refuse here rather than serialize null.
+    if (this.original === null) {
+      throw new Error(
+        "ParsedParagraph.makeAllVisible called on a node-mode instance — use makeAllVisibleInPlace " +
+          "(a node-backed paragraph never serializes itself; its owner serializes the whole package)."
+      );
+    }
+    // String-mode only (the wrappers call it on a string-constructed instance), so `original` is set.
+    if (!this.pEl) return { xml: this.original as string, changed: false };
     const { doc, pEl, runEls } = this;
 
     let changed = false;
@@ -497,8 +749,80 @@ export class ParsedParagraph {
     const markRPr = existingMarkRPr(pEl);
     if (markRPr && setVanish(doc, markRPr, false)) changed = true;
 
-    return changed ? { xml: serialize(doc), changed: true } : { xml: this.original, changed: false };
+    return changed
+      ? { xml: serialize(doc), changed: true }
+      : { xml: this.original as string, changed: false };
   }
+
+  /**
+   * Node-direct reveal (Loop 002 B1, CONTRACT A): clear `<w:vanish>` from every run AND the paragraph
+   * mark IN PLACE on the live attached nodes, returning ONLY whether the DOM changed — it NEVER
+   * serializes (the owner package serializes the whole body once after the pass). This is the node-mode
+   * twin of `makeAllVisible`, used by the keepWhole / heading / cite / table SELF-HEAL: where the string
+   * path forces such a paragraph visible via `makeAllVisible`, the node path forces it visible via this.
+   *
+   * It reuses the EXACT same primitive (`setVanish(...,false)` via `doc.createElement`-built nodes — no
+   * createElementNS, loss-3) the string `makeAllVisible` uses, so the in-place reveal is byte-equivalent
+   * to a string-mode reveal then re-parse. Convergent/idempotent: a second reveal clears nothing new →
+   * `changed:false`. On a node-less instance (no `<w:p>`) it is a safe no-op. Any primitive throw
+   * propagates UNCAUGHT (Phase B's whole-op abort, 002-F4, depends on it surfacing).
+   */
+  makeAllVisibleInPlace(): { changed: boolean } {
+    if (!this.pEl) return { changed: false };
+    const { doc, pEl, runEls } = this;
+
+    let changed = false;
+    for (let i = 0; i < runEls.length; i++) {
+      const rPr = runRPr(runEls[i]);
+      if (rPr && setVanish(doc, rPr, false)) changed = true;
+    }
+    const markRPr = existingMarkRPr(pEl);
+    if (markRPr && setVanish(doc, markRPr, false)) changed = true;
+
+    return { changed };
+  }
+}
+
+/**
+ * TEST-ONLY legacy six-field (+hasInternalPart) reference reader (A3 differential oracle, 002-S3).
+ *
+ * WHY IT EXISTS. The production read path is now the FUSED single traversal `buildRunView`. To prove
+ * that fusion is faithful, the A3 test compares it against the ORIGINAL, independent per-signal scans —
+ * the separate `runText` walk + `runIsEligible`'s seven `getElementsByTagName` subtree scans + the
+ * individual `runHighlight`/`runIsCite`/`runUnderline`/`vanishIsOn` rPr reads + a standalone internal-part
+ * probe. This function reconstructs EXACTLY that legacy logic over the same `<w:p>` so the differential
+ * is genuine (fused vs unfused), not fused-vs-itself. It is NOT used by any production path; it exists so
+ * `runText`/`runIsEligible` stay the live reference the proof gates against. `parseFromString` is never
+ * called here — it reads an already-parsed package, so it is safe in a parseCount===0 assertion.
+ */
+export function legacyRunViewsForTest(paragraphOoxml: string): RunView[] {
+  const doc = parse(paragraphOoxml);
+  const pEl = firstParagraph(doc);
+  const out: RunView[] = [];
+  if (!pEl) return out;
+  const runList = pEl.getElementsByTagName("w:r");
+  for (let i = 0; i < runList.length; i++) {
+    const r = runList.item(i);
+    // Internal-part probe via the same whole-subtree getElementsByTagName the rider specifies.
+    let hasInternalPart = false;
+    for (const tag of INTERNAL_PART_TAGS) {
+      if (r.getElementsByTagName(tag).length > 0) {
+        hasInternalPart = true;
+        break;
+      }
+    }
+    out.push({
+      index: i,
+      text: runText(r), // the standalone walk
+      highlight: runHighlight(r),
+      citeStyled: runIsCite(r),
+      underline: runUnderline(r),
+      hidden: vanishIsOn(runRPr(r)),
+      eligible: runIsEligible(r), // the standalone seven-scan + fldSimple-ancestor reader
+      hasInternalPart
+    });
+  }
+  return out;
 }
 
 /** Read a paragraph's runs as flat, document-order views. Pure read. */

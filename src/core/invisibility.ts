@@ -5,6 +5,17 @@
 // `classifyParagraph` is pure (RawParagraph + settings -> new OOXML) and carries
 // all the policy; the async functions are thin: gate Track Changes, map the
 // classifier over every paragraph, write the changed ones, update the manifest.
+//
+// LOOP 002 B1 — the Hide pass is TWO-PHASE so the P1 node-direct pipeline can run on a
+// SINGLE parsed package (whole body parsed ONCE; each paragraph read + mutated through its
+// live node; the package serialized ONCE at commit). Phase A (read-only, paced) builds a
+// per-paragraph `VisibilityPlan` WITHOUT mutating; Phase B (apply, paced) mutates each
+// paragraph IN PLACE. The pure keeper POLICY (`decideParagraph`) is shared by both phases
+// AND by the legacy string-mode `classifyParagraph`, so there is exactly one copy of the
+// rules (DRY). A node-backed paragraph (`p.parsed`, set only by the pure whole-body read)
+// takes the in-place path; every other caller (no `.parsed`) keeps today's serialize path
+// byte-for-byte, so `parseCount.test.ts`'s string invariant and the per-paragraph commit
+// path are untouched.
 
 import {
   HideOptions,
@@ -22,8 +33,8 @@ import {
   paragraphHasCiteRun,
   planCrossGapSeparators
 } from "./keepers";
-import { ParsedParagraph, makeAllVisible } from "./ooxml";
-import { withTrackChangesGate } from "./guards";
+import { ParsedParagraph, VisibilityPlan } from "./ooxml";
+import { withPrefetchedTrackChangesGate } from "./guards";
 import { MANIFEST_SCHEMA_VERSION, clearManifestPart, saveManifest } from "./manifest";
 
 export interface ParagraphPlan {
@@ -47,45 +58,47 @@ export interface ParagraphPlan {
 const HAS_INTERNAL_PART = /<w:(?:drawing|object|pict)[\s>/]/;
 
 /**
- * PURE. Classify one paragraph and return its (possibly unchanged) OOXML.
+ * The PURE per-paragraph DECISION — the shared policy, with NO mutation and NO serialize.
  *
- * Order of rules mirrors the plan: table content and headings/cites are kept
- * whole (and forced visible, so re-hide un-hides anything wrongly hidden);
- * otherwise hide every run that isn't a highlighted keeper or structural content,
- * and collapse the paragraph mark when the whole paragraph went hidden.
+ * It is what Phase A computes and Phase B applies, and what the legacy string-mode
+ * `classifyParagraph` consumes too, so the keeper rules (table/image keep-whole, heading/cite
+ * keep-whole, highlight keep + cross-gap bridge) live in EXACTLY one place (DRY — the three
+ * review contracts forbid duplicating them across the node and string paths).
+ *
+ *   * `reveal` — the keepWhole self-heal: clear all vanish (table / internal-part / heading /
+ *     cite). The apply side calls `makeAllVisible` (string) or `makeAllVisibleInPlace` (node).
+ *   * `plan` — a `VisibilityPlan` (hideFlags + hideParaMark + splits). The apply side calls
+ *     `applyVisibility` (string) or `applyVisibilityInPlace` (node).
+ *
+ * `hasInternalPart` on the node path is the paragraph-level `ParsedParagraph.hasInternalPart` accessor
+ * (a whole-`<w:p>` subtree scan, computed off the live node) so the node path never re-serializes to run
+ * the `HAS_INTERNAL_PART` string probe — the P1 rider — while still matching that whole-paragraph probe
+ * byte-for-byte (it catches a drawing/object/pict outside every `<w:r>`, which the per-run
+ * `RunView.hasInternalPart` would miss). The string path passes the cheap string-probe result (computed
+ * by the caller, which already holds `p.ooxml`) so its behavior is byte-for-byte unchanged.
  */
-export function classifyParagraph(
-  p: RawParagraph,
+type ParagraphDecision =
+  | { kind: "reveal"; action: "keepWhole" }
+  | { kind: "plan"; action: ParagraphAction; plan: VisibilityPlan };
+
+function decideParagraph(
+  parsed: ParsedParagraph,
+  headingLevel: number | null,
+  inTable: boolean,
+  hasInternalPart: boolean,
   settings: ResolvedSettings
-): ParagraphPlan {
-  // Tables/images/equations are kept untouched (decision #16). Forcing visible is
-  // a no-op on a normal table paragraph and self-heals one wrongly hidden before.
-  if (p.inTable) {
-    const res = makeAllVisible(p.ooxml);
-    return { index: p.index, action: "keepWhole", changed: res.changed, ooxml: res.xml };
-  }
-
-  // Inline image / embedded object → keep whole (native toggle, never an OOXML write that would
-  // dangle the image's internal package part). See HAS_INTERNAL_PART above.
-  if (HAS_INTERNAL_PART.test(p.ooxml)) {
-    const res = makeAllVisible(p.ooxml);
-    return { index: p.index, action: "keepWhole", changed: res.changed, ooxml: res.xml };
-  }
-
-  // Parse the paragraph ONCE and read + mutate through the same tree. Previously this
-  // path did `readRuns(p.ooxml)` (parse #1) then `applyRunVisibility`/`makeAllVisible`
-  // (parse #2) — re-parsing the same package string twice per paragraph. xmldom's
-  // DOMParser dominates the engine's per-paragraph cost, so the second parse was ~half
-  // the work on every doc (and the same CPU the task-pane spends live). Output is
-  // byte-identical: the keeper policy still consumes only the flat `runs` views and
-  // hands back index-aligned flags, exactly as before.
-  const parsed = new ParsedParagraph(p.ooxml);
+): ParagraphDecision {
   const runs = parsed.runs;
 
+  // Tables/images/equations are kept untouched (decision #16). Forcing visible is a no-op on a
+  // normal one and self-heals one wrongly hidden before. Internal-part detection on the node path is
+  // the paragraph-level `ParsedParagraph.hasInternalPart` accessor (a whole-`<w:p>` subtree scan,
+  // byte-identical to the string probe — it catches a drawing/object/pict even outside every `<w:r>`).
+  if (inTable || hasInternalPart) return { kind: "reveal", action: "keepWhole" };
+
   // Heading rule (#7) or cite rule (#6b): keep the whole paragraph visible.
-  if (isHeadingKept(p.headingLevel) || paragraphHasCiteRun(runs)) {
-    const res = parsed.makeAllVisible();
-    return { index: p.index, action: "keepWhole", changed: res.changed, ooxml: res.xml };
+  if (isHeadingKept(headingLevel) || paragraphHasCiteRun(runs)) {
+    return { kind: "reveal", action: "keepWhole" };
   }
 
   // Body paragraph: keep highlighted (whole-word) + structural runs; hide the rest.
@@ -103,55 +116,214 @@ export function classifyParagraph(
   const anyRuns = runs.length > 0;
   const allHidden = anyRuns && hideFlags.every((h) => h);
 
-  // Collapse the paragraph mark only when an entire *content* paragraph was
-  // hidden (decision #5). Empty separator paragraphs (no runs) are left alone.
-  const res = parsed.applyVisibility(hideFlags, allHidden, splits);
+  // Collapse the paragraph mark only when an entire *content* paragraph was hidden (decision #5).
+  // Empty separator paragraphs (no runs) are left alone.
   const action: ParagraphAction = allHidden
     ? "hideWhole"
     : hideFlags.some((h) => h)
       ? "hidePartial"
       : "keepWhole";
-  return { index: p.index, action, changed: res.changed, ooxml: res.xml };
+  return { kind: "plan", action, plan: { hideFlags, hideParaMark: allHidden, splits } };
 }
 
-/** Hide all non-keeper body text and arm the document (write manifest). */
+/**
+ * PURE. Classify one paragraph and return its (possibly unchanged) OOXML — the STRING-MODE path
+ * (the legacy contract every existing caller and `parseCount.test.ts` depend on). It parses the
+ * paragraph ONCE into a string-backed `ParsedParagraph`, computes the shared `decideParagraph`
+ * policy, then applies it through the serializing string-mode methods (`makeAllVisible` /
+ * `applyVisibility`). The node-direct Hide path does NOT call this — it runs the same
+ * `decideParagraph` over node-backed paragraphs and applies IN PLACE (see `hide`).
+ *
+ * Order of rules mirrors the plan: table content and headings/cites are kept whole (and forced
+ * visible, so re-hide un-hides anything wrongly hidden); otherwise hide every run that isn't a
+ * highlighted keeper or structural content, and collapse the paragraph mark when the whole
+ * paragraph went hidden.
+ */
+export function classifyParagraph(
+  p: RawParagraph,
+  settings: ResolvedSettings
+): ParagraphPlan {
+  // Parse the paragraph ONCE and read + mutate through the same tree (string mode). The internal-part
+  // signal uses the cheap string probe here — byte-for-byte the legacy behavior — so a paragraph whose
+  // image part lives outside the `<w:body>` story we scope to is still caught the way it always was.
+  const parsed = new ParsedParagraph(p.ooxml);
+  const decision = decideParagraph(parsed, p.headingLevel, p.inTable, HAS_INTERNAL_PART.test(p.ooxml), settings);
+
+  if (decision.kind === "reveal") {
+    const res = parsed.makeAllVisible();
+    return { index: p.index, action: decision.action, changed: res.changed, ooxml: res.xml };
+  }
+  const { hideFlags, hideParaMark, splits } = decision.plan;
+  const res = parsed.applyVisibility(hideFlags, hideParaMark, splits);
+  return { index: p.index, action: decision.action, changed: res.changed, ooxml: res.xml };
+}
+
+/**
+ * One paragraph carried from Phase A (classify) to Phase B (apply): the node-backed
+ * `ParsedParagraph` to mutate, the pure decision to apply, and its body index.
+ */
+interface PhaseAItem {
+  index: number;
+  parsed: ParsedParagraph;
+  decision: ParagraphDecision;
+}
+
+/**
+ * Classify + apply + commit a Hide over an ALREADY-READ paragraph array, then arm the manifest.
+ * Extracted from `hide` so the read-fused composition can call it with EITHER the read it primed the TC
+ * mode from (the clean path) OR a fresh re-read (the auto-toggle path, which must discard the primed
+ * read — see `hide`). The two-phase classify/apply contract (Phase A skip-on-throw, Phase B abort-the-
+ * whole-op-before-any-write) is unchanged; only WHERE the read happens moved out to the caller.
+ */
+async function classifyApplyCommit(
+  port: WordPort,
+  settings: ResolvedSettings,
+  paras: RawParagraph[],
+  opts: HideOptions
+): Promise<{ scanned: number; changed: number; skipped: number }> {
+  // Step-0 instrumentation (Loop 002 A1 / 002-S7): the engine owns exactly TWO stages of the per-op
+    // timing line — Phase A classify and Phase B apply. It brackets each with the PORT's clock
+    // (`port.now()`, the tracer clock) so every stage in the aggregate is read from one source, then
+    // reports the two raw durations to the port via `recordEngineStages` (the port emits the line at
+    // commit). The engine stays tracer-free: it touches a clock and reports numbers, never the tracer.
+    // When the port doesn't instrument (the in-memory fakes / engine-direct callers omit `now`), these
+    // are no-ops and zero is reported — purely additive, never on the correctness path.
+    const clock = port.now?.bind(port);
+    const tStartA = clock?.() ?? 0;
+
+    // ── PHASE A — read-only classify (paced). Build each paragraph's pure decision WITHOUT
+    // mutating its tree. A node-backed paragraph (`p.parsed`, the pure whole-body read) is read
+    // through its LIVE node (zero parse); every other paragraph parses its own string ONCE — the
+    // compat shim `p.parsed ?? new ParsedParagraph(p.ooxml)`, so `parseCount.test.ts`'s meaning is
+    // preserved. Per-paragraph skip-on-throw: one malformed paragraph is left visible and counted,
+    // never aborting the pass. Pacing/cancel are OUTSIDE the try so a CancelledError aborts the
+    // whole pass (pre-write — nothing is buffered yet), not miscounted as a skip.
+    const items: PhaseAItem[] = [];
+    let skipped = 0;
+    for (const p of paras) {
+      if (opts.pacing) await opts.pacing.tick();
+      try {
+        const parsed = (p.parsed as ParsedParagraph | undefined) ?? new ParsedParagraph(p.ooxml);
+        const decision = decideParagraph(
+          parsed,
+          p.headingLevel,
+          p.inTable,
+          // Node path reads the PARAGRAPH-LEVEL `hasInternalPart` accessor (a whole-`<w:p>` subtree scan,
+          // matching the string probe byte-for-byte — including a drawing/object/pict that sits OUTSIDE
+          // any `<w:r>`, which the per-run `RunView.hasInternalPart` would miss). The string/compat path
+          // uses the cheap whole-paragraph string probe — byte-for-byte the legacy behavior.
+          p.parsed ? parsed.hasInternalPart : HAS_INTERNAL_PART.test(p.ooxml),
+          settings
+        );
+        items.push({ index: p.index, parsed, decision });
+      } catch {
+        // A single malformed paragraph must not abort the whole pass.
+        skipped++;
+      }
+    }
+
+    // Phase A boundary: its duration is the classify stage; the next reading opens Phase B (apply).
+    const tEndA = clock?.() ?? 0;
+
+    // ── PHASE B — apply (paced). Mutate each paragraph IN PLACE (node mode) or serialize a new
+    // fragment (string/compat mode). CONTRACT (C / 002-F4): ANY throw here aborts the WHOLE op
+    // BEFORE a single host write. We catch ONLY to discard the half-mutated in-memory package via
+    // `discardPreparedWrite` (so no later commit can serialize it — the node-direct path mutated the
+    // port's cached `lastRead.pkg` by reference) and then RE-THROW, so nothing is written, the TC
+    // gate's `finally` restores the prior mode, and the manifest stays unarmed. The pacer is
+    // re-threaded so a mid-Hide Cancel (a CancelledError from `tick()`) still lands during the apply
+    // stretch — and it takes the same discard-then-propagate path. There is NO per-item catch: unlike
+    // Phase A's per-paragraph skip, a Phase-B mutation throw means the package is no longer trustworthy.
+    const updates: ParagraphUpdate[] = [];
+    try {
+      for (const it of items) {
+        if (opts.pacing) await opts.pacing.tick();
+        const nodeMode = it.parsed.isNodeBacked;
+        if (it.decision.kind === "reveal") {
+          // keepWhole self-heal: clear all vanish. Node mode mutates in place (no serialize);
+          // string mode serializes a fresh fragment for the per-paragraph commit.
+          if (nodeMode) {
+            const res = it.parsed.makeAllVisibleInPlace();
+            if (res.changed) updates.push({ index: it.index, action: "keepWhole", ooxml: NODE_DIRECT_OOXML });
+          } else {
+            const res = it.parsed.makeAllVisible();
+            if (res.changed) updates.push({ index: it.index, action: "keepWhole", ooxml: res.xml });
+          }
+        } else {
+          const { plan, action } = it.decision;
+          if (nodeMode) {
+            const res = it.parsed.applyVisibilityInPlace(plan);
+            if (res.changed) updates.push({ index: it.index, action, ooxml: NODE_DIRECT_OOXML });
+          } else {
+            const res = it.parsed.applyVisibility(plan.hideFlags, plan.hideParaMark, plan.splits);
+            if (res.changed) updates.push({ index: it.index, action, ooxml: res.xml });
+          }
+        }
+      }
+    } catch (e) {
+      // Half-mutated package: abandon it. The port nulls lastRead/pending so the on-disk doc
+      // (untouched — nothing was written) is re-read fresh next time. Then propagate (002-F4).
+      port.discardPreparedWrite?.();
+      throw e;
+    }
+
+    // Report the two engine-owned stage durations to the port (Loop 002 A1 / 002-S7). Done only AFTER
+    // a clean Phase B (a throw above aborts the op and emits nothing). `tEndA` is the Phase A/B
+    // boundary; `clock()` here closes Phase B. The port folds these into the aggregate it emits at the
+    // end of the commit. No-op when the port omits the optional reporter (the in-memory fakes).
+    port.recordEngineStages?.({ classifyMs: tEndA - tStartA, applyMs: (clock?.() ?? 0) - tEndA });
+
+  await port.writeParagraphs(updates);
+  await saveManifest(port, {
+    active: true,
+    keepColors: [...settings.keepColors],
+    schemaVersion: MANIFEST_SCHEMA_VERSION
+  });
+  return { scanned: paras.length, changed: updates.length, skipped };
+}
+
+/**
+ * Hide all non-keeper body text and arm the document (write manifest).
+ *
+ * READ FUSION (Loop 002 B2 / 002-S4): the first `readParagraphs` runs OUTSIDE the gate so the port can
+ * prefetch the Track-Changes mode in that SAME read sync (`getPrimedTrackChangesMode`). The gate then
+ * consumes the primed mode instead of issuing its own TC-read Word.run, so a clean Hide spends 2 runs
+ * (read + commit), not 3 (TC read + read + commit). When the port can't prime one (the in-memory fakes,
+ * or any non-fused port), we fall back to its own `getChangeTrackingMode()` so correctness never depends
+ * on the prime — only the run count does.
+ *
+ * S-005 is preserved byte-for-byte (the gate's throw/toggle/finally-restore is the SAME shared policy):
+ *   * TC off → the gate runs the body directly with the already-read paragraphs (the fast path).
+ *   * TC on, NO auto-toggle → the gate throws `TrackChangesActiveError` BEFORE the body runs, so the
+ *     primed read is simply discarded: ZERO classify, ZERO writes, manifest unarmed (abort-before-parse).
+ *   * TC on, auto-toggle → the gate turns TC off, runs the body, restores the prior mode in `finally`.
+ *     The body DISCARDS the primed read and RE-READS: a package read while TC was on can carry
+ *     `w:trackChanges` in its bundled settings, so the primed paragraphs are not trustworthy to commit;
+ *     re-reading after the toggle reads the document with TC off. Pristine first-Hide (TC off) never
+ *     re-reads — it pays zero extra syncs.
+ */
 export async function hide(
   port: WordPort,
   settings: ResolvedSettings,
   opts: HideOptions = {}
 ): Promise<HideResult> {
-  // Reuses the shared Track-Changes gate (guards.ts) — the same one the range-scoped Condense &
-  // Shrink controller runs under, so the TC policy lives in exactly one place.
-  const { result, toggled } = await withTrackChangesGate(port, opts.autoToggleTrackChanges ?? false, async () => {
-    const paras = await port.readParagraphs();
-    const updates: ParagraphUpdate[] = [];
-    let skipped = 0;
-    for (const p of paras) {
-      // Cooperative pacing/cancellation, OUTSIDE the per-paragraph try: a CancelledError must
-      // abort the whole pass — still pre-write (updates are only buffered below; the adapter
-      // never flushes them, and the TC gate's `finally` restores the prior mode) — not be
-      // miscounted as one "skipped" paragraph. The tick also yields a macrotask on budget so
-      // a live pane can paint and the Cancel click can land during this pure-JS loop. Guarded
-      // so engine-direct callers without pacing keep a straight synchronous loop (zero cost).
-      if (opts.pacing) await opts.pacing.tick();
-      try {
-        const plan = classifyParagraph(p, settings);
-        // Carry the action so the adapter can apply a native font.hidden toggle for
-        // whole-paragraph cases (keepWhole/hideWhole) and reserve OOXML for hidePartial.
-        if (plan.changed) updates.push({ index: plan.index, action: plan.action, ooxml: plan.ooxml });
-      } catch {
-        // A single malformed paragraph must not abort the whole pass: keep it
-        // unchanged (visible) and report it so the UI can warn the user.
-        skipped++;
-      }
-    }
-    await port.writeParagraphs(updates);
-    await saveManifest(port, {
-      active: true,
-      keepColors: [...settings.keepColors],
-      schemaVersion: MANIFEST_SCHEMA_VERSION
-    });
-    return { scanned: paras.length, changed: updates.length, skipped };
+  // Read FIRST so the port can fuse the TC-mode prefetch into this read's first sync. The primed mode
+  // (or `getChangeTrackingMode()` when the port doesn't prime one) drives the gate without a second run.
+  const primedParas = await port.readParagraphs();
+  const autoToggle = opts.autoToggleTrackChanges ?? false;
+  const mode = port.getPrimedTrackChangesMode?.() ?? (await port.getChangeTrackingMode());
+
+  // Whether the gate is about to toggle TC off for us: only when TC is on AND the caller opted in. When
+  // it IS toggling, the primed read happened UNDER Track Changes (its package can bundle `w:trackChanges`
+  // in settings), so the gate body must DISCARD that read and re-read with TC off. Computed here — not
+  // from the gate's `toggled` return — because the body runs INSIDE the gate, before that return exists.
+  const willToggle = mode !== "Off" && autoToggle;
+
+  // The shared prefetched-mode gate carries the EXACT throw/toggle/finally-restore policy (guards.ts).
+  const { result, toggled } = await withPrefetchedTrackChangesGate(port, autoToggle, mode, async () => {
+    // Pristine path (TC off, no toggle): reuse the primed read — the clean 2-run path, no extra sync.
+    const paras = willToggle ? await port.readParagraphs() : primedParas;
+    return classifyApplyCommit(port, settings, paras, opts);
   });
   return {
     paragraphsScanned: result.scanned,
@@ -160,6 +332,16 @@ export async function hide(
     trackChangesToggled: toggled
   };
 }
+
+/**
+ * The `ooxml` placeholder for a node-direct update. In node mode the paragraph was already mutated
+ * IN PLACE inside the port's cached whole-body package, so the commit serializes the WHOLE package
+ * (never a per-paragraph fragment) and the `ooxml` field is unused for the write. It still flows
+ * through `writeParagraphs` only to carry the changed-count + index range. A bare `<w:p/>` keeps the
+ * single-`<w:p>` write guard happy on the (node-direct) path that never consults it for the actual
+ * splice — defense in depth, since the pure commit ignores it entirely.
+ */
+const NODE_DIRECT_OOXML = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>';
 
 /**
  * Re-derive over the whole document, catching newly typed/pasted text. This is

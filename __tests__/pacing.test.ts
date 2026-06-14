@@ -16,7 +16,12 @@
 // Re-hide — both wire the controller's one pacer) started actually lands mid-operation —
 // the exact user story that was dead before pacing.
 
-import { CancelledError, createPacer } from "../src/core/cancel";
+import {
+  CancelledError,
+  createPacer,
+  __selectedYieldTierName,
+  __makeYieldForTier
+} from "../src/core/cancel";
 import {
   CancelledError as ReExportedCancelledError,
   createOfficeWordPort
@@ -109,6 +114,104 @@ describe("createPacer", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The clamp-free yield tier chain (Loop 002 A4 / 002-S5).
+//
+// `defaultYield` picks the first available tier of scheduler.yield → persistent MessageChannel →
+// setTimeout(0). These tests pin (a) which tier THIS environment exercises — under jest's
+// `testEnvironment:"node"` it MUST be `setTimeout`, because the MessageChannel tier is gated on a
+// browser global so a Node worker_threads MessageChannel (which starves timer-delivered cancels)
+// is never selected, which is exactly why the FIFO/cancel-landing e2e tests above stay green; and
+// (b) the S-008 guarantee for the MessageChannel tier itself — even though it isn't auto-selected
+// in Node, a real MessageChannel round-trip still returns control such that a cancel landing during
+// the yield is observed by the pacer's post-yield re-check (proven here with the cancel delivered
+// on the MessageChannel task source, the way a real browser Cancel click arrives).
+// ---------------------------------------------------------------------------
+describe("clamp-free yield tier chain", () => {
+  it("selects the setTimeout tier under jest's node env (no browser global → MessageChannel skipped)", () => {
+    // This is the load-bearing reason the controller e2e cancel tests are byte-for-byte unchanged:
+    // Node routes to setTimeout, so a setTimeout-modeled Cancel click still lands FIFO after the
+    // first yield. (In the live Chromium task pane the same chain selects scheduler.yield /
+    // MessageChannel instead — the clamp-free path — but the cancel contract is identical.)
+    expect(__selectedYieldTierName()).toBe("setTimeout");
+  });
+
+  it("MessageChannel tier (S-008): a cancel landing DURING the real production yield is seen post-yield", async () => {
+    // Drive the ACTUAL production MessageChannel tier (`__makeYieldForTier` runs its real
+    // `create()` — the persistent channel + FIFO waiter queue), not a hand-rolled copy. Inject it
+    // into a pacer and deliver the "Cancel click" on the MessageChannel task source DURING the
+    // yield — modeling a real browser Cancel click arriving while the host is yielded. The pacer's
+    // post-yield `isCancelled()` re-check must observe it: the same S-008 guarantee setTimeout
+    // gives, now proven for the clamp-free tier the live task pane actually selects.
+    const mcYield = __makeYieldForTier("MessageChannel");
+    expect(mcYield).toBeDefined(); // MessageChannel exists in Node (worker_threads)
+
+    let cancelled = false;
+    const pacer = createPacer({
+      cancel: { isCancelled: () => cancelled },
+      budgetMs: 0, // yield on the very first tick
+      yieldFn: () => {
+        // Schedule the "click" on the MessageChannel task source so it lands during the yield
+        // window — modeling a real browser Cancel click delivered while the host is yielded.
+        const clickChannel = new MessageChannel();
+        clickChannel.port1.onmessage = () => {
+          cancelled = true;
+          clickChannel.port1.close();
+          clickChannel.port2.close();
+        };
+        clickChannel.port2.postMessage(0);
+        return mcYield!();
+      }
+    });
+
+    await expect(pacer.tick()).rejects.toBeInstanceOf(CancelledError);
+  });
+
+  it("the production MessageChannel yield round-trips repeatedly on ONE persistent channel (reuse, not per-tick alloc)", async () => {
+    // The production tier allocates the channel ONCE in `create()` and reuses it for every yield.
+    // `__makeYieldForTier` builds that closure once; calling the returned yield many times proves
+    // the SAME channel round-trips each time (a stuck/closed port would hang this test) without
+    // re-allocating — the persistent-allocation contract the mission requires.
+    const mcYield = __makeYieldForTier("MessageChannel");
+    expect(mcYield).toBeDefined();
+    let yields = 0;
+    const pacer = createPacer({
+      budgetMs: 0,
+      yieldFn: async () => {
+        await mcYield!();
+        yields++;
+      }
+    });
+    await pacer.tick();
+    await pacer.tick();
+    await pacer.tick();
+    expect(yields).toBe(3);
+  });
+
+  it("scheduler.yield tier (when present): the real tier body delegates to the host scheduler", async () => {
+    // scheduler.yield is absent in Node, so its production `create()` body would otherwise be
+    // uncovered. Stub a minimal `scheduler.yield` on globalThis, build the REAL tier yield, and
+    // assert it both selects scheduler.yield AND calls through to the host primitive (the clamp-free
+    // path the newest Chromium task pane takes). Restore the global so no other test is affected.
+    const g = globalThis as unknown as { scheduler?: { yield: () => Promise<void> } };
+    const had = "scheduler" in g;
+    let calls = 0;
+    g.scheduler = { yield: () => (calls++, Promise.resolve()) };
+    try {
+      // With scheduler.yield present AND a browser-less host, scheduler.yield is still tier 1
+      // (its availability does not depend on a browser global — only MessageChannel does).
+      expect(__selectedYieldTierName()).toBe("scheduler.yield");
+      const schedYield = __makeYieldForTier("scheduler.yield");
+      expect(schedYield).toBeDefined();
+      await schedYield!();
+      await schedYield!();
+      expect(calls).toBe(2); // each yield delegated to the host scheduler
+    } finally {
+      if (!had) delete g.scheduler;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Through the full adapter + engine (pure whole-body, the DEFAULT Hide path).
 // ---------------------------------------------------------------------------
 
@@ -154,10 +257,12 @@ describe("paced hide through the pure whole-body path", () => {
     expect(docB.paragraphs.map((p) => p.xml)).toEqual(docA.paragraphs.map((p) => p.xml));
     expect(docB.manifest?.xml).toBe(docA.manifest?.xml);
     expect(resB).toEqual(resA);
-    // Call-count guard (parseCount-style): the pure read ticks once per package paragraph and
-    // the classify loop once per read paragraph — exactly 2N with budget 0. If a loop stops
-    // ticking (pane freezes again) or starts double-ticking, this fails loudly.
-    expect(yields).toBe(2 * docA.paragraphs.length);
+    // Call-count guard (parseCount-style): with budget 0 (yield on every tick) the pacer is ticked
+    // once per paragraph in EACH of the THREE paced loops — the pure read (port), Phase A classify,
+    // and Phase B apply (Loop 002 B1: the apply stretch is now paced too, so a big-doc node-direct
+    // apply can paint progress and land a mid-Hide Cancel). Exactly 3N. If a loop stops ticking (pane
+    // freezes again) or starts double-ticking, this fails loudly.
+    expect(yields).toBe(3 * docA.paragraphs.length);
   });
 
   it("a cancel landing mid-CLASSIFY aborts pre-write: doc untouched, nothing flushed, TC restored", async () => {

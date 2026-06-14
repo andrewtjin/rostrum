@@ -6,6 +6,7 @@
 
 import { createOfficeWordPort, CancelledError } from "../src/core/officeWordPort";
 import { hide, showAll } from "../src/core/invisibility";
+import { TrackChangesActiveError } from "../src/core/guards";
 import { readRuns } from "../src/core/ooxml";
 import { WholeBodyPackage } from "../src/core/ooxmlPackage";
 import { parseManifestOrNull, MANIFEST_NAMESPACE } from "../src/core/manifest";
@@ -613,5 +614,165 @@ describe("repairCites", () => {
     const res = await port.repairCites();
     expect(res).toEqual({ paragraphsRepaired: 0, runsRepaired: 0 });
     expect(doc.paragraphs[1].xml).not.toContain(`<w:rStyle w:val="Style13ptBold"/>`);
+  });
+});
+
+// ===========================================================================
+// Loop 002 B2 — single-Word.run read fusion (002-S4)
+// ===========================================================================
+//
+// The TC-mode read is fused into `readParagraphs`' FIRST sync, so the engine's prefetched-mode gate
+// consumes the primed value instead of issuing its own TC-read `Word.run`: a clean Hide costs 2 runs
+// (read + commit), not 3 (TC read + read + commit). These prove the run-count win on BOTH read paths,
+// the abort-before-parse ordering (TC on, no auto-toggle → ZERO classify, ZERO writes), and the
+// auto-toggle discard-and-re-read (a TC-on package may carry `w:trackChanges` in bundled settings).
+describe("read fusion — clean Hide uses 2 Word.runs, was 3 (B2 / 002-S4)", () => {
+  /**
+   * Wrap a harness runner so every `Word.run` invocation is counted (one per host round-trip). The
+   * count lives on a mutable `{ runs }` holder the caller reads after the op — one entry per `Word.run`.
+   */
+  function counting(h: ReturnType<typeof harness>): { runner: typeof h.runner; calls: { runs: number } } {
+    const calls = { runs: 0 };
+    const runner = (<T,>(b: (c: Word.RequestContext) => Promise<T>): Promise<T> => {
+      calls.runs++;
+      return h.runner(b);
+    }) as typeof h.runner;
+    return { runner, calls };
+  }
+
+  // In the pure node-direct path outline comes from the PACKAGE, not the proxy, so the heading carries
+  // an INLINE `<w:outlineLvl>` (the proxy outlineNumber would be ignored).
+  const lvl0 = `<w:pPr><w:outlineLvl w:val="0"/></w:pPr>`;
+
+  it("PURE node-direct path: a clean Hide uses exactly 2 Word.runs (read + commit)", async () => {
+    const doc = mkDoc([
+      para(run("Heading"), { pPr: lvl0 }),
+      para(run("a long card body that should vanish")),
+      para(run("intro ") + run("warrant", { highlight: "yellow" }))
+    ]);
+    const h = harness(doc);
+    const c = counting(h);
+    const port = createOfficeWordPort({
+      runner: c.runner,
+      pureWholeBody: true,
+      logger: h.tracer.logger("adapter")
+    });
+
+    await hide(port, settings(["yellow"]));
+
+    // 2 runs: ONE read (TC prefetched in its first sync) + ONE atomic commit. The dedicated TC-read
+    // run is gone — that is the 3→2 win. (Pre-B2 this was 3.)
+    expect(c.calls.runs).toBe(2);
+    // Exactly one whole-body read sync and one commit; no separate TC-read round-trip is observable.
+    expect(h.ctx.commitLog.filter((c) => c.op === "body.getOoxml")).toHaveLength(1);
+    expect(h.ctx.commitLog.filter((c) => c.op === "body.insertOoxml")).toHaveLength(1);
+    // The work still landed correctly (composition change only, not a behavior change).
+    expect(hiddenFlags(doc.paragraphs[0].xml)).toEqual([false]); // heading kept
+    expect(hiddenFlags(doc.paragraphs[1].xml)).toEqual([true]); // body hidden
+    expect(parseManifestOrNull(doc.manifest!.xml)!.active).toBe(true);
+  });
+
+  it("PROXY (per-paragraph) path: a clean Hide uses exactly 2 Word.runs too", async () => {
+    // The default (non-pure) read also prefetches TC in its first sync, so even the per-paragraph
+    // commit path drops the dedicated TC-read run.
+    const doc = mkDoc([para(run("Heading"), { outlineNumber: 1 }), para(run("card body"))]);
+    const h = harness(doc);
+    const c = counting(h);
+    const port = createOfficeWordPort({ runner: c.runner, logger: h.tracer.logger("adapter") });
+
+    await hide(port, settings(["yellow"]));
+
+    expect(c.calls.runs).toBe(2); // read (TC primed) + commit
+    expect(h.ctx.commitLog.filter((c) => c.op === "body.getOoxml")).toHaveLength(1);
+    expect(hiddenFlags(doc.paragraphs[1].xml)).toEqual([true]);
+  });
+
+  it("TC on, NO auto-toggle: aborts BEFORE the parse — ZERO classify, ZERO writes, manifest unarmed", async () => {
+    const doc = mkDoc([para(run("card body"))], "TrackAll");
+    const h = harness(doc);
+    const c = counting(h);
+    const port = createOfficeWordPort({
+      runner: c.runner,
+      pureWholeBody: true,
+      logger: h.tracer.logger("adapter")
+    });
+
+    await expect(hide(port, settings(["yellow"]))).rejects.toBeInstanceOf(TrackChangesActiveError);
+
+    // The read happened (it primed TC); the gate then threw BEFORE the body ran — so NO commit run.
+    expect(c.calls.runs).toBe(1);
+    // Abort-before-parse: nothing was classified or written, the manifest is unarmed, the doc is clean.
+    expect(h.ctx.commitLog.some((c) => c.op === "body.insertOoxml")).toBe(false);
+    expect(h.ctx.commitLog.some((c) => c.op === "paragraph.insertOoxml")).toBe(false);
+    expect(h.ctx.commitLog.some((c) => c.op === "paragraph.font.hidden")).toBe(false);
+    expect(h.ctx.commitLog.some((c) => c.op === "tc.set:Off")).toBe(false); // no toggle either
+    expect(doc.manifest).toBeNull();
+    expect(hiddenFlags(doc.paragraphs[0].xml)).toEqual([false]); // unchanged
+  });
+
+  it("TC on, auto-toggle: DISCARDS the primed read and re-reads after toggling TC off (S-005)", async () => {
+    const doc = mkDoc([para(run("card body"))], "TrackAll");
+    const h = harness(doc);
+    const port = createOfficeWordPort({
+      runner: h.runner,
+      pureWholeBody: true,
+      logger: h.tracer.logger("adapter")
+    });
+
+    const res = await hide(port, settings(["yellow"]), { autoToggleTrackChanges: true });
+
+    expect(res.trackChangesToggled).toBe(true);
+    // S-005: TC was toggled Off (in the gate) then RESTORED to its prior mode in `finally`.
+    expect(doc.tcMode).toBe("TrackAll");
+    const tcOps = h.ctx.commitLog.filter((c) => c.op.startsWith("tc.set:")).map((c) => c.op);
+    expect(tcOps).toEqual(["tc.set:Off", "tc.set:TrackAll"]);
+    // Discard-and-re-read: the body is read TWICE — once to prime TC (under TC-on), then again after
+    // toggling TC off (the primed read may carry `w:trackChanges` in bundled settings and isn't trusted).
+    expect(h.ctx.commitLog.filter((c) => c.op === "body.getOoxml")).toHaveLength(2);
+    // The toggle-off precedes the re-read, which precedes the restore (ordering of the gate body).
+    const order = h.ctx.commitLog.map((c) => c.op);
+    const firstReRead = order.indexOf("body.getOoxml", order.indexOf("body.getOoxml") + 1);
+    expect(order.indexOf("tc.set:Off")).toBeLessThan(firstReRead);
+    expect(firstReRead).toBeLessThan(order.lastIndexOf("tc.set:TrackAll"));
+    // And the work landed.
+    expect(hiddenFlags(doc.paragraphs[0].xml)).toEqual([true]);
+    expect(parseManifestOrNull(doc.manifest!.xml)!.active).toBe(true);
+  });
+
+  it("b2-1: the auto-toggle path's committed package carries settings with NO w:trackChanges", async () => {
+    // The discard-and-re-read's PREMISE (S-005): after toggling TC off, the re-read/committed package omits
+    // `w:trackChanges` from its verbatim settings part. Previously UNtested in R1 (the fake had no settings
+    // part at all). Model one that DROPS `w:trackChanges` once tcMode flips to Off, drive the auto-toggle
+    // node-direct Hide, and assert the committed `insertOoxml` package's settings is clean — so a later
+    // re-Hide reading that committed doc would NOT see TC active. (R6 002-S4's TC-on gate is the live confirm.)
+    const doc = mkDoc([para(run("card body"))], "TrackAll", { modelSettings: true });
+    const h = harness(doc);
+
+    // Sanity: the PRIMED read (taken under TC-on) DOES carry `w:trackChanges` — proving the re-read matters.
+    expect(h.ctx.bodyOoxml()).toContain("<w:trackChanges/>");
+
+    // Capture the package handed to the node-direct whole-body commit (the serialized re-read pkg).
+    let committed: string | null = null;
+    const body: any = (h.ctx as any).document.body;
+    const realInsert = body.insertOoxml.bind(body);
+    body.insertOoxml = (xml: string, loc?: string): void => {
+      committed = xml;
+      realInsert(xml, loc);
+    };
+
+    const port = createOfficeWordPort({
+      runner: h.runner,
+      pureWholeBody: true, // node-direct: serializes lastRead.pkg (incl. the verbatim settings part)
+      logger: h.tracer.logger("adapter")
+    });
+    const res = await hide(port, settings(["yellow"]), { autoToggleTrackChanges: true });
+
+    expect(res.trackChangesToggled).toBe(true);
+    expect(committed).not.toBeNull();
+    // The committed package STILL carries a settings part (verbatim carry, A2), but with NO w:trackChanges:
+    // it was serialized from the post-toggle re-read taken with TC off.
+    expect(committed!).toContain(`pkg:name="/word/settings.xml"`);
+    expect(committed!).not.toContain("<w:trackChanges/>");
+    expect(committed!).not.toContain("w:trackChanges");
   });
 });
