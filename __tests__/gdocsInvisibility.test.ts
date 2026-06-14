@@ -28,10 +28,24 @@
 // size/emphasis/highlight, not that Google's internal run layout survived.
 
 import type { SelectionPick } from "../google-docs/src/core/adapterPure";
-import { MAX_REPLAN_ATTEMPTS, SENTINELS } from "../google-docs/src/core/constants";
-import { applyStyles, hide, markCite, showAll } from "../google-docs/src/core/controller";
+import {
+  ANALYTICS_FG_HEX,
+  ANALYTICS_PT,
+  MAX_REPLAN_ATTEMPTS,
+  SENTINEL_PT,
+  SENTINELS
+} from "../google-docs/src/core/constants";
+import {
+  analyticify,
+  applyStyles,
+  deleteAnalytics,
+  hide,
+  markCite,
+  showAll
+} from "../google-docs/src/core/controller";
 import { parseDocument } from "../google-docs/src/core/parse";
 import { isRstmName } from "../google-docs/src/core/rangeNames";
+import { errorMessage, STRINGS } from "../google-docs/src/core/strings";
 import {
   DocsApiError,
   GDoc,
@@ -826,3 +840,386 @@ describe("failure paths and wiring", () => {
     expect(rstmCount(await view(fake))).toBe(BIG_BODIES);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Loop 003 — the analytics verbs (analytic-ify + Delete analytics), driven end
+// to end over the same DocsPort fake through the PRODUCTION parser. The delete
+// path runs through the Wave-A spliceDelete model, so a delete actually removes
+// chars and SHIFTS downstream indexes — the only way these tests are
+// non-vacuous. Cases mirror plan §5:
+//   * both verbs gate single-tab / suggestions / not-hidden (each mapped error)
+//   * analytic-ify emits ONLY updateTextStyle (003-F2 audit) + idempotence
+//   * Delete analytics emits ONLY deleteContentRange (003-F1 audit)
+//   * a torn multi-chunk delete -> PartialApplyError("deleteAnalytics"),
+//     mapped to the delete-specific copy (NOT errors.unknown)
+//   * the TOCTOU zero-after-confirm path -> a graceful no-op result
+// ---------------------------------------------------------------------------
+
+describe("analytic-ify (controller)", () => {
+  /** A plain, single-tab, suggestion-free, unarmed doc the gates all pass:
+   *  P0 plain body, P1 plain body. Ordinals select which paragraphs to style. */
+  const plainFake = (): FakeDocs =>
+    new FakeDocs([{ elements: [{ text: "first line" }] }, { elements: [{ text: "second line" }] }]);
+
+  it("styles the touched paragraph navy 14pt and counts it; one batch, untouched line clean", async () => {
+    const fake = plainFake();
+    const before = fake.fetchCount;
+    const r = await analyticify(fake, new Set([0]));
+    expect(r).toEqual({ paragraphsStyled: 1 });
+    expect(fake.fetchCount - before).toBe(1); // one documents.get per verb (A13)
+    expect(fake.appliedBatches).toHaveLength(1); // one small group fits one chunk
+
+    // The touched line reads back BOTH analytics attributes through the parsed
+    // FakeDocs view: the analytics size AND the off-palette navy foreground. The
+    // Wave-1 fake now models foregroundColor writes (updateTextStyle's mask
+    // honors foregroundColor, serialize() emits it, parse decodes it), so this is
+    // a true write round-trip — replacing the old "deferred to the request-level
+    // 003-F2 audit / foregroundHex toBeNull" workaround. Asserting the EXACT hex
+    // is falsifiable: a wrong color (or a dropped foreground write) fails here,
+    // and the keeper that protects analytics through Hide keys off this exact hex
+    // (keepers.isAnalytics), so the read-back IS the contract Hide depends on.
+    const after = await view(fake);
+    expect(after.paragraphs[0].elements[0].fontSizePt).toBe(ANALYTICS_PT);
+    expect(after.paragraphs[0].elements[0].foregroundHex).toBe(ANALYTICS_FG_HEX);
+    // The untouched line is fully clean: no size, no foreground was written.
+    expect(after.paragraphs[1].elements[0].fontSizePt).toBeNull();
+    expect(after.paragraphs[1].elements[0].foregroundHex).toBeNull();
+  });
+
+  it("(003-F2 audit) emits ONLY updateTextStyle — never a paragraph/named-style/delete write", async () => {
+    const fake = plainFake();
+    await analyticify(fake, new Set([0, 1]));
+    expect(fake.appliedBatches.length).toBeGreaterThan(0);
+    for (const batch of fake.appliedBatches) {
+      for (const req of batch) {
+        expect(Object.keys(req)).toEqual(["updateTextStyle"]);
+        // The mask is exactly the two analytics attributes, nothing more.
+        expect("updateTextStyle" in req && req.updateTextStyle.fields).toBe("foregroundColor,fontSize");
+      }
+    }
+  });
+
+  it("is idempotent (003-S5): a second analytic-ify re-applies the SAME write as a server no-op", async () => {
+    const fake = plainFake();
+    await analyticify(fake, new Set([0]));
+    const firstView = charView(await view(fake));
+
+    const second = await analyticify(fake, new Set([0]));
+    expect(second).toEqual({ paragraphsStyled: 1 }); // still reports the styled line
+    // Byte-equal: re-styling already-navy text changes nothing the user sees.
+    expect(charView(await view(fake))).toBe(firstView);
+  });
+
+  it("an empty ordinal set is a graceful no-op: zero paragraphs, nothing written", async () => {
+    const fake = plainFake();
+    const r = await analyticify(fake, new Set());
+    expect(r).toEqual({ paragraphsStyled: 0 });
+    expect(fake.appliedBatches).toHaveLength(0);
+  });
+
+  it("gates: refuses a multi-tab / suggestion / hidden doc, each its mapped error, nothing written", async () => {
+    // Multi-tab (universal tab gate, A3).
+    const multi = new FakeDocs([{ elements: [{ text: "x" }] }], { tabCount: 2 });
+    await expectRejects(analyticify(multi, new Set([0])), MultiTabError);
+    expect(multi.appliedBatches).toHaveLength(0);
+
+    // Suggestions present (indexes untrustworthy — styles-lane gate).
+    const suggested = new FakeDocs([{ elements: [{ text: "x" }] }], { suggestions: true });
+    await expectRejects(analyticify(suggested, new Set([0])), SuggestionsActiveError);
+    expect(suggested.appliedBatches).toHaveLength(0);
+
+    // Hidden state present: analytic-ify is run-level size, refuses an armed doc.
+    const armed = mixedFake();
+    await hide(armed);
+    const writesAfterHide = armed.appliedBatches.length;
+    await expectRejects(analyticify(armed, new Set([0])), HiddenStateError);
+    expect(armed.appliedBatches).toHaveLength(writesAfterHide);
+  });
+
+  it("a torn multi-chunk analytic-ify -> PartialApplyError('analyticify') mapped to the SAFE-TO-REPEAT copy", async () => {
+    // CHUNK_MAX 5000 groups (one per touched paragraph) forces two chunks.
+    const specs: GpSpec[] = [];
+    for (let i = 0; i < 5001; i++) specs.push({ elements: [{ text: `line ${i}` }] });
+    const fake = new FakeDocs(specs);
+    fake.beforeApply = (call) => {
+      if (call === 1) fake.injectForeignEdit(); // the edit lands before chunk 1
+    };
+    const err = await expectRejects(
+      analyticify(fake, new Set(specs.map((_s, i) => i))),
+      PartialApplyError
+    );
+    expect(err.verb).toBe("analyticify");
+    expect(err.appliedChunks).toBe(1);
+    expect(err.totalChunks).toBe(2);
+    // The copy is analytic-ify's own (idempotent, safe to repeat), never unknown.
+    expect(errorMessage(err)).toEqual(errorMessage(new PartialApplyError("analyticify", 1, 2)));
+    expect(errorMessage(err).body).toBe(STRINGS.errors.partialApply.analyticify.body);
+  });
+
+  it("analytic-ify -> Hide round trip: the freshly-navy run is KEPT at full size, never shrunk (003-S1+S2)", async () => {
+    // The core Loop-003 user promise, end to end and write-driven: a plain body
+    // line the user analytic-ifies must survive the very next Hide at FULL size
+    // (the analytics navy is an explicit "keep this" mark, like a highlight), not
+    // shrink to the 1pt sentinel. This is only non-vacuous because the Wave-1
+    // fake now models the foreground WRITE: analytic-ify's navy lands in the
+    // model, reads back through parse, and keepers.isAnalytics (color-only,
+    // size-independent) keeps it — so Hide leaves it visible.
+    //
+    // P0 plain body, P1 plain body. We analytic-ify ONLY P0. The control is P1:
+    // an identical plain body line with NO analytics MUST hide to the sentinel on
+    // the same pass, proving it is the analytics mark — not some blanket "Hide
+    // skips this doc" — that keeps P0 at full size. (A plain NORMAL_TEXT line is
+    // neither a heading nor a cite, so it hides by default; verified below.)
+    const fake = plainFake();
+    const styled = await analyticify(fake, new Set([0]));
+    expect(styled).toEqual({ paragraphsStyled: 1 });
+
+    // After analytic-ify, P0 is navy 14pt; P1 is untouched (no size, no navy).
+    const armedView = await view(fake);
+    expect(armedView.paragraphs[0].elements[0].fontSizePt).toBe(ANALYTICS_PT);
+    expect(armedView.paragraphs[0].elements[0].foregroundHex).toBe(ANALYTICS_FG_HEX);
+    expect(armedView.paragraphs[1].elements[0].foregroundHex).toBeNull();
+
+    // Hide runs the reconcile over the analytic-ified doc.
+    const r = await hide(fake);
+    // Exactly one paragraph changed (P1 hidden); P0's analytics line is kept and
+    // emits no hide region, so regionsHidden counts only P1's passage.
+    expect(r.paragraphsScanned).toBe(2);
+    expect(r.paragraphsChanged).toBe(1);
+    expect(r.regionsHidden).toBe(1);
+
+    const hidden = await view(fake);
+    // THE PROMISE: every char of the navy P0 line stays at its written 14pt —
+    // NOT one is at the sentinel. (P0 is non-final, so its trailing newline is
+    // part of the kept run too; nothing in P0 may carry a sentinel size.)
+    const navyChars = hidden.paragraphs[0].elements.flatMap((el) =>
+      el.kind === "text" ? [...el.text].map(() => el.fontSizePt) : []
+    );
+    expect(navyChars.every((size) => size === ANALYTICS_PT)).toBe(true);
+    expect(navyChars).not.toContain(SENTINEL_PT);
+    // The navy survived in color too — Hide's fontSize-only shrink never touches
+    // foreground, and the keeper kept the whole run.
+    expect(hidden.paragraphs[0].elements[0].foregroundHex).toBe(ANALYTICS_FG_HEX);
+
+    // The CONTROL: the un-analytic-ified P1 line DID hide — its body text now
+    // reads at the sentinel. "second line" is 11 chars; P1 is the LAST paragraph
+    // so its trailing newline is the segment-final newline, which the clamp
+    // leaves un-shrunk, so the 11 body chars (not the newline) sit at 1pt.
+    expect(sentinelChars(hidden)).toBe(11);
+    expect(rstmCount(hidden)).toBe(1); // one rstm anchor for P1's hidden region
+  });
+});
+
+describe("Delete analytics (controller)", () => {
+  const navy = (text: string): { text: string; fg: string } => ({ text, fg: ANALYTICS_FG_HEX });
+
+  /** A mixed analytics doc the gates all pass:
+   *   P0 [1,11)  wholly-navy "analytics\n"      -> whole-line delete (collapses)
+   *   P1 [11,30) plain "keep " + navy "navy" + plain " tail\n"  -> partial path
+   *   P2 [30,?)  plain "plain only\n"            -> no analytics, no range
+   * P0 is non-final so its newline goes too; the line collapses. */
+  const mixedAnalyticsFake = (): FakeDocs =>
+    new FakeDocs([
+      { elements: [navy("analytics")] },
+      { elements: [{ text: "keep " }, navy("navy"), { text: " tail" }] },
+      { elements: [{ text: "plain only" }] }
+    ]);
+
+  it("removes exactly the analytics text, collapses the wholly-navy line, keeps everything else", async () => {
+    const fake = mixedAnalyticsFake();
+    const r = await deleteAnalytics(fake);
+    // Two affected paragraphs (P0 whole-line + P1 partial); P2 untouched.
+    expect(r.paragraphsAffected).toBe(2);
+    expect(r.runsDeleted).toBe(2);
+
+    const after = await view(fake);
+    // P0 collapsed away: the doc now opens with the former P1 (partial) line,
+    // its navy run gone, plain text fused.
+    expect(after.paragraphs).toHaveLength(2);
+    const flat = after.paragraphs.map((p) => p.elements.map((e) => e.text).join(""));
+    expect(flat[0]).toBe("keep  tail\n"); // "navy" excised, neighbors retained
+    expect(flat[1]).toBe("plain only\n");
+    // No analytics survives anywhere.
+    for (const p of after.paragraphs) {
+      for (const e of p.elements) expect(e.foregroundHex).not.toBe(ANALYTICS_FG_HEX);
+    }
+  });
+
+  it("(003-F1 audit) emits ONLY deleteContentRange — no style/named-range write", async () => {
+    const fake = mixedAnalyticsFake();
+    await deleteAnalytics(fake);
+    expect(fake.appliedBatches.length).toBeGreaterThan(0);
+    for (const batch of fake.appliedBatches) {
+      for (const req of batch) expect(Object.keys(req)).toEqual(["deleteContentRange"]);
+    }
+  });
+
+  it("zero analytics is a graceful no-op: nothing planned, nothing written", async () => {
+    const fake = new FakeDocs([{ elements: [{ text: "no analytics here" }] }]);
+    const r = await deleteAnalytics(fake);
+    expect(r).toEqual({ paragraphsAffected: 0, runsDeleted: 0 });
+    expect(fake.appliedBatches).toHaveLength(0);
+  });
+
+  it("a final-segment wholly-navy line clamps off its newline (empty line remains, not collapsed)", async () => {
+    // Single paragraph, so it IS the final segment: the API refuses to delete
+    // the doc-final newline, so the clamp leaves [start, end-1) and an empty
+    // line survives (documented, unavoidable).
+    const fake = new FakeDocs([{ elements: [navy("solo")] }]);
+    const r = await deleteAnalytics(fake);
+    expect(r).toEqual({ paragraphsAffected: 1, runsDeleted: 1 });
+
+    const after = await view(fake);
+    expect(after.paragraphs).toHaveLength(1); // line NOT collapsed
+    // Only the newline is left — the navy text is gone.
+    const remaining = after.paragraphs[0].elements.map((e) => e.text).join("");
+    expect(remaining).toBe("\n");
+  });
+
+  it("gates: refuses a multi-tab / suggestion / hidden doc, each its mapped error, nothing written", async () => {
+    const multi = new FakeDocs([{ elements: [navy("a")] }], { tabCount: 2 });
+    await expectRejects(deleteAnalytics(multi), MultiTabError);
+    expect(multi.appliedBatches).toHaveLength(0);
+
+    const suggested = new FakeDocs([{ elements: [navy("a")] }], { suggestions: true });
+    await expectRejects(deleteAnalytics(suggested), SuggestionsActiveError);
+    expect(suggested.appliedBatches).toHaveLength(0);
+
+    // Hidden state: deleting analytics out of an armed doc would desync the RLE
+    // restore records — refuse, exactly like analytic-ify / Apply-styles.
+    const armed = mixedFake();
+    await hide(armed);
+    const writesAfterHide = armed.appliedBatches.length;
+    await expectRejects(deleteAnalytics(armed), HiddenStateError);
+    expect(armed.appliedBatches).toHaveLength(writesAfterHide);
+  });
+
+  it("descending emission is real: the multi-paragraph delete removes exactly analytics through the shifting model", async () => {
+    // Four NON-adjacent wholly-navy lines (plain spacers between them keep the
+    // ranges from coalescing), so the planner emits separate descending deletes.
+    // If the controller/planner emitted ASCENDING, the shifting model would
+    // delete the wrong chars — this asserts the surviving text is exact. A
+    // trailing plain spacer is the final segment, so all four navy lines are
+    // INTERIOR and collapse cleanly (newline included) — no clamped empty line
+    // muddies the assertion.
+    const fake = new FakeDocs([
+      { elements: [navy("aaa")] },
+      { elements: [{ text: "spacer one" }] },
+      { elements: [navy("bbb")] },
+      { elements: [{ text: "spacer two" }] },
+      { elements: [navy("ccc")] },
+      { elements: [{ text: "tail spacer" }] }
+    ]);
+    const r = await deleteAnalytics(fake);
+    expect(r.paragraphsAffected).toBe(3);
+
+    const after = await view(fake);
+    const flat = after.paragraphs.map((p) => p.elements.map((e) => e.text).join(""));
+    // The three navy lines collapsed; only the spacers remain, in order.
+    expect(flat).toEqual(["spacer one\n", "spacer two\n", "tail spacer\n"]);
+  });
+
+  it("a torn multi-chunk delete -> PartialApplyError('deleteAnalytics') mapped to the DELETE-SPECIFIC copy (not unknown)", async () => {
+    // 5001 partial-analytics paragraphs (navy run flanked by plain text so the
+    // ranges never coalesce) -> 5001 delete groups -> two chunks [5000, 1].
+    const specs: GpSpec[] = [];
+    for (let i = 0; i < 5001; i++) specs.push({ elements: [{ text: `k${i} ` }, navy("x"), { text: " t" }] });
+    const fake = new FakeDocs(specs);
+    fake.beforeApply = (call) => {
+      if (call === 1) fake.injectForeignEdit(); // the edit lands before chunk 1
+    };
+
+    const err = await expectRejects(deleteAnalytics(fake), PartialApplyError);
+    expect(err.verb).toBe("deleteAnalytics");
+    expect(err.appliedChunks).toBe(1);
+    expect(err.totalChunks).toBe(2);
+
+    // The mapped copy is the delete-specific partial body — it must NOT fall
+    // through to errors.unknown (an unmapped delete failure would lie about
+    // whether content was removed) and must differ from the analyticify copy.
+    const mapped = errorMessage(err);
+    expect(mapped.body).toBe(STRINGS.errors.partialApply.deleteAnalytics.body);
+    expect(mapped.body).not.toBe(STRINGS.errors.unknown.body);
+    expect(mapped.body).not.toBe(STRINGS.errors.partialApply.analyticify.body);
+
+    // The torn state is real: the highest-index chunk's deletes landed, so SOME
+    // analytics is already gone — exactly the "Show All will not bring it back"
+    // scenario the copy warns about.
+    fake.beforeApply = null;
+    const torn = await view(fake);
+    let navyRuns = 0;
+    for (const p of torn.paragraphs) for (const e of p.elements) if (e.foregroundHex === ANALYTICS_FG_HEX) navyRuns++;
+    expect(navyRuns).toBeLessThan(5001);
+    expect(navyRuns).toBeGreaterThan(0);
+  });
+
+  it("a NON-REVISION DocsApiError on a non-first delete chunk -> PartialApplyError, NOT errors.docsApi's 'nothing applied' lie", async () => {
+    // The exec-review data-loss BLOCKER (distinct from the revision-race tear
+    // above): a transient/non-revision Docs rejection (500/429, or a generic
+    // 400) on chunk 2+ must NOT surface "nothing was applied" while chunk 1's
+    // deletes ALREADY destroyed content. runVerb now wraps ANY applied>0
+    // mid-sequence failure as PartialApplyError, so the copy stays truthful.
+    // Same 5001-paragraph two-chunk shape; the SECOND chunk is rejected with a
+    // DocsApiError (not a foreign edit).
+    const specs: GpSpec[] = [];
+    for (let i = 0; i < 5001; i++) specs.push({ elements: [{ text: `k${i} ` }, navy("x"), { text: " t" }] });
+    const fake = new FakeDocs(specs);
+    fake.beforeApply = (call) => {
+      // Arm the rejection only for the 2nd chunk; chunk 1 (the highest indexes,
+      // descending order) lands first and really removes ~5000 runs.
+      if (call === 1) fake.rejectRequestType("deleteContentRange");
+    };
+
+    const err = await expectRejects(deleteAnalytics(fake), PartialApplyError);
+    expect(err.verb).toBe("deleteAnalytics");
+    expect(err.appliedChunks).toBe(1);
+    expect(err.totalChunks).toBe(2);
+
+    // Truthful delete-specific copy — must NEVER be errors.docsApi ("Docs
+    // rejected the change — nothing was applied"), which would be a data-loss
+    // lie now that chunk 1's deletes committed.
+    const mapped = errorMessage(err);
+    expect(mapped.body).toBe(STRINGS.errors.partialApply.deleteAnalytics.body);
+    expect(mapped.body).not.toBe(STRINGS.errors.docsApi.body);
+    expect(mapped.body).not.toBe(STRINGS.errors.unknown.body);
+
+    // Content really was removed (the "nothing applied" lie would have denied it).
+    fake.beforeApply = null;
+    fake.rejectRequestType(null);
+    const torn = await view(fake);
+    let navyRuns = 0;
+    for (const p of torn.paragraphs) for (const e of p.elements) if (e.foregroundHex === ANALYTICS_FG_HEX) navyRuns++;
+    expect(navyRuns).toBeLessThan(5001);
+    expect(navyRuns).toBeGreaterThan(0);
+  });
+
+  it("TOCTOU: analytics vanished between the confirm-count read and the verb fetch -> graceful no-op", async () => {
+    // The adapter counts analytics paragraphs and fires the confirm against ONE
+    // snapshot; the verb then takes its OWN fetch (plan §3 docsAdapter TOCTOU).
+    // If the analytics vanished in between — the user hand-deleted/recolored it,
+    // or a teammate did — the verb's fetched view carries zero analytics, so it
+    // plans zero ranges, applies nothing, and returns the no-op result the
+    // receipt renders gracefully (never a crash, never a phantom count). The
+    // race is modeled at the only seam the verb can observe: the doc it fetches.
+    const confirmCount = await countNavyParagraphs(mixedAnalyticsFake());
+    expect(confirmCount).toBeGreaterThan(0); // the confirm genuinely fired
+
+    // The doc the verb actually fetches no longer has any analytics.
+    const fake = new FakeDocs([
+      { elements: [{ text: "analytics" }] },
+      { elements: [{ text: "keep  tail" }] },
+      { elements: [{ text: "plain only" }] }
+    ]);
+    const r = await deleteAnalytics(fake);
+    expect(r).toEqual({ paragraphsAffected: 0, runsDeleted: 0 });
+    expect(fake.appliedBatches).toHaveLength(0);
+  });
+});
+
+/** Count paragraphs carrying >= 1 analytics run in a fake's CURRENT view — the
+ * test-side analog of the adapter's confirm-count, used only to prove the
+ * TOCTOU snapshot genuinely saw analytics before the race removed it. */
+async function countNavyParagraphs(fake: FakeDocs): Promise<number> {
+  const doc = await view(fake);
+  return doc.paragraphs.filter((p) => p.elements.some((e) => e.foregroundHex === ANALYTICS_FG_HEX)).length;
+}

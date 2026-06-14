@@ -35,7 +35,8 @@
 //     BOTH the named-style attempt and the retro pass (the API rejects
 //     partial border updates; plan D13).
 
-import { CITE_PT, STYLE_SIZES_PT } from "./constants";
+import { encodeRgbColor } from "./color";
+import { ANALYTICS_FG_HEX, ANALYTICS_PT, CITE_PT, STYLE_SIZES_PT } from "./constants";
 import { detectCiteLeads } from "./keepers";
 import {
   DocsParagraphBorder,
@@ -125,8 +126,11 @@ const NAMED_STYLE_ORDER: readonly GNamedStyleType[] = [
 // emitted requests ever alias one another's JSON)
 // ---------------------------------------------------------------------------
 
-/** The Docs dimension literal for a point value. */
-function pt(magnitude: number): { magnitude: number; unit: "PT" } {
+/** The Docs dimension literal for a point value. EXPORTED (Loop 003) so
+ * planAnalyticify builds its 14pt fontSize through the SAME constructor as
+ * every other size write — the analytics size cannot drift from the convention
+ * the rest of this module emits. */
+export function pt(magnitude: number): { magnitude: number; unit: "PT" } {
   return { magnitude, unit: "PT" };
 }
 
@@ -138,7 +142,11 @@ function pt(magnitude: number): { magnitude: number; unit: "PT" } {
  */
 function pocketBorderSide(): DocsParagraphBorder {
   return {
-    color: { color: { rgbColor: {} } },
+    // Black through the SHARED encoder (DRY — the analytics write uses the same
+    // one): encodeRgbColor("#000000") yields the empty `{rgbColor:{}}` proto3
+    // shape this hand-rolled before, byte-identical, but now single-sourced so a
+    // future change to the zero-omission convention reaches the border too.
+    color: encodeRgbColor("#000000"),
     width: pt(0.5),
     padding: pt(1),
     dashStyle: "SOLID"
@@ -306,8 +314,16 @@ function clampedParagraphRange(p: GParagraph): GRange | null {
  * style-targeted, exactly as hide spans break around it). The segment-final
  * newline is clamped off the tail range; a tail emptied by the clamp (an
  * empty segment-final heading whose only text is the newline) is dropped.
+ *
+ * EXPORTED (Loop 003): planAnalyticify reuses this EXACT span logic — the A9
+ * text-only whitelist (chips break the run), maximal coalescing of adjacent
+ * text, and the segment-final-newline clamp — rather than re-deriving it, so
+ * analytic-ify targets precisely the spans the heading restyle would (the
+ * proven geometry, single-sourced). The function name keeps "heading" for
+ * history, but the geometry is paragraph-generic (it reads only elements +
+ * the segment-final flag), so it is correct over any paragraph.
  */
-function headingTextRanges(p: GParagraph): GRange[] {
+export function headingTextRanges(p: GParagraph): GRange[] {
   const ranges: GRange[] = [];
   for (const e of p.elements) {
     if (e.kind !== "text") continue;
@@ -477,4 +493,91 @@ export function planApplyStyles(doc: GDoc, settings: GdocsSettings): StylesPlan 
  */
 export function planMarkCite(selection: GRange): RequestGroup {
   return { requests: [citeConventionRequest(selection)] };
+}
+
+// ---------------------------------------------------------------------------
+// Public: planAnalyticify (Loop 003 — the analytic-ify verb's pure planner)
+// ---------------------------------------------------------------------------
+
+/** One analytics text write over a coalesced span: the off-palette navy
+ * foreground (color.encodeRgbColor, zero channels omitted = proto3/read wire
+ * parity, so the byte round-trips exactly) PLUS the analytics size (14pt, the
+ * tag size, single-sourced through pt() so it cannot drift from the rest of
+ * the module). The field mask names BOTH attributes and NOTHING else — no
+ * namedStyleType, no bold, no paragraph style — so analytic-ify is pure
+ * CHARACTER formatting (003-F2: the verb may emit ONLY updateTextStyle). */
+function analyticsTextRequest(range: GRange): UpdateTextStyleRequest {
+  return {
+    updateTextStyle: {
+      range,
+      textStyle: { foregroundColor: encodeRgbColor(ANALYTICS_FG_HEX), fontSize: pt(ANALYTICS_PT) },
+      // foregroundColor first to match the textStyle key order above (the
+      // suite pins the exact object); both fields, never more.
+      fields: "foregroundColor,fontSize"
+    }
+  };
+}
+
+/**
+ * Plan the Analytic-ify pass: turn each TOUCHED paragraph's text navy 14pt.
+ *
+ * "Touched" = a non-table paragraph whose ordinal (`p.index`) is in `ordinals`
+ * — the set the adapter lowers the user's selection / bare cursor down to
+ * (whole-paragraph granularity is the goal, unlike Mark-cite's selection-exact
+ * write). Table paragraphs are skipped outright (Word row-1 parity, like every
+ * other styles-lane pass): `ordinals` could name one, but analytics never
+ * styles table content.
+ *
+ * For each touched paragraph it emits ONE updateTextStyle per headingTextRanges
+ * span — reusing that proven geometry means analytic-ify inherits, for free,
+ * the A9 whitelist (a chip inside the line breaks the span, never gets a
+ * foreground write) and the segment-final-newline clamp (the API refuses to
+ * style the doc-final newline; a paragraph whose only span is that lone newline
+ * yields no write). One RequestGroup PER PARAGRAPH (all of a line's spans
+ * together): the chunker never splits a group, so a torn apply can never leave
+ * one line half-navy.
+ *
+ * NO paragraph-style write and NO namedStyleType change (003-F2): analytics is
+ * direct character formatting because Docs has no user character styles, and
+ * touching the named style would restyle every same-style paragraph doc-wide.
+ *
+ * GROUPING / ORDER: groups are emitted in INPUT paragraph order (ascending doc
+ * position). Ordering is non-load-bearing here — updateTextStyle never mutates
+ * indexes (case 001-F1) — so unlike the descending-delete planner this needs no
+ * sort; document order keeps output deterministic and diffs readable.
+ *
+ * IDEMPOTENT (003-S5): every write is the SAME absolute value (the same navy,
+ * the same 14pt) keyed off the paragraph's ordinal and element geometry, which
+ * the write itself never changes. Re-running over the same ordinals emits
+ * BYTE-IDENTICAL requests — each a server-side no-op — so analytic-ify is safe
+ * to repeat (its partial-apply error copy says so).
+ *
+ * `paragraphsStyled` counts paragraphs that received >= 1 write (the receipt
+ * unit, Word parity): a touched paragraph that yields no span — e.g. an empty
+ * segment-final line, all-chip line — is NOT counted, so the receipt never
+ * claims a no-op line was styled. An empty `ordinals` set therefore yields zero
+ * groups and a zero count.
+ */
+export function planAnalyticify(
+  doc: GDoc,
+  ordinals: ReadonlySet<number>
+): { groups: RequestGroup[]; paragraphsStyled: number } {
+  const groups: RequestGroup[] = [];
+  let paragraphsStyled = 0;
+
+  for (const p of doc.paragraphs) {
+    // Tables untouched (row 1 parity) AND only the user's touched paragraphs.
+    if (p.inTable || !ordinals.has(p.index)) continue;
+    const requests: DocsRequest[] = [];
+    for (const span of headingTextRanges(p)) requests.push(analyticsTextRequest(span));
+    // Skip a touched paragraph that yielded no targetable span (empty
+    // segment-final line, or a line whose only elements are chips): emitting an
+    // empty group would violate the chunker's substance-per-group contract, and
+    // counting it would overstate the receipt.
+    if (requests.length === 0) continue;
+    groups.push({ requests });
+    paragraphsStyled++;
+  }
+
+  return { groups, paragraphsStyled };
 }

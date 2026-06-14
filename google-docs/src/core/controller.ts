@@ -46,12 +46,13 @@
 import { planMarkCiteFromPicks } from "./adapterPure";
 import type { SelectionPick } from "./adapterPure";
 import { MAX_REPLAN_ATTEMPTS } from "./constants";
+import { planDeleteAnalytics } from "./deleteAnalytics";
 import { assertNoSuggestions, assertNotHidden, assertSingleTab, chunkGroups } from "./guards";
 import { parseDocument } from "./parse";
 import { planHide } from "./planner";
 import { planShowAll, pureSweepConsentNeeded } from "./restore";
 import { resolveSettings } from "./settings";
-import { planApplyStyles } from "./styles";
+import { planAnalyticify, planApplyStyles } from "./styles";
 import {
   DocsApiError,
   DocsPort,
@@ -71,8 +72,12 @@ import {
 // Private protocol machinery
 // ---------------------------------------------------------------------------
 
-/** The verb names the per-verb error classes carry (types.ts contract). */
-type Verb = "hide" | "showAll" | "applyStyles";
+/** The verb names the per-verb error classes carry (types.ts contract). The
+ * Loop-003 analytics verbs widen this to the full set the PartialApplyError /
+ * RevisionConflictError unions already accept, so strings.errorMessage indexes
+ * each verb's own truthful failure copy (notably the delete-specific partial
+ * copy — Show All cannot undo a torn delete). */
+type Verb = "hide" | "showAll" | "applyStyles" | "analyticify" | "deleteAnalytics";
 
 /** One batchUpdate payload, already chunked. `degradable` marks applyStyles'
  * named-style batch ONLY: a DocsApiError there flips the degraded flag and
@@ -150,11 +155,20 @@ async function runVerb<R>(
         }
       }
     } catch (e) {
-      // Only revision mismatches are the controller's to handle; every other
-      // failure (DocsApiError on a non-degradable batch, adapter surprises)
-      // propagates for strings.errorMessage to map.
-      if (!(e instanceof RevisionMismatchError)) throw e;
+      // ANY mid-sequence failure AFTER >= 1 chunk landed is a partial apply,
+      // whatever the error class (exec-review BLOCKER fix): for the destructive
+      // Delete-analytics verb a raw DocsApiError on a non-first chunk would map
+      // to "nothing was applied" while content was ALREADY deleted — a data-loss
+      // lie. PartialApplyError routes to truthful per-verb copy ("some was
+      // removed; Show All will not bring it back; re-run to finish"). It is the
+      // honest read for the style/reconcile verbs too (a torn Hide → "use Show
+      // All"). This must precede the nothing-landed handling below.
       if (applied > 0) throw new PartialApplyError(verb, applied, plan.batches.length);
+      // Nothing landed. A first-chunk revision mismatch is silently retryable;
+      // every other clean-nothing-applied failure propagates for errorMessage
+      // to map (e.g. a single atomic batch the API rejected — errors.docsApi's
+      // "nothing was applied" is truthful in that case).
+      if (!(e instanceof RevisionMismatchError)) throw e;
       if (attempt >= MAX_REPLAN_ATTEMPTS) throw new RevisionConflictError(verb);
       continue; // nothing landed — silent, immediate re-plan from a fresh fetch
     }
@@ -260,6 +274,88 @@ export async function applyStyles(port: DocsPort): Promise<GStylesResult> {
           citesRepaired: plan.counts.citesRepaired
         })
       };
+    }
+  );
+}
+
+/**
+ * Analytic-ify (Loop 003): turn the user's touched paragraphs navy 14pt — pure
+ * CHARACTER formatting, so it shares the styles lane's gates exactly. Gates:
+ * suggestions (the writes target absolute indexes, untrustworthy under pending
+ * suggestions) AND hidden state (run-level size writes over an armed doc would
+ * collide with the RLE restore records — the same reason Apply-styles refuses;
+ * the refusal copy says "Show All first"). assertSingleTab is the universal
+ * runVerb check.
+ *
+ * `ordinals` is the set of paragraph ordinals the adapter lowered the selection
+ * / bare cursor down to. It is CAPTURED in the makePlan closure rather than
+ * passed through the parsed view: ordinals are a host fact (the live selection),
+ * stable across a silent re-plan because the verb only restyles by ordinal and
+ * never moves content, so a fresh fetch re-plans the SAME paragraphs (the
+ * killed-finding confirms capturing it here is correct — plan §3 controller.ts).
+ *
+ * regularBatches: one delete-free updateTextStyle group per paragraph, packed
+ * into CHUNK_MAX batches. A torn multi-chunk apply throws PartialApplyError
+ * ("analyticify"), whose copy says "safe to repeat" because the writes are
+ * idempotent (003-S5). finish reports paragraphsStyled for the receipt.
+ */
+export async function analyticify(
+  port: DocsPort,
+  ordinals: ReadonlySet<number>
+): Promise<{ paragraphsStyled: number }> {
+  return runVerb(
+    port,
+    "analyticify",
+    (doc) => {
+      assertNoSuggestions(doc);
+      assertNotHidden(doc);
+    },
+    (doc) => {
+      const { groups, paragraphsStyled } = planAnalyticify(doc, ordinals);
+      return { batches: regularBatches(groups), finish: () => ({ paragraphsStyled }) };
+    }
+  );
+}
+
+/**
+ * Delete analytics (Loop 003) — the engine's SOLE content-deleter, confirm-
+ * gated by the adapter before it ever reaches here. Same gates as analytic-ify
+ * (single-tab via runVerb + no-suggestions + not-hidden): indexes must be
+ * trustworthy because deleteContentRange writes against absolute positions, and
+ * deleting analytics out of an armed doc would desync the RLE restore records.
+ *
+ * regularBatches over planDeleteAnalytics' groups — ONE deleteContentRange group
+ * per range, already sorted DESCENDING by start index by the planner. That
+ * descending order is LOAD-BEARING (a Docs batchUpdate applies requests
+ * sequentially and each delete shifts every downstream index), and chunkGroups
+ * preserves group order verbatim across revision-chained chunks, so the
+ * guarantee holds end to end — including when the chunker splits the sequence
+ * into multiple batches.
+ *
+ * A torn multi-chunk delete throws PartialApplyError("deleteAnalytics"): because
+ * each chunk is a clean PREFIX of the descending sequence, the highest-index
+ * ranges are already gone and the doc is coherent. Its copy is delete-SPECIFIC
+ * (errorMessage indexes by verb) — it must NOT read "nothing was applied" and
+ * must warn that Show All cannot bring the removed text back, the one place the
+ * generic refusal copy would be a lie. finish reports paragraphsAffected /
+ * runsDeleted. A TOCTOU window where the analytics vanished between the adapter's
+ * confirm-count read and this verb's fetch simply plans zero groups: the loop
+ * applies nothing and finish returns { 0, 0 }, which the receipt renders as the
+ * graceful no-op string.
+ */
+export async function deleteAnalytics(
+  port: DocsPort
+): Promise<{ paragraphsAffected: number; runsDeleted: number }> {
+  return runVerb(
+    port,
+    "deleteAnalytics",
+    (doc) => {
+      assertNoSuggestions(doc);
+      assertNotHidden(doc);
+    },
+    (doc) => {
+      const { groups, result } = planDeleteAnalytics(doc);
+      return { batches: regularBatches(groups), finish: () => result };
     }
   );
 }

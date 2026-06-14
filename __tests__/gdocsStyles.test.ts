@@ -9,10 +9,16 @@
 // No jest snapshots (house gdocs culture — a snapshot would bless a wrong
 // emission); the canary is a hand-pinned numeric summary instead.
 
-import { CITE_PT, DEFAULT_CITE_MIN_PT, STYLE_SIZES_PT } from "../google-docs/src/core/constants";
+// Analytics-specific assertions (planAnalyticify, the off-palette color, encodeRgbColor)
+// live in gdocsAnalytics.test.ts — this suite stays scoped to the debate-styles lane.
+import {
+  CITE_PT,
+  DEFAULT_CITE_MIN_PT,
+  STYLE_SIZES_PT
+} from "../google-docs/src/core/constants";
 import { detectCiteLeads } from "../google-docs/src/core/keepers";
 import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
-import { planApplyStyles, planMarkCite } from "../google-docs/src/core/styles";
+import { headingTextRanges, planApplyStyles, planMarkCite, pt } from "../google-docs/src/core/styles";
 import {
   DocsRequest,
   GDoc,
@@ -707,5 +713,35 @@ describe("planMarkCite — the cite convention over a selection", () => {
     const marked = planMarkCite(lead).requests[0];
     if (!("updateTextStyle" in marked)) throw new Error("expected an updateTextStyle request");
     expect(marked.updateTextStyle).toEqual(repair);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Newly-exported span primitives (Loop 003) — planAnalyticify reuses these
+//    rather than re-deriving them, so the exports are part of the contract.
+// ---------------------------------------------------------------------------
+
+describe("exported pt / headingTextRanges (the reuse contract, plan A5/A9)", () => {
+  it("pt builds the Docs dimension literal analyticify and the size writes share", () => {
+    expect(pt(14)).toEqual({ magnitude: 14, unit: "PT" });
+  });
+
+  it("headingTextRanges over a multi-run line coalesces adjacent text into ONE span", () => {
+    // "Big " [1,5) + "Deal\n" [5,10) are contiguous text — the maximal span is
+    // [1,10), the same geometry the heading retro pass and analyticify consume.
+    const doc = buildDoc([
+      { elements: [{ text: "Big " }, { text: "Deal", bold: true }] },
+      para("after")
+    ]);
+    expect(headingTextRanges(doc.paragraphs[0])).toEqual([r(1, 10)]);
+  });
+
+  it("headingTextRanges BREAKS the span around a chip (A9 whitelist) and clamps the final newline", () => {
+    // "Big" [1,4) + chip [4,9) + "Deal\n" [9,14) on the segment-final paragraph:
+    // the chip breaks the run, and the doc-final newline clamps the tail to [9,13).
+    const doc = buildDoc([
+      { elements: [{ text: "Big" }, { text: "@chip", kind: "other" }, { text: "Deal" }] }
+    ]);
+    expect(headingTextRanges(doc.paragraphs[0])).toEqual([r(1, 4), r(9, 13)]);
   });
 });

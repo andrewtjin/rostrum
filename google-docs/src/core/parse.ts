@@ -18,6 +18,7 @@
 //     must re-materialize those zeros (plan A11.ii fixture lint exists to keep
 //     our fixtures honest about this exact trap).
 
+import { decodeOptionalColor } from "./color";
 import { GDoc, GElement, GNamedRange, GNamedStyleType, GParagraph, GRange } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -25,11 +26,13 @@ import { GDoc, GElement, GNamedRange, GNamedStyleType, GParagraph, GRange } from
 // ---------------------------------------------------------------------------
 
 /** TextRun is the hot path (thousands per doc), so its selection is tight:
- * exactly the three style channels the engine reads, plus the suggestion keys
- * the Hide gate depends on (presence of any `suggested*` key = refusal). */
+ * exactly the four style channels the engine reads, plus the suggestion keys
+ * the Hide gate depends on (presence of any `suggested*` key = refusal).
+ * foregroundColor joins the mask in Loop 003 so the analytics keeper can see
+ * the off-palette navy (constants.ANALYTICS_FG_HEX) that analytic-ify writes. */
 const TEXT_RUN_FIELDS =
   "content,suggestedInsertionIds,suggestedDeletionIds,suggestedTextStyleChanges," +
-  "textStyle(fontSize,bold,backgroundColor)";
+  "textStyle(fontSize,bold,backgroundColor,foregroundColor)";
 
 /**
  * Non-text ParagraphElement types are selected WHOLE on purpose: they are rare
@@ -133,35 +136,25 @@ function asNamedStyleType(v: unknown): GNamedStyleType {
 // Wire-value decoders
 // ---------------------------------------------------------------------------
 
-/** One rgb channel (0.0-1.0 float) to its 0-255 byte. ABSENT CHANNELS ARE 0.0:
- * real payloads omit zero channels (#ffff00 arrives as {red:1,green:1}), so
- * the missing-key path is the NORMAL path, not an error path. Junk values and
- * out-of-range floats clamp rather than poison the hex. */
-function channelByte(v: unknown): number {
-  const n = finiteOr(v, 0);
-  return Math.round(Math.min(1, Math.max(0, n)) * 255);
-}
+// channelByte/byteHex/decodeOptionalColor now live in ./color (Loop 003 DRY
+// fix): the rgb<->hex math is shared with the analytics encode in styles.ts so
+// detection (decode here) and the apply write encode against ONE truth. The two
+// decoders below differ ONLY by which OptionalColor key they pluck off the
+// textStyle — background (highlight) vs foreground (the analytics navy).
 
-function byteHex(b: number): string {
-  return b.toString(16).padStart(2, "0");
-}
-
-/**
- * OptionalColor -> lower-case "#rrggbb" | null. The API's three-layer nesting
- * encodes real states: backgroundColor absent = inherited (null), present
- * with `color` unset = explicitly transparent (also null — no highlight to
- * keep), `color` set = an opaque color whose omitted channels are zeros. A
- * bare `color: {}` therefore decodes to "#000000", not null — it claims
- * opacity, and the conservative reading of an opaque unknown is black (a
- * keepable highlight), never "no highlight".
- */
+/** TextStyle.backgroundColor -> lower-case "#rrggbb" | null (highlight; the
+ * keeper's closed-palette signal). See color.decodeOptionalColor for the
+ * three-layer absent/transparent/opaque-empty semantics. */
 function decodeBackgroundHex(textStyle: Record<string, unknown>): string | null {
-  const optional = textStyle.backgroundColor;
-  if (!isRecord(optional)) return null;
-  const color = optional.color;
-  if (!isRecord(color)) return null;
-  const rgb = isRecord(color.rgbColor) ? color.rgbColor : {};
-  return `#${byteHex(channelByte(rgb.red))}${byteHex(channelByte(rgb.green))}${byteHex(channelByte(rgb.blue))}`;
+  return decodeOptionalColor(textStyle.backgroundColor);
+}
+
+/** TextStyle.foregroundColor -> lower-case "#rrggbb" | null (text color). Read
+ * SOLELY so the analytics keeper can recognize the off-palette navy
+ * (constants.ANALYTICS_FG_HEX) — identical codec to background, so an omitted
+ * zero channel re-materializes and a bare `color: {}` decodes to "#000000". */
+function decodeForegroundHex(textStyle: Record<string, unknown>): string | null {
+  return decodeOptionalColor(textStyle.foregroundColor);
 }
 
 /** TextStyle.fontSize -> points | null (null = inherits from the named style).
@@ -209,7 +202,18 @@ function parseElement(raw: unknown, fallbackStart: number): GElement {
   // an "other" element defaults to zero width (we know nothing about it).
   const endIndex = finiteOr(rec.endIndex, run !== null ? startIndex + text.length : startIndex);
   if (run === null) {
-    return { startIndex, endIndex, kind: "other", text: "", fontSizePt: null, bold: false, backgroundHex: null };
+    // A non-text element has no text color to read — null, like background, so
+    // the analytics keeper never mistakes a chip/break/object for analytics.
+    return {
+      startIndex,
+      endIndex,
+      kind: "other",
+      text: "",
+      fontSizePt: null,
+      bold: false,
+      backgroundHex: null,
+      foregroundHex: null
+    };
   }
   const style = isRecord(run.textStyle) ? run.textStyle : {};
   return {
@@ -219,7 +223,8 @@ function parseElement(raw: unknown, fallbackStart: number): GElement {
     text,
     fontSizePt: fontSizePtOf(style),
     bold: style.bold === true,
-    backgroundHex: decodeBackgroundHex(style)
+    backgroundHex: decodeBackgroundHex(style),
+    foregroundHex: decodeForegroundHex(style)
   };
 }
 

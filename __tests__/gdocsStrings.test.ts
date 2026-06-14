@@ -17,6 +17,9 @@ import {
   stylesConfirm,
   docStateLine,
   markCiteReceipt,
+  analyticifyReceipt,
+  deleteAnalyticsReceipt,
+  deleteAnalyticsConfirm,
   errorMessage,
   UserErrorMessage
 } from "../google-docs/src/core/strings";
@@ -33,6 +36,10 @@ import {
   SuggestionsActiveError
 } from "../google-docs/src/core/types";
 import { GDOCS_VERSION } from "../google-docs/src/core/constants";
+// helpHtml renders STRINGS.help.* — imported so the rendered-surface assertion
+// proves the analytics-verbs explanation actually reaches the Help dialog,
+// not just the deck (exec-review MAJOR: the explanation must hit a surface).
+import { helpHtml } from "../google-docs/src/adapter/sidebarHtml";
 
 // ---------------------------------------------------------------------------
 // Result builders — zeroed defaults so each case states only what it tests.
@@ -117,7 +124,9 @@ const STYLES_GRID: GStylesResult[] = [
   styles({ pocket: 1 }, { citesRepaired: 1, spacingCleared: 1 }) // singular repair lines
 ];
 
-/** Every error class in types.ts, every per-verb variant, plus unknown throws. */
+/** Every error class in types.ts, every per-verb variant, plus unknown throws.
+ * Analytics verb rows (Loop 003) are appended after the existing rows so the
+ * "distinct body" audit catches them as well — each must have a unique body. */
 const ERROR_GRID: { label: string; e: unknown }[] = [
   { label: "suggestions", e: new SuggestionsActiveError() },
   { label: "multiTab", e: new MultiTabError(3) },
@@ -126,9 +135,18 @@ const ERROR_GRID: { label: string; e: unknown }[] = [
   { label: "revisionConflict.hide", e: new RevisionConflictError("hide") },
   { label: "revisionConflict.showAll", e: new RevisionConflictError("showAll") },
   { label: "revisionConflict.applyStyles", e: new RevisionConflictError("applyStyles") },
+  // Analytics revision-conflict rows (Loop 003): both land = "nothing changed",
+  // but the phrasing differs so the distinct-body audit catches any future merge.
+  { label: "revisionConflict.analyticify", e: new RevisionConflictError("analyticify") },
+  { label: "revisionConflict.deleteAnalytics", e: new RevisionConflictError("deleteAnalytics") },
   { label: "partialApply.hide", e: new PartialApplyError("hide", 1, 3) },
   { label: "partialApply.showAll", e: new PartialApplyError("showAll", 2, 5) },
   { label: "partialApply.applyStyles", e: new PartialApplyError("applyStyles", 1, 2) },
+  // Analytics partial-apply rows (Loop 003): recovery routes differ critically —
+  // analyticify is safe to repeat; deleteAnalytics partial is irreversible via
+  // Show All (requires "Delete analytics again").  Bodies must be distinct.
+  { label: "partialApply.analyticify", e: new PartialApplyError("analyticify", 1, 3) },
+  { label: "partialApply.deleteAnalytics", e: new PartialApplyError("deleteAnalytics", 2, 4) },
   { label: "docsApi", e: new DocsApiError("bad field mask") },
   { label: "unknown.error", e: new Error("boom") },
   { label: "unknown.string", e: "boom" },
@@ -170,6 +188,26 @@ function buildCorpus(): CorpusEntry[] {
     corpus.push({ at: `stylesConfirm(${n})`, text: stylesConfirm(n) });
     corpus.push({ at: `docStateLine(${n})`, text: docStateLine(n) });
     corpus.push({ at: `markCiteReceipt(${n})`, text: markCiteReceipt(n) });
+  }
+  // Analytics helpers (Loop 003): drive every branch so the lexicon audit sees
+  // the noun-form receipt, the noop string, and every branch of the confirm.
+  // n=0 exercises the noop path; n=1 singular; n=3/86 plural; n=1200 thousands.
+  for (const n of [0, 1, 3, 86, 1200]) {
+    corpus.push({ at: `analyticifyReceipt(${n})`, text: analyticifyReceipt(n) });
+    corpus.push({ at: `deleteAnalyticsConfirm(${n})`, text: deleteAnalyticsConfirm(n) });
+  }
+  // deleteAnalyticsReceipt: zero-affected noop + singular + plural + thousands.
+  for (const r of [
+    { paragraphsAffected: 0, runsDeleted: 0 },
+    { paragraphsAffected: 1, runsDeleted: 1 },
+    { paragraphsAffected: 3, runsDeleted: 5 },
+    { paragraphsAffected: 86, runsDeleted: 120 },
+    { paragraphsAffected: 1200, runsDeleted: 2400 }
+  ]) {
+    corpus.push({
+      at: `deleteAnalyticsReceipt(${r.paragraphsAffected},${r.runsDeleted})`,
+      text: deleteAnalyticsReceipt(r)
+    });
   }
   for (const { label, e } of ERROR_GRID) {
     const m = errorMessage(e);
@@ -229,12 +267,18 @@ describe("lexicon audit — every deck leaf and every helper output", () => {
 // ---------------------------------------------------------------------------
 
 describe("deck completeness (plan D11 / frontendDraft Steps 3-5)", () => {
-  it("pins the seven menu labels exactly (these are the product's front door)", () => {
+  it("pins the nine menu labels exactly (these are the product's front door)", () => {
+    // Two analytics labels added in Loop 003 (spec §3 strings.ts):
+    //   analyticify — no ellipsis (non-destructive, acts immediately);
+    //   deleteAnalytics — ellipsis signals a confirm dialog precedes the action.
+    // Key order matches the STRINGS.menu declaration so diffs are readable.
     expect(STRINGS.menu).toEqual({
       hide: "Hide",
       showAll: "Show All",
       applyStyles: "Apply debate styles",
       markCite: "Mark cite",
+      analyticify: "Analytic-ify",
+      deleteAnalytics: "Delete analytics…",
       openPanel: "Open Rostrum panel…",
       helpShortcuts: "Help & shortcuts",
       diagnostics: "Diagnostics"
@@ -244,6 +288,37 @@ describe("deck completeness (plan D11 / frontendDraft Steps 3-5)", () => {
   it("carries the no-add-on escape hatch with the exact recovery recipe (plan D15)", () => {
     expect(STRINGS.help.escapeHatch).toContain("Select All");
     expect(STRINGS.help.escapeHatch).toContain("font size to 11");
+  });
+
+  it("carries the scoped content-deletion honesty in Help that the F5 fallback gave up (exec-review MAJOR)", () => {
+    // The universal F5/unknown-error fallback was deliberately stripped of any
+    // "only Delete analytics removes content" promise (it must hold for every
+    // verb). That scoped truth has to live SOMEWHERE standing — Help is it.
+    // These assertions target the MEANING, not the exact prose, so reworded
+    // copy still passes as long as the safety facts survive:
+    const line = STRINGS.help.analyticsVerbs;
+    // (a) it is about the analytics verbs at all:
+    expect(line).toContain("Analytic-ify");
+    expect(line).toContain("Delete analytics");
+    // (b) it scopes content deletion: Delete analytics is the ONLY content
+    //     remover, and only the analytics text the user styled:
+    expect(line).toMatch(/only .*removes content/i);
+    // (c) it disambiguates the hide/show loop: Ctrl+Z undoes the delete, but
+    //     Show All (which only un-shrinks) does NOT bring deleted content back.
+    expect(line).toContain("Ctrl+Z");
+    expect(line).toContain("Show All does not");
+  });
+
+  it("renders the analytics-verbs explanation in the rendered Help dialog, not just the deck", () => {
+    // The deck leaf existing is not enough — the exec-review MAJOR was that the
+    // explanation never reached a SURFACE. helpHtml() must actually emit the
+    // line so a future refactor that drops the <p> is caught here. The line has
+    // no HTML-special characters, so it survives escapeHtml() verbatim; assert
+    // on the two safety clauses (not the whole string) so a reword still passes
+    // as long as the scoped-deletion fact and the Show All caveat reach the UI.
+    const html = helpHtml();
+    expect(html).toContain("only the analytics text you styled");
+    expect(html).toContain("Show All does not");
   });
 
   it("states the consumed-first-click rule once, shared by help and the sidebar (plan A15)", () => {
@@ -593,9 +668,18 @@ describe("errorMessage", () => {
     expect(errorMessage(null)).toEqual(expected);
     expect(errorMessage(42)).toEqual(expected);
     // An unknown failure CANNOT truthfully claim "nothing was applied" — it
-    // leans on the hard invariant instead: Show All always recovers.
+    // leans on the hard invariant instead: Show All always recovers font-size
+    // damage (the one thing Rostrum guarantees universally across all verbs).
     expect(expected.body).not.toContain("nothing was applied");
     expect(expected.body).toContain("Show All");
+    // The body must NOT make the "never deleted" absolute claim: deleteAnalytics
+    // IS a content-deleter, so "text is never deleted" would be false after a
+    // partial delete whose error lands here.  The universal form says "never
+    // SHRINKS your text away" (font-size invariant) instead, which is always true.
+    expect(expected.body).not.toContain("never deleted");
+    expect(expected.body).not.toContain("Your text is never");
+    // No analytics jargon in the universal fallback — it must apply to every verb.
+    expect(expected.body).not.toContain("analytics");
     // Raw internal error text never reaches the user.
     expect(expected.title + expected.body).not.toContain("boom");
   });
@@ -603,5 +687,173 @@ describe("errorMessage", () => {
   it("returns the shared severity vocabulary shape (title/body/severity)", () => {
     const m: UserErrorMessage = errorMessage(new DocsApiError("x"));
     expect(Object.keys(m).sort()).toEqual(["body", "severity", "title"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Analytics error entries (Loop 003 — spec §3 strings.ts).
+  // Each assertion targets the SAFETY-critical property of its copy, not the
+  // exact wording (exact wording is pinned by the distinct-body audit above).
+  // -------------------------------------------------------------------------
+
+  it("routes analyticify revision conflict to 'nothing was changed' (idempotent styling, nothing landed)", () => {
+    const m = errorMessage(new RevisionConflictError("analyticify"));
+    // All retries exhausted: no styling write ever landed, doc is exactly as left.
+    expect(m.body).toContain("nothing was changed");
+    // Must NOT claim Show All is needed — no font-size damage occurred.
+    expect(m.body).not.toContain("Show All");
+  });
+
+  it("routes deleteAnalytics revision conflict to 'nothing was changed' (no delete landed)", () => {
+    const m = errorMessage(new RevisionConflictError("deleteAnalytics"));
+    // All retries exhausted means not a single chunk applied: no content removed.
+    expect(m.body).toContain("nothing was changed");
+    // Since nothing was deleted, the "Show All will not bring it back" caveat
+    // is irrelevant here — it must NOT appear (it belongs only in the partial path).
+    expect(m.body).not.toContain("Show All will not bring it back");
+  });
+
+  it("routes analyticify partial apply to the idempotent 'safe to repeat' recovery", () => {
+    const m = errorMessage(new PartialApplyError("analyticify", 1, 3));
+    // Analytic-ify is pure character formatting: identical writes are idempotent,
+    // so repeating the verb on already-styled paragraphs is harmless.
+    expect(m.body).toContain("safe to repeat");
+    // Must NOT direct the user to Show All — no font-size hide was involved.
+    expect(m.body).not.toContain("Use Show All");
+  });
+
+  it("routes deleteAnalytics partial apply to the destructive partial-delete copy (SAFETY-CRITICAL)", () => {
+    const m = errorMessage(new PartialApplyError("deleteAnalytics", 2, 4));
+    // Safety-critical: the partial delete CANNOT be recovered via Show All.
+    // This must be stated explicitly so users don't assume the normal recovery path.
+    expect(m.body).toContain("Show All will not bring it back");
+    // Some content was already removed — say so truthfully.
+    expect(m.body).toContain("already removed");
+    // Recovery: run the verb again to finish, not undo.
+    expect(m.body).toContain("Use Delete analytics again");
+    // Must NOT claim "safe to repeat" — a second delete of already-deleted text
+    // is safe, but framing it as idempotent would obscure the destructive nature.
+    expect(m.body).not.toContain("safe to repeat");
+  });
+
+  it("analytics error bodies are distinct from each other AND from all existing verb bodies", () => {
+    // The four new analytics rows must not share a body with any other row —
+    // enforced here explicitly for the safety-critical delete-analytics copy.
+    const analyticifyConflict = errorMessage(new RevisionConflictError("analyticify")).body;
+    const deleteConflict = errorMessage(new RevisionConflictError("deleteAnalytics")).body;
+    const analyticifyPartial = errorMessage(new PartialApplyError("analyticify", 1, 3)).body;
+    const deletePartial = errorMessage(new PartialApplyError("deleteAnalytics", 2, 4)).body;
+    // All four distinct from each other.
+    const four = [analyticifyConflict, deleteConflict, analyticifyPartial, deletePartial];
+    expect(new Set(four).size).toBe(4);
+    // None duplicates any of the original five verb bodies.
+    const origBodies = [
+      errorMessage(new RevisionConflictError("hide")).body,
+      errorMessage(new RevisionConflictError("showAll")).body,
+      errorMessage(new RevisionConflictError("applyStyles")).body,
+      errorMessage(new PartialApplyError("hide", 1, 2)).body,
+      errorMessage(new PartialApplyError("showAll", 1, 2)).body,
+      errorMessage(new PartialApplyError("applyStyles", 1, 2)).body
+    ];
+    for (const newBody of four) {
+      expect(origBodies).not.toContain(newBody);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Analytics receipt helpers (Loop 003 — spec §3 strings.ts).
+// ---------------------------------------------------------------------------
+
+describe("analyticifyReceipt", () => {
+  it("names the unit (paragraph) and the applied attributes (navy, 14pt) for clarity", () => {
+    expect(analyticifyReceipt(3)).toBe("Made 3 paragraphs analytics (navy, 14pt).");
+  });
+
+  it("keeps the singular grammatical", () => {
+    expect(analyticifyReceipt(1)).toBe("Made 1 paragraph analytics (navy, 14pt).");
+  });
+
+  it("groups thousands", () => {
+    expect(analyticifyReceipt(1200)).toBe("Made 1,200 paragraphs analytics (navy, 14pt).");
+  });
+
+  it("returns the noop teaching string when n=0 (empty selection / cursor not on a paragraph)", () => {
+    // Zero ordinals means the cursor was in a context where no paragraph was
+    // selected — teach the right action rather than showing a bare failure.
+    expect(analyticifyReceipt(0)).toBe(STRINGS.receipts.analyticifyNoop);
+    expect(analyticifyReceipt(0)).toContain("Analytic-ify");
+  });
+});
+
+describe("deleteAnalyticsReceipt", () => {
+  it("counts paragraphs affected (primary) and ranges removed (secondary)", () => {
+    expect(deleteAnalyticsReceipt({ paragraphsAffected: 3, runsDeleted: 5 })).toBe(
+      "Deleted analytics text in 3 paragraphs (5 ranges removed)."
+    );
+  });
+
+  it("keeps the paragraph singular grammatical", () => {
+    expect(deleteAnalyticsReceipt({ paragraphsAffected: 1, runsDeleted: 1 })).toBe(
+      "Deleted analytics text in 1 paragraph (1 range removed)."
+    );
+  });
+
+  it("keeps the range singular grammatical when paragraph count > 1 but ranges = 1", () => {
+    // Degenerate but grammatically correct: e.g. two paragraphs merged into one
+    // contiguous range after coalescing.
+    expect(deleteAnalyticsReceipt({ paragraphsAffected: 2, runsDeleted: 1 })).toBe(
+      "Deleted analytics text in 2 paragraphs (1 range removed)."
+    );
+  });
+
+  it("groups thousands in both counts", () => {
+    expect(deleteAnalyticsReceipt({ paragraphsAffected: 1200, runsDeleted: 2400 })).toBe(
+      "Deleted analytics text in 1,200 paragraphs (2,400 ranges removed)."
+    );
+  });
+
+  it("returns the noop string when paragraphsAffected=0 (TOCTOU: analytics vanished between confirm and verb)", () => {
+    // countAnalyticsParagraphs > 0 showed a confirm, but the analytics were
+    // deleted (e.g. by a collaborator) before the verb ran.  planDeleteAnalytics
+    // returns 0 groups → the controller emits the noop receipt path.
+    expect(deleteAnalyticsReceipt({ paragraphsAffected: 0, runsDeleted: 0 })).toBe(
+      STRINGS.receipts.deleteAnalyticsNoop
+    );
+  });
+});
+
+describe("deleteAnalyticsConfirm", () => {
+  it("states the paragraph count and names both recovery paths (Ctrl+Z and NOT Show All)", () => {
+    expect(deleteAnalyticsConfirm(5)).toBe(
+      "This removes the analytics text in 5 paragraphs. Undo with Ctrl+Z; Show All will not bring it back."
+    );
+  });
+
+  it("keeps the singular grammatical", () => {
+    expect(deleteAnalyticsConfirm(1)).toBe(
+      "This removes the analytics text in 1 paragraph. Undo with Ctrl+Z; Show All will not bring it back."
+    );
+  });
+
+  it("groups thousands", () => {
+    expect(deleteAnalyticsConfirm(1200)).toBe(
+      "This removes the analytics text in 1,200 paragraphs. Undo with Ctrl+Z; Show All will not bring it back."
+    );
+  });
+
+  it("is calm — never uses 'permanent' or 'irreversible' (spec CALM+TRUTHFUL voice requirement)", () => {
+    const text = deleteAnalyticsConfirm(10);
+    expect(text).not.toContain("permanent");
+    expect(text).not.toContain("irreversible");
+  });
+
+  it("explicitly disclaims Show All as a recovery path (safety-critical disambiguation)", () => {
+    // Users trained on the hide/show loop must see that Show All does NOT undo
+    // a content delete — this assertion guards that copy from being edited away.
+    expect(deleteAnalyticsConfirm(2)).toContain("Show All will not bring it back");
+  });
+
+  it("names Ctrl+Z as the undo path (the real recovery that does work)", () => {
+    expect(deleteAnalyticsConfirm(2)).toContain("Ctrl+Z");
   });
 });

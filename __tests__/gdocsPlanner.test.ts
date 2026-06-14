@@ -11,7 +11,7 @@
 
 import { planHide } from "../google-docs/src/core/planner";
 import { decodeRangeName } from "../google-docs/src/core/rangeNames";
-import { DEFAULT_CITE_MIN_PT, SENTINEL_PT } from "../google-docs/src/core/constants";
+import { ANALYTICS_FG_HEX, ANALYTICS_PT, DEFAULT_CITE_MIN_PT, SENTINEL_PT } from "../google-docs/src/core/constants";
 import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
 import {
   DocsRequest,
@@ -1014,5 +1014,87 @@ describe("planHide — collapseSpacing", () => {
     const third = planHide(settled, settings);
     assertEmissionInvariants(settled, settings, third.groups);
     expect(third.groups).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Analytics foreground carry (Loop 003, case 003-S2 regression)
+//
+// The BLOCKER this guards: restoredView() rebuilds each element from its atom,
+// and Hide's keeper runs against THAT view. If the rebuild drops foregroundHex
+// the analytics keeper (keepers.isAnalytics) sees `undefined`, so a navy-14pt
+// analytics run — which must be KEPT, always-on (goal) — would be shrunk to the
+// sentinel on a FRESH Hide, and would fail to break a hidden region it abuts.
+// These cases assert the keeper VERDICT through the planner's emission: no
+// sentinel shrink ever covers an analytics span. Color is body-sized on
+// purpose (detection is color-only, size-independent), so the run reads as
+// ordinary body to every size-based rule and ONLY the foreground carry saves it.
+// ---------------------------------------------------------------------------
+
+describe("planHide — analytics foreground carry (003-S2)", () => {
+  /** Every sentinel-shrink range the plan emits — the spans Hide would hide.
+   * (A shrink is the fontSize→SENTINEL_PT updateTextStyle; restore/clear writes
+   * in this suite's fresh-hide cases never appear, but filtering on the
+   * sentinel magnitude keeps the helper honest if one ever did.) */
+  function shrinkRanges(groups: RequestGroup[]): { startIndex: number; endIndex: number }[] {
+    return requestsOf(groups, "updateTextStyle")
+      .filter((r) => "updateTextStyle" in r && r.updateTextStyle.textStyle.fontSize?.magnitude === SENTINEL_PT)
+      .map((r) => ("updateTextStyle" in r ? r.updateTextStyle.range : { startIndex: 0, endIndex: 0 }));
+  }
+
+  /** Assert no emitted shrink overlaps [start, end) — the analytics span. */
+  function expectNoShrinkOver(groups: RequestGroup[], start: number, end: number): void {
+    for (const rng of shrinkRanges(groups)) {
+      expect(rng.endIndex <= start || rng.startIndex >= end).toBe(true);
+    }
+  }
+
+  it("a body-sized analytics run is KEPT on a FRESH Hide (no shrink over it)", () => {
+    // P0 [1,16) is one analytics run at the BODY size (14 == ANALYTICS_PT, but
+    // even were it 11 the rule is color-only) — it would hide like any body
+    // text if the keeper could not see its navy foreground on the restored
+    // view. The trailing heading pins a kept neighbor so the doc is not a
+    // degenerate all-kept no-op for the wrong reason.
+    const doc = buildDoc([
+      { elements: [{ text: "analytics text", fg: ANALYTICS_FG_HEX, size: ANALYTICS_PT }] },
+      para("Hat", "HEADING_1")
+    ]);
+    const { groups, result } = plan(doc);
+
+    // Nothing hides: the analytics run is kept, the heading is kept.
+    expect(groups).toEqual([]);
+    expect(result.regionsHidden).toBe(0);
+    expect(result.paragraphsChanged).toBe(0);
+    // Belt and suspenders: even if some unrelated region appeared, none of it
+    // may cover the analytics span [1,16).
+    expectNoShrinkOver(groups, 1, 16);
+  });
+
+  it("an analytics run BREAKS an adjacent hidden region (flanks hide, run untouched)", () => {
+    // One paragraph: hidden body "aaaa" [1,5), analytics "MID" [5,8) (navy, but
+    // body-sized so size rules treat it as ordinary), hidden body "bbbb\n"
+    // [8,13); trailing heading [13,17) keeps P0 from being the final segment so
+    // its own newline is an ordinary hidden char, not a clamp artifact.
+    const doc = buildDoc([
+      {
+        elements: [
+          { text: "aaaa" },
+          { text: "MID", fg: ANALYTICS_FG_HEX, size: ANALYTICS_PT },
+          { text: "bbbb" }
+        ]
+      },
+      para("Hat", "HEADING_1")
+    ]);
+    const { groups, result } = plan(doc);
+
+    // The kept analytics run splits the body into TWO hidden regions.
+    expect(result.regionsHidden).toBe(2);
+    expect(requestsOf(groups, "updateTextStyle")).toHaveLength(2);
+    expect(shrinkRanges(groups).sort((a, b) => a.startIndex - b.startIndex)).toEqual([
+      { startIndex: 1, endIndex: 5 },
+      { startIndex: 8, endIndex: 13 }
+    ]);
+    // The analytics span [5,8) is never style-targeted.
+    expectNoShrinkOver(groups, 5, 8);
   });
 });

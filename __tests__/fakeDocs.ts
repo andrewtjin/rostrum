@@ -28,6 +28,7 @@
 //     LOUDLY here instead of silently passing a fake that is laxer than
 //     Google.
 
+import { decodeOptionalColor } from "../google-docs/src/core/color";
 import {
   DocsApiError,
   DocsPort,
@@ -55,6 +56,12 @@ interface ModelRun {
   bold: boolean;
   /** Lower-case "#rrggbb" | null — same contract as GElement. */
   backgroundHex: string | null;
+  /** Lower-case "#rrggbb" | null FOREGROUND (text) color — the exact analog of
+   * backgroundHex (Loop 003). Modeled so a fixture can carry analytic-ify'd navy
+   * runs through the production parser, which is what makes a PLANNER-driven
+   * Delete-analytics round trip non-vacuous (the planner only deletes runs the
+   * parsed view reports as analytics). */
+  foregroundHex: string | null;
 }
 
 interface ModelParagraph {
@@ -65,6 +72,20 @@ interface ModelParagraph {
    * Borders are not serialized — the fields mask never selects them — so the
    * flagship asserts them through this flag instead of the parse view. */
   boxed: boolean;
+  /** True when this paragraph lives inside a table cell (a buildDoc spec with
+   * inTable:true). serialize() wraps a run of consecutive inTable paragraphs in
+   * a single-cell `table` structural element so the PRODUCTION parser
+   * (collectParagraphs) re-derives inTable from the wire shape — proving the
+   * keeper/planner's "table paragraphs are kept, never style-targeted" rule
+   * against a real round trip rather than a hand-set flag. The index walk stays
+   * FLAT (the table wrapper allocates no extra index width in this minimal
+   * model): docEnd/spliceDelete/splitAndMutate all sum run widths, so a cell's
+   * paragraphs occupy contiguous body indexes and a deleteContentRange splices
+   * within a cell exactly as it does in the body. Faithful enough for the one
+   * thing the harness must support — splice + parse-marks-inTable — without
+   * modeling the real API's per-row/per-cell structural index slots, which no
+   * verb in the engine ever targets. */
+  inTable: boolean;
   runs: ModelRun[];
 }
 
@@ -155,11 +176,6 @@ export class FakeDocs implements DocsPort {
     this.suggestionsOn = opts.suggestions ?? false;
     this.settingsJson = opts.settingsJson ?? null;
     this.paragraphs = paras.map((p) => {
-      if (p.inTable === true) {
-        // Fail loud rather than silently mis-model: the fake serializes a flat
-        // body only; table behavior is covered by the parse/keeper suites.
-        throw new Error("FakeDocs does not model tables — drop inTable from the spec");
-      }
       const specs: GeSpec[] = [...p.elements];
       const last = specs[specs.length - 1];
       if (last !== undefined && (last.kind ?? "text") === "text") {
@@ -172,6 +188,9 @@ export class FakeDocs implements DocsPort {
         spaceAbovePt: p.spaceAbovePt ?? null,
         spaceBelowPt: p.spaceBelowPt ?? null,
         boxed: false,
+        // Carry inTable through to serialize(), which folds a contiguous run of
+        // cell paragraphs into one single-cell table element (see ModelParagraph).
+        inTable: p.inTable ?? false,
         runs: specs.map(
           (e): ModelRun => ({
             kind: e.kind ?? "text",
@@ -179,7 +198,8 @@ export class FakeDocs implements DocsPort {
             width: e.text.length,
             fontSizePt: e.size ?? null,
             bold: e.bold ?? false,
-            backgroundHex: e.bg ?? null
+            backgroundHex: e.bg ?? null,
+            foregroundHex: e.fg ?? null
           })
         )
       };
@@ -357,6 +377,50 @@ export class FakeDocs implements DocsPort {
     }
   }
 
+  /**
+   * Splice the half-open [start, end) index range OUT of the model — the
+   * deleteContentRange primitive. Walks the same derived cursor splitAndMutate
+   * does, but instead of mutating the covered slice it DROPS it: a run keeps
+   * only the kept-before and kept-after pieces, so its width (and thus every
+   * downstream index) shrinks by the overlap. Both kinds are spliced — sliceRun
+   * shrinks an "other" run's width while leaving its empty text alone — because
+   * a delete by index removes whatever occupies that index; the analytics
+   * planner only ever targets text-run ranges, so the "other" path is purely
+   * defensive index-fidelity. Runs trimmed to zero width are dropped, and a
+   * paragraph left with NO runs (its trailing newline was deleted too) is
+   * removed entirely — the line collapse the whole-analytics delete relies on.
+   * Indexes are NOT stored, so nothing else needs renumbering: the next
+   * docEnd()/serialize() re-derives them from the shrunken run widths.
+   */
+  private spliceDelete(start: number, end: number): void {
+    let cursor = 1;
+    for (const p of this.paragraphs) {
+      const next: ModelRun[] = [];
+      for (const run of p.runs) {
+        const rs = cursor;
+        const re = cursor + run.width;
+        cursor = re;
+        // Untouched runs (entirely before/after the cut) pass through whole.
+        if (re <= start || rs >= end) {
+          next.push(run);
+          continue;
+        }
+        const a = Math.max(rs, start); // first deleted index within this run
+        const b = Math.min(re, end); // one past the last deleted index
+        // Keep the surviving prefix [rs, a) and suffix [b, re); drop [a, b).
+        if (a > rs) next.push(sliceRun(run, 0, a - rs));
+        if (b < re) next.push(sliceRun(run, b - rs, re - rs));
+      }
+      p.runs = next;
+    }
+    // A paragraph whose every run (including the trailing newline) was deleted
+    // collapses — Docs merges the now-newline-less line into the next. Drop it
+    // in place so the readonly array reference holds (mutation, not reassign).
+    for (let i = this.paragraphs.length - 1; i >= 0; i--) {
+      if (this.paragraphs[i].runs.length === 0) this.paragraphs.splice(i, 1);
+    }
+  }
+
   /** Pre-mutation validation pass (see applyBatch atomicity note). */
   private validate(requests: DocsRequest[]): void {
     const end = this.docEnd();
@@ -390,6 +454,22 @@ export class FakeDocs implements DocsPort {
         if (!(r.startIndex >= 1 && r.endIndex > r.startIndex && r.endIndex <= end)) {
           throw new DocsApiError(`updateParagraphStyle: invalid range [${r.startIndex}, ${r.endIndex})`);
         }
+      } else if ("deleteContentRange" in req) {
+        // Delete-analytics is the sole content-deleter (plan 003-F1). The same
+        // range rules as the style verbs (in-range, non-empty, start < end)
+        // PLUS the segment-final newline is UNREMOVABLE — Docs rejects deleting
+        // the last body index, which is exactly why the planner clamps a
+        // final-segment whole-analytics delete to [start, end-1) and leaves an
+        // empty line. The ceiling is reused verbatim from the style rule so a
+        // clamp regression in the planner fails LOUDLY here, never silently
+        // against a fake laxer than Google.
+        const r = req.deleteContentRange.range;
+        if (!(r.startIndex >= 1 && r.endIndex > r.startIndex && r.endIndex <= end)) {
+          throw new DocsApiError(`deleteContentRange: invalid range [${r.startIndex}, ${r.endIndex})`);
+        }
+        if (r.endIndex > styleCeiling) {
+          throw new DocsApiError("deleteContentRange: cannot delete the segment-final newline");
+        }
       }
       // updateNamedStyle: shape is compile-time guaranteed; nothing to check.
     }
@@ -405,6 +485,14 @@ export class FakeDocs implements DocsPort {
         // documented clear-to-inherit semantics the restore path leans on.
         if (mask.has("fontSize")) run.fontSizePt = textStyle.fontSize?.magnitude ?? null;
         if (mask.has("bold")) run.bold = textStyle.bold === true;
+        // Foreground honors the SAME field-mask contract, decoded by the
+        // PRODUCTION codec (color.decodeOptionalColor) — the exact decoder
+        // parse.ts uses on the read side — so analytic-ify's navy write lands as
+        // the byte it round-trips to, and is then visible to a later
+        // fetch+parse (otherwise the write was silently dropped and the navy
+        // could never be verified). Mask-present-but-style-absent CLEARS to
+        // null (inherit), mirroring fontSize/bold above.
+        if (mask.has("foregroundColor")) run.foregroundHex = decodeOptionalColor(textStyle.foregroundColor);
       });
     } else if ("createNamedRange" in req) {
       const { name, range } = req.createNamedRange;
@@ -415,6 +503,17 @@ export class FakeDocs implements DocsPort {
       });
     } else if ("deleteNamedRange" in req) {
       this.namedRanges = this.namedRanges.filter((nr) => nr.id !== req.deleteNamedRange.namedRangeId);
+    } else if ("deleteContentRange" in req) {
+      // Delete-analytics's one mutation. Splice the chars out of the live
+      // model; because every index in this fake is DERIVED from run widths
+      // (docEnd/serialize re-walk the runs), removing chars automatically
+      // shifts every downstream run + paragraph index. applyBatch calls
+      // applyOne sequentially, so a LATER delete in the same batch already
+      // sees the post-delete model — which is precisely why the planner must
+      // emit ranges in DESCENDING start order (a real batchUpdate is
+      // sequential too). The differential test pins this: the same ranges
+      // applied ascending corrupt the doc here.
+      this.spliceDelete(req.deleteContentRange.range.startIndex, req.deleteContentRange.range.endIndex);
     } else if ("updateParagraphStyle" in req) {
       const { range, paragraphStyle, fields } = req.updateParagraphStyle;
       // Real semantics: the style applies to every paragraph the range
@@ -451,7 +550,13 @@ export class FakeDocs implements DocsPort {
     // Plant exactly one suggested* key on the first text run when toggled on
     // (any key anywhere trips the generic walk — plan A16).
     let suggestionPlanted = false;
-    for (const p of this.paragraphs) {
+    // Serialize ONE model paragraph to its `{ startIndex, endIndex, paragraph }`
+    // structural element, advancing the shared cursor. Hoisted to a closure so
+    // the result can be emitted either directly into body content OR into a
+    // table cell's content (table grouping below) from a SINGLE serializer —
+    // the index walk is identical in both, which is what keeps a cell paragraph's
+    // indexes contiguous with the body (the flat-index simplification).
+    const serializeParagraph = (p: ModelParagraph): Record<string, unknown> => {
       const pStart = cursor;
       const elements = p.runs.map((run) => {
         const el: Record<string, unknown> = { startIndex: cursor, endIndex: cursor + run.width };
@@ -461,6 +566,12 @@ export class FakeDocs implements DocsPort {
           if (run.bold) textStyle.bold = true; // false is omitted on the wire
           if (run.backgroundHex !== null) {
             textStyle.backgroundColor = { color: { rgbColor: rgbColorOf(run.backgroundHex) } };
+          }
+          // Foreground rides the same proto3-shaped OptionalColor as background
+          // (zero channels omitted; parse.ts re-materializes them) so an
+          // analytic-ify'd navy run reads back as analytics through the parser.
+          if (run.foregroundHex !== null) {
+            textStyle.foregroundColor = { color: { rgbColor: rgbColorOf(run.foregroundHex) } };
           }
           const textRun: Record<string, unknown> = { content: run.text, textStyle };
           if (this.suggestionsOn && !suggestionPlanted) {
@@ -479,7 +590,29 @@ export class FakeDocs implements DocsPort {
       const paragraphStyle: Record<string, unknown> = { namedStyleType: p.namedStyleType };
       if (p.spaceAbovePt !== null) paragraphStyle.spaceAbove = spacingDim(p.spaceAbovePt);
       if (p.spaceBelowPt !== null) paragraphStyle.spaceBelow = spacingDim(p.spaceBelowPt);
-      content.push({ startIndex: pStart, endIndex: cursor, paragraph: { elements, paragraphStyle } });
+      return { startIndex: pStart, endIndex: cursor, paragraph: { elements, paragraphStyle } };
+    };
+
+    // Walk the model, folding each maximal run of consecutive inTable paragraphs
+    // into ONE single-cell `table` structural element (one row, one cell whose
+    // `content` holds those paragraphs). parse.collectParagraphs recurses into
+    // table.tableRows[].tableCells[].content with inTable=true, so the cell's
+    // paragraphs read back marked inTable — the round trip the keeper/planner
+    // table rule is verified against. Body paragraphs serialize straight into
+    // content. The cursor is shared, so cell paragraphs occupy contiguous body
+    // indexes (no extra structural slots — the minimal-table simplification).
+    for (let i = 0; i < this.paragraphs.length; ) {
+      if (!this.paragraphs[i].inTable) {
+        content.push(serializeParagraph(this.paragraphs[i]));
+        i++;
+        continue;
+      }
+      const cellContent: unknown[] = [];
+      while (i < this.paragraphs.length && this.paragraphs[i].inTable) {
+        cellContent.push(serializeParagraph(this.paragraphs[i]));
+        i++;
+      }
+      content.push({ table: { tableRows: [{ tableCells: [{ content: cellContent }] }] } });
     }
 
     // namedRanges: the doubly-nested name-keyed map — same-name siblings (two

@@ -24,6 +24,9 @@ export interface GeSpec {
   bold?: boolean;
   /** Lower-case "#rrggbb"; omit/null = no background. */
   bg?: string | null;
+  /** Lower-case "#rrggbb" FOREGROUND (text) color; omit/null = inherits. Set
+   * to ANALYTICS_FG_HEX to model an analytic-ify'd run (Loop 003). */
+  fg?: string | null;
   /** kind "other" models chips/breaks/objects (whitelist rule — never styled).
    * Its `text` still occupies index space (chips have length in the real API). */
   kind?: "text" | "other";
@@ -81,7 +84,8 @@ export function buildDoc(paras: GpSpec[], opts: BuildDocOptions = {}): GDoc {
         text: e.kind === "other" ? "" : e.text,
         fontSizePt: e.size ?? null,
         bold: e.bold ?? false,
-        backgroundHex: e.bg ?? null
+        backgroundHex: e.bg ?? null,
+        foregroundHex: e.fg ?? null
       };
       cursor += e.text.length;
       return el;

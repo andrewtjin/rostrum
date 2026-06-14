@@ -21,10 +21,13 @@
 // functions over given values, exactly like the rest of core/.
 
 import { GDOCS_VERSION } from "./constants";
+import { planDeleteAnalytics } from "./deleteAnalytics";
 import { assertNoSuggestions, assertNotHidden, assertSingleTab } from "./guards";
 import { parseDocument } from "./parse";
 import { decodeRangeName, isRstmName } from "./rangeNames";
 import {
+  analyticifyReceipt,
+  deleteAnalyticsReceipt,
   errorMessage,
   hideReceipt,
   markCiteReceipt,
@@ -79,6 +82,13 @@ export const CALL_MAP: readonly CallMapEntry[] = [
   // Tools group.
   { fn: "rostrumApplyStyles", label: STRINGS.menu.applyStyles, separatorBefore: true },
   { fn: "rostrumMarkCite", label: STRINGS.menu.markCite, separatorBefore: false },
+  // Analytic-ify is additive/safe — it joins the Tools group inline after Mark
+  // cite (no separator). Delete analytics is the SOLE destructive verb, so it
+  // is ordered LAST in Tools and gets its OWN separator before it: the visual
+  // gap isolates the only content-deleter from the safe verbs above, so a
+  // mis-aimed click cannot land on it (spec §3 adapterPure.ts / 003-F1).
+  { fn: "rostrumAnalyticify", label: STRINGS.menu.analyticify, separatorBefore: false },
+  { fn: "rostrumDeleteAnalytics", label: STRINGS.menu.deleteAnalytics, separatorBefore: true },
   // Panel / help / diagnostics group.
   { fn: "rostrumOpenPanel", label: STRINGS.menu.openPanel, separatorBefore: true },
   { fn: "rostrumHelp", label: STRINGS.menu.helpShortcuts, separatorBefore: false },
@@ -200,6 +210,33 @@ export function markCiteDialog(citedParagraphs: number): RoutedDialog {
   return receipt(markCiteReceipt(citedParagraphs), "plain");
 }
 
+/**
+ * Analytic-ify receipt — always PLAIN: the verb is pure, idempotent character
+ * formatting (navy + 14pt), so even the zero case (cursor not on a line) is a
+ * neutral teaching no-op, never a degradation. The count is whatever the
+ * controller's finish reports (paragraphs that received >= 1 style write); the
+ * adapter passes it straight to the deck helper so the unit naming stays in
+ * STRINGS (spec §3 adapterPure.ts). Loop 003.
+ */
+export function analyticifyDialog(r: { paragraphsStyled: number }): RoutedDialog {
+  return receipt(analyticifyReceipt(r.paragraphsStyled), "plain");
+}
+
+/**
+ * Delete-analytics receipt — also PLAIN: although Delete analytics is the one
+ * destructive verb, a SUCCESSFUL delete is a healthy outcome the user asked
+ * for (the destructiveness warning lives in the pre-action confirm, not the
+ * post-action receipt). The zero case renders the no-op string — that is the
+ * TOCTOU path where analytics vanished between the confirm's count read and
+ * the verb's own read, which must degrade gracefully rather than alarm. The
+ * shape mirrors the strings DeleteAnalyticsResult so adapterPure stays
+ * decoupled from whichever wave adds the canonical result type to types.ts
+ * (spec §3 adapterPure.ts). Loop 003.
+ */
+export function deleteAnalyticsDialog(r: { paragraphsAffected: number; runsDeleted: number }): RoutedDialog {
+  return receipt(deleteAnalyticsReceipt(r), "plain");
+}
+
 // ---------------------------------------------------------------------------
 // Sidebar state (plan A13 — the namedRanges+revisionId-only read)
 // ---------------------------------------------------------------------------
@@ -257,6 +294,35 @@ export function countDebateHeadings(raw: unknown): number {
     if (!p.inTable && DEBATE_HEADING_STYLES.has(p.namedStyleType)) count++;
   }
   return count;
+}
+
+/**
+ * How many paragraphs Delete analytics would touch — the count the destructive
+ * confirm dialog states before the user agrees (deleteAnalyticsConfirm(n);
+ * docsAdapter shows NO confirm at 0, per spec §3). Loop 003.
+ *
+ * CONTRACT (spec §3 adapterPure.ts): this MUST equal planDeleteAnalytics's
+ * `paragraphsAffected` on the same document, so the confirm can never promise
+ * to remove a different number of paragraphs than the verb actually removes.
+ * We guarantee that the only airtight way — by ASKING THE PLANNER, the single
+ * source of truth for "what Delete analytics affects," rather than re-rolling
+ * its `isAnalytics`-run walk here (DRY; the spec's "shared predicate"). A naive
+ * "count paragraphs with >= 1 analytics run" would silently OVER-count the one
+ * pathological corner the planner drops: a paragraph that is a LONE navy
+ * trailing newline in the doc's final segment has an analytics run, but its
+ * only deletable range clamps to empty (the segment-final newline is
+ * unremovable — plan D6), so the planner affects 0. Deriving the count from the
+ * planner folds that corner in for free and can never drift as the planner's
+ * edge handling evolves under the parallel waves.
+ *
+ * Cost is a non-issue: this runs once, on a one-shot user click, over an
+ * already-in-memory parse — not a hot path. Defensive over junk reads exactly
+ * like the other counters: parseDocument yields an empty doc, the planner emits
+ * nothing, and the count is 0 so the adapter skips the confirm and shows the
+ * no-op receipt.
+ */
+export function countAnalyticsParagraphs(raw: unknown): number {
+  return planDeleteAnalytics(parseDocument(raw)).result.paragraphsAffected;
 }
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ project; a **Rostrum** menu appears after a reload.
 > everything* below). This matches how Rostrum behaves in Word. **Show All brings
 > every word back.**
 
-Current version: **v0.1.0** (shown in the panel footer as `Rostrum v0.1.0`).
+Current version: **v0.2.0** (shown in the panel footer as `Rostrum v0.2.0`).
 
 ---
 
@@ -54,17 +54,20 @@ works; see *Privacy* below.) Then:
 ### Permissions it asks for, and why
 | Scope | Why |
 |---|---|
-| See, edit, create, and delete your Google Docs documents (`.../auth/documents`) | Read the doc once and apply font‑size‑only edits to hide/show and to set debate styles. |
+| See, edit, create, and delete your Google Docs documents (`.../auth/documents`) | Read the doc once; apply font‑size, foreground‑color, and style‑definition edits to hide/show, set debate styles, and mark analytics. Delete analytics also removes the analytics text you styled — no other content is ever deleted. |
 | Display and run third‑party web content in prompts and sidebars (`script.container.ui`) | Draw the Rostrum panel and dialogs. |
 
-Rostrum only ever changes **font size** (to hide/show) and **named‑style
-definitions** (to apply debate styles). It never inserts, deletes, or reorders any
-text character.
+Rostrum changes **font size** (to hide/show), **foreground color and font size**
+(to mark analytics), and **named‑style definitions** (to apply debate styles).
+The one content exception: **Delete analytics** removes the analytics text you
+styled — and only that text. Rostrum never otherwise inserts, deletes, or reorders
+any text character.
 
 ### Privacy: no tracking inside Google Docs
 The pasted script **sends nothing back** as you use it: no document content, no
 personal data, no usage pings. It runs entirely inside your doc and only edits font
-sizes and style definitions. The *only* anonymous number Rostrum ever counts is the
+sizes, foreground colors, and style definitions (and removes analytics text when you
+explicitly choose Delete analytics). The *only* anonymous number Rostrum ever counts is the
 one‑time `Code.gs` download from the website (and only if you used the counted download
 link above, not the direct copy), exactly mirroring the Word side. Full disclosure:
 the [privacy page](https://andrewtjin.github.io/rostrum/privacy.html).
@@ -109,10 +112,12 @@ Open **Rostrum** in the menu bar. Entries, in order:
 
 | Menu item | What it does |
 |---|---|
-| **Hide** | Shrink all body text except keepers (headings, cites, highlighted text). |
+| **Hide** | Shrink all body text except keepers (headings, cites, highlighted text, analytics). |
 | **Show All** | Restore every word to its saved size; bring any stray tiny text back to normal. |
 | **Apply debate styles** | Redefine this doc's styles to the debate convention and restyle existing headings (see below). |
 | **Mark cite** | Mark the selected line as a cite (bold, cite size) so Hide keeps it. |
+| **Analytic‑ify** | Style the whole touched paragraph(s) as analytics — off‑palette navy, 14 pt (see below). |
+| **Delete analytics…** | Remove all analytics text from the document. Prompts first; destructive (see below). |
 | **Open Rostrum panel…** | The sidebar: Hide/Show All buttons, keep‑colors, spacing toggle, the shortcut cheat sheet. |
 | **Help & shortcuts** | What Hide does, the reading‑seams note, how to reveal everything, and team norms. |
 | **Diagnostics** | A technical report you copy into chat when reporting back. |
@@ -143,6 +148,25 @@ which is why it isn't in the heading cheat sheet).
 ### Keep colors
 Hide keeps highlighted text visible. By default it keeps the standard highlight
 palette; the panel lets you choose exact colors or **"Keep any highlight color."**
+
+### Analytics
+
+**What analytics is.** Analytics text is formatted in an off‑palette navy (a specific
+dark blue that does not match any standard Google Docs swatch) at 14 pt. This pairing
+is unique to Rostrum: if you see navy 14 pt in a Rostrum doc, it was made by
+Analytic‑ify.
+
+**Analytic‑ify styles whole paragraphs.** Unlike Mark cite, which marks only the
+text you have selected, Analytic‑ify applies to the entire paragraph containing your
+cursor (or every paragraph that touches your selection). You do not need to select
+anything first — just put your cursor on the line.
+
+**Analytics stays visible through Hide.** Analytics text is always kept, like cites
+and highlighted text. Show All does not affect it.
+
+**Delete analytics is destructive.** Rostrum → **Delete analytics…** removes the
+analytics text from the document (Ctrl+Z undoes the whole batch in one step; Show All
+does not — analytics was never hidden). It prompts with a count before doing anything.
 
 ---
 

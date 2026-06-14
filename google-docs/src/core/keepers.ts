@@ -20,7 +20,7 @@
 // been reconciled, so the cite-size trap (a hidden 1pt cite failing the
 // >= citeMinPt test) cannot reach this module by construction.
 
-import { NEAR_WHITE_MIN_CHANNEL } from "./constants";
+import { ANALYTICS_FG_HEX, NEAR_WHITE_MIN_CHANNEL } from "./constants";
 import { GDoc, GdocsSettings, GElement, GNamedStyleType, GParagraph, GRange } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -101,6 +101,25 @@ export function isHighlightKept(backgroundHex: string | null, settings: GdocsSet
   const min = minChannel(backgroundHex);
   if (min === null) return true; // defensive over-keep (see contract above)
   return min < NEAR_WHITE_MIN_CHANNEL;
+}
+
+// ---------------------------------------------------------------------------
+// Analytics rule (Loop 003) — an always-on, per-element keep like highlight
+// ---------------------------------------------------------------------------
+
+/**
+ * Is this element analytics text? Analytics is character formatting the
+ * "analytic-ify" tool writes: an OFF-PALETTE navy foreground
+ * (constants.ANALYTICS_FG_HEX). Detection is EXACT and color-ONLY by deliberate
+ * design — size-independent, so resizing analytics text (or a future size
+ * tweak) never breaks the match — and only `kind:"text"` runs carry a
+ * foreground (the A9 whitelist; "other" elements decode foregroundHex to null
+ * and so never qualify). This is the SINGLE SOURCE the keeper (below), the
+ * Delete-analytics planner, and the confirm's paragraph count all consume, so
+ * none of them can ever disagree about what "analytics" is.
+ */
+export function isAnalytics(el: GElement): boolean {
+  return el.kind === "text" && el.foregroundHex === ANALYTICS_FG_HEX;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +404,9 @@ function keepAll(paragraph: GParagraph, citeDetected: boolean): ParagraphKeep {
  *   * kind "other" keeps (whitelist, A9 — chips/breaks/objects are never
  *     style-targeted, so they are structurally kept);
  *   * a keeper-highlighted element keeps (row 5);
+ *   * an ANALYTICS element keeps (Loop 003 — always-on, never gated on a
+ *     setting: the analytic-ify navy is the user's explicit "keep this through
+ *     Hide" mark, so it survives like a highlight does, per element);
  *   * a whitespace-only element keeps iff the nearest non-whitespace-only
  *     neighbor on BOTH sides keeps (lesson #14: the space between two
  *     highlighted words is often its own unhighlighted element; rescuing it
@@ -396,7 +418,9 @@ function keepAll(paragraph: GParagraph, citeDetected: boolean): ParagraphKeep {
  */
 function perElementKeep(paragraph: GParagraph, settings: GdocsSettings): ParagraphKeep {
   const els = paragraph.elements;
-  const keep = els.map((e) => e.kind === "other" || isHighlightKept(e.backgroundHex, settings));
+  const keep = els.map(
+    (e) => e.kind === "other" || isHighlightKept(e.backgroundHex, settings) || isAnalytics(e)
+  );
 
   // Whitespace bridge: scan past consecutive whitespace-only elements so a
   // multi-element gap (" " + "\t") between two keeps is rescued as a unit.

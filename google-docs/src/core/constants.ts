@@ -47,8 +47,9 @@ export const MAX_REPLAN_ATTEMPTS = 3;
 export const NEAR_WHITE_MIN_CHANNEL = 243;
 
 /** gdocs artifact version — deliberately NOT package.json's version, which
- * drives the WORD manifest (plan D14). Surfaced in the sidebar footer. */
-export const GDOCS_VERSION = "0.1.0";
+ * drives the WORD manifest (plan D14). Surfaced in the sidebar footer.
+ * 0.2.0: the analytics style + analytic-ify + Delete analytics (Loop 003). */
+export const GDOCS_VERSION = "0.2.0";
 
 /**
  * Debate style sizes (Word STYLE_MAP parity, decision #9): pocket 26 / hat 22 /
@@ -62,3 +63,26 @@ export const STYLE_SIZES_PT = {
   block: 16,
   tag: 14
 } as const;
+
+/**
+ * The analytics style foreground — a deliberately OFF-PALETTE navy. It is the
+ * Docs "dark blue 2" (#0b5394) nudged by two on the blue channel (148 -> 150),
+ * so it is visually identical to the template's navy Analytics style yet
+ * matches NO one-click Google Docs swatch (proven against settings.ts's
+ * DEFAULT_KEEP_HEXES by gdocsKeepers/strings tests). That makes the color a
+ * reliable analytics SIGNATURE: Rostrum's "analytic-ify" tool is the only
+ * producer, so a user who picks the real "dark blue 2" from the palette is NOT
+ * treated as analytics. Detection is EXACT and color-only (size-independent),
+ * so resizing analytics text never breaks the keeper/delete match.
+ *
+ * The off-palette safety is an EMPIRICAL claim pinned by the palette test +
+ * confirmed on the live color picker (R6) — not a mathematical invariant; a
+ * user who manually types this hex into the custom-color box WOULD be treated
+ * as analytics (an accepted, documented edge).
+ */
+export const ANALYTICS_FG_HEX = "#0b5396";
+
+/** Analytics size — parity with the tag style (decision #9: tag is 14pt). The
+ * goal pins analytics to "the same size as the tag style", single-sourced here
+ * so the two can never drift. */
+export const ANALYTICS_PT = STYLE_SIZES_PT.tag;

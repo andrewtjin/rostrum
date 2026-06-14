@@ -8,8 +8,12 @@
 // Every negative here is therefore a failure-path test by design, ported from
 // the Word citeRepair suite's leak-prevention cases where one exists.
 
-import { detectCiteLeads, isHighlightKept, planKeeps } from "../google-docs/src/core/keepers";
-import { DEFAULT_CITE_MIN_PT, NEAR_WHITE_MIN_CHANNEL } from "../google-docs/src/core/constants";
+import { detectCiteLeads, isAnalytics, isHighlightKept, planKeeps } from "../google-docs/src/core/keepers";
+import {
+  ANALYTICS_FG_HEX,
+  DEFAULT_CITE_MIN_PT,
+  NEAR_WHITE_MIN_CHANNEL
+} from "../google-docs/src/core/constants";
 import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
 import { GdocsSettings } from "../google-docs/src/core/types";
 import { buildDoc, GpSpec, para } from "./gdocsBuilders";
@@ -548,5 +552,168 @@ describe("detectCiteLeads — exact repair ranges for Apply-styles", () => {
     expect(leads[0].startIndex).toBeGreaterThanOrEqual(doc.paragraphs[1].startIndex);
     expect(leads[0].endIndex).toBeLessThanOrEqual(doc.paragraphs[1].endIndex);
     expect(keeps[1].citeDetected).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Analytics keep (Loop 003) — always-on, per-element, EXACT off-palette navy
+//
+// Analytic-ify writes constants.ANALYTICS_FG_HEX as a foreground; the keeper
+// must survive that text through Hide like a highlight does. The two leak
+// directions mirror the highlight suite: keeping too little shrinks the navy
+// analytics the debater explicitly marked (the 003-S2 failure), keeping too
+// much fuses analytics into the whole-paragraph cite/heading/table machinery
+// (and would wrongly set citeDetected). Detection is EXACT — the near-miss
+// genuine "dark blue 2" (#0b5394) must NOT match — and SIZE-INDEPENDENT.
+// ---------------------------------------------------------------------------
+
+/** The near-miss the analytics signature must REJECT: the real Docs "dark blue
+ * 2" foreground (#0b5394), one blue channel away from ANALYTICS_FG_HEX and a
+ * genuine one-click palette swatch a user might legitimately pick. */
+const NEAR_MISS_FG = "#0b5394";
+
+describe("isAnalytics (single-source predicate: kind text + exact off-palette navy)", () => {
+  it("matches a text run whose foreground is EXACTLY ANALYTICS_FG_HEX", () => {
+    const el = buildDoc([{ elements: [{ text: "data", fg: ANALYTICS_FG_HEX }] }]).paragraphs[0].elements[0];
+    expect(isAnalytics(el)).toBe(true);
+  });
+
+  it("rejects the near-miss genuine dark-blue-2 (#0b5394) — exact match, not approximate", () => {
+    // Guard the fixture: the two hexes really are distinct and only the near
+    // miss is an off-the-shelf palette swatch, so this is the documented
+    // a-user-picked-dark-blue-2-is-not-analytics edge (003-S4).
+    expect(NEAR_MISS_FG).not.toBe(ANALYTICS_FG_HEX);
+    expect(DEFAULT_KEEP_HEXES.has(NEAR_MISS_FG)).toBe(true);
+    expect(DEFAULT_KEEP_HEXES.has(ANALYTICS_FG_HEX)).toBe(false);
+    const el = buildDoc([{ elements: [{ text: "data", fg: NEAR_MISS_FG }] }]).paragraphs[0].elements[0];
+    expect(isAnalytics(el)).toBe(false);
+  });
+
+  it("rejects a run with no foreground (inherits) and a foreground that is not the navy", () => {
+    const none = buildDoc([{ elements: [{ text: "plain" }] }]).paragraphs[0].elements[0];
+    const other = buildDoc([{ elements: [{ text: "red", fg: "#ff0000" }] }]).paragraphs[0].elements[0];
+    expect(isAnalytics(none)).toBe(false);
+    expect(isAnalytics(other)).toBe(false);
+  });
+
+  it('rejects a kind "other" element even if it somehow carried the navy (A9 whitelist)', () => {
+    // Chips/objects decode foregroundHex to null in parse, but the predicate
+    // must itself gate on kind so the whitelist holds at every call site.
+    const chip = buildDoc([{ elements: [{ text: "@chip", kind: "other", fg: ANALYTICS_FG_HEX }] }])
+      .paragraphs[0].elements[0];
+    expect(chip.kind).toBe("other");
+    expect(isAnalytics(chip)).toBe(false);
+  });
+
+  it("is SIZE-INDEPENDENT: matches at 10, 14, and 26pt (color-only detection)", () => {
+    for (const size of [10, 14, 26]) {
+      const el = buildDoc([{ elements: [{ text: "data", fg: ANALYTICS_FG_HEX, size }] }])
+        .paragraphs[0].elements[0];
+      expect(isAnalytics(el)).toBe(true);
+    }
+  });
+});
+
+describe("planKeeps — analytics keep (always-on, per-element, Loop 003)", () => {
+  it("keeps a body analytics run that would otherwise hide (003-S2 survival)", () => {
+    const doc = buildDoc([{ elements: [{ text: "analytics callout", fg: ANALYTICS_FG_HEX }] }]);
+    const k = planKeeps(doc, cfg())[0];
+    expect(k).toEqual({ keepWhole: false, elementKeep: [true], citeDetected: false });
+  });
+
+  it("does NOT keep the near-miss dark-blue-2 foreground (it hides like plain body)", () => {
+    const doc = buildDoc([{ elements: [{ text: "dark blue 2 prose", fg: NEAR_MISS_FG }] }]);
+    expect(planKeeps(doc, cfg())[0].elementKeep).toEqual([false]);
+  });
+
+  it.each([10, 14, 26])("keeps analytics regardless of fontSize (%ipt) — color-only", (size) => {
+    const doc = buildDoc([{ elements: [{ text: "sized analytics", fg: ANALYTICS_FG_HEX, size }] }]);
+    expect(planKeeps(doc, cfg())[0].elementKeep).toEqual([true]);
+  });
+
+  it("is NEVER gated on a setting: analytics keeps even in the empty-keep-set, set-mode config", () => {
+    // Highlight keeps can be switched off; the analytics mark cannot. An empty
+    // keep set proves the keep comes from the analytics rule, not a color match.
+    const doc = buildDoc([{ elements: [{ text: "analytics", fg: ANALYTICS_FG_HEX }] }]);
+    expect(planKeeps(doc, cfg({ keepColors: new Set() }))[0].elementKeep).toEqual([true]);
+  });
+
+  it("PARTIAL analytics: keeps only the analytics runs, hides the plain body around them", () => {
+    const doc = buildDoc([
+      { elements: [{ text: "plain lead " }, { text: "navy bit", fg: ANALYTICS_FG_HEX }, { text: " plain tail" }] }
+    ]);
+    expect(planKeeps(doc, cfg())[0].elementKeep).toEqual([false, true, false]);
+  });
+
+  it("analytics run + a NON-keeper background is still kept (analytics wins on its own)", () => {
+    // The background (#f8f9fa near-white web shading) does NOT keep, so the only
+    // surviving path is the analytics foreground.
+    const doc = buildDoc([{ elements: [{ text: "shaded analytics", fg: ANALYTICS_FG_HEX, bg: "#f8f9fa" }] }]);
+    expect(isHighlightKept("#f8f9fa", cfg())).toBe(false); // confirm the bg alone would hide
+    expect(planKeeps(doc, cfg())[0].elementKeep).toEqual([true]);
+  });
+
+  it("analytics run + a KEEPER background is kept exactly once, never a cite (citeDetected false)", () => {
+    // Both the highlight rule and the analytics rule vote keep; the verdict is a
+    // single boolean, so the element is simply kept and no cite is implied.
+    const doc = buildDoc([{ elements: [{ text: "both", fg: ANALYTICS_FG_HEX, bg: "#ffff00" }] }]);
+    const k = planKeeps(doc, cfg())[0];
+    expect(k.elementKeep).toEqual([true]);
+    expect(k.citeDetected).toBe(false);
+  });
+
+  // --- whole-paragraph rules win first; analytics never injects citeDetected ---
+  // Each case pairs an analytics fixture with a no-analytics CONTROL and asserts
+  // the ParagraphKeep is IDENTICAL — proving analytics rides along under the
+  // structural keep without perturbing keepWhole or citeDetected (003-F6).
+
+  it("analytics inside a HEADING_1 paragraph -> kept whole, identical to a no-analytics control", () => {
+    const control = planKeeps(buildDoc([para("Pocket head", "HEADING_1")]), cfg())[0];
+    const withAnalytics = planKeeps(
+      buildDoc([{ style: "HEADING_1", elements: [{ text: "Pocket head", fg: ANALYTICS_FG_HEX }] }]),
+      cfg()
+    )[0];
+    expect(control).toEqual({ keepWhole: true, elementKeep: [true], citeDetected: false });
+    expect(withAnalytics).toEqual(control);
+  });
+
+  it("analytics inside a TABLE paragraph -> kept whole, identical to a no-analytics control", () => {
+    const control = planKeeps(buildDoc([{ inTable: true, elements: [{ text: "cell" }] }]), cfg())[0];
+    const withAnalytics = planKeeps(
+      buildDoc([{ inTable: true, elements: [{ text: "cell", fg: ANALYTICS_FG_HEX }] }]),
+      cfg()
+    )[0];
+    expect(control).toEqual({ keepWhole: true, elementKeep: [true], citeDetected: false });
+    expect(withAnalytics).toEqual(control);
+  });
+
+  it("analytics inside a SIGNATURE-cite paragraph -> kept whole as a CITE, citeDetected identical", () => {
+    // A bold-14pt signature cite is kept whole with citeDetected:true; adding the
+    // navy foreground to the same runs must not change the verdict in any field.
+    const citeSpec = (fg?: string): GpSpec => ({
+      elements: [
+        { text: "Smith 20", bold: true, size: 14, fg },
+        { text: " descriptor", fg }
+      ]
+    });
+    const control = planKeeps(buildDoc([citeSpec()]), cfg())[0];
+    const withAnalytics = planKeeps(buildDoc([citeSpec(ANALYTICS_FG_HEX)]), cfg())[0];
+    expect(control).toEqual({ keepWhole: true, elementKeep: [true, true], citeDetected: true });
+    expect(withAnalytics).toEqual(control);
+  });
+
+  it("[analytics][whitespace][highlight] bridges identically to [highlight][ws][highlight]", () => {
+    // The whitespace bridge keys on the resulting keep flags, not on WHY each
+    // neighbor kept — so an analytics-kept anchor rescues the gap exactly as a
+    // highlight-kept anchor does (lesson #14 stays color-source-agnostic).
+    const analyticsAnchored = buildDoc([
+      { elements: [{ text: "left", fg: ANALYTICS_FG_HEX }, { text: " " }, { text: "right", bg: "#ffff00" }] }
+    ]);
+    const highlightAnchored = buildDoc([
+      { elements: [{ text: "left", bg: "#ffff00" }, { text: " " }, { text: "right", bg: "#ffff00" }] }
+    ]);
+    const expected = [true, true, true];
+    expect(planKeeps(analyticsAnchored, cfg())[0].elementKeep).toEqual(expected);
+    expect(planKeeps(highlightAnchored, cfg())[0].elementKeep).toEqual(expected);
   });
 });

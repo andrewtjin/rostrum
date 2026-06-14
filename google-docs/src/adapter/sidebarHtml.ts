@@ -434,6 +434,11 @@ export function helpHtml(): string {
 <p>${escapeHtml(H.readingGuidance)}</p>
 <p>${escapeHtml(H.escapeHatch)}</p>
 <p>${escapeHtml(H.teamNorm)}</p>
+<!-- The scoped content-deletion honesty: Help is the standing home for the
+     "only Delete analytics removes content" explanation the F5 fallback gave
+     up (exec-review MAJOR). Rendered as its own paragraph alongside the other
+     help prose, before the cheat sheet. -->
+<p>${escapeHtml(H.analyticsVerbs)}</p>
 <h2 class="r-card-title">${escapeHtml(STRINGS.sidebar.cheatSheet.title)}</h2>
 ${cheatSheetTable(true)}
 <p class="r-micro">${escapeHtml(STRINGS.sidebar.cheatSheet.screenReaderNote)}</p>`

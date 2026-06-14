@@ -33,6 +33,7 @@ describe("fixture roster", () => {
     // A silently deleted fixture must fail loudly, not shrink the suite.
     expect(DOC_FIXTURE_NAMES).toEqual([
       "chips.json",
+      "foreground.json",
       "headings.json",
       "namedRanges.json",
       "nearWhite.json",
@@ -343,6 +344,28 @@ describe("nearWhite.json (plan A8: shading decodes EXACTLY; keeper decides later
   });
 });
 
+describe("foreground.json (Loop 003: analytics navy decodes exact; near-miss does NOT collide)", () => {
+  const doc = parseFixture("foreground.json");
+
+  it("decodes the analytics navy foreground to its exact off-palette hex (round-trip from byte/255 floats)", () => {
+    // 11/255, 83/255, 150/255 -> round(*255) -> #0b5396. The keeper detection
+    // is an EXACT string match, so any rounding drift here would silently miss
+    // every analytics run — this pins the round-trip the apply write depends on.
+    expect(doc.paragraphs[0].elements[0].foregroundHex).toBe("#0b5396");
+  });
+
+  it("decodes the genuine dark-blue-2 near-miss as itself, NOT the analytics navy (blue 148 vs 150)", () => {
+    // #0b5394 is a real Google Docs default swatch one blue-byte off the
+    // analytics navy; decoding it as #0b5396 would make ordinary blue text read
+    // as analytics (false-positive keep + a destructive delete target).
+    expect(doc.paragraphs[1].elements[0].foregroundHex).toBe("#0b5394");
+  });
+
+  it("reads an absent foreground color as null (inherited text color)", () => {
+    expect(doc.paragraphs[2].elements[0].foregroundHex).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tab-shape handling beyond the committed fixtures (inline raws)
 // ---------------------------------------------------------------------------
@@ -551,6 +574,47 @@ describe("defensive parsing (malformed input never throws)", () => {
     expect(mk({ backgroundColor: { color: { rgbColor: { red: "x", green: 2 } } } })).toBe("#00ff00");
   });
 
+  it("decodes the foreground color states distinctly, sharing the background codec (Loop 003)", () => {
+    const mk = (textStyle: unknown): string | null =>
+      parseDocument({
+        body: {
+          content: [
+            { startIndex: 1, endIndex: 3, paragraph: { elements: [{ startIndex: 1, endIndex: 3, textRun: { content: "x\n", textStyle } }] } }
+          ]
+        }
+      }).paragraphs[0].elements[0].foregroundHex;
+    expect(mk({})).toBeNull(); // no foregroundColor key = inherited
+    expect(mk({ foregroundColor: {} })).toBeNull(); // color unset = transparent/none
+    // color set with empty rgb = opaque with all channels omitted (zero) = black.
+    expect(mk({ foregroundColor: { color: {} } })).toBe("#000000");
+    // OMITTED-ZERO: the navy's red byte 11 (= 11/255) present, blue/green real;
+    // a navy whose ZERO-valued channel the wire dropped still decodes exactly.
+    expect(
+      mk({ foregroundColor: { color: { rgbColor: { green: 1 } } } }) // red+blue omitted = 0
+    ).toBe("#00ff00");
+  });
+
+  it("reads a non-text element's foreground as null (the whitelist holds for color too)", () => {
+    const doc = parseDocument({
+      body: {
+        content: [
+          {
+            startIndex: 1,
+            endIndex: 3,
+            paragraph: {
+              elements: [
+                { startIndex: 1, endIndex: 2, person: {} },
+                { startIndex: 2, endIndex: 3, textRun: { content: "\n", textStyle: {} } }
+              ]
+            }
+          }
+        ]
+      }
+    });
+    expect(doc.paragraphs[0].elements[0].kind).toBe("other");
+    expect(doc.paragraphs[0].elements[0].foregroundHex).toBeNull();
+  });
+
   it("reads a magnitude-less fontSize as inherited (0pt text cannot exist)", () => {
     const doc = parseDocument({
       body: {
@@ -675,7 +739,7 @@ describe("DOC_FIELDS_MASK", () => {
 
   it.each([
     "revisionId",
-    "textStyle(fontSize,bold,backgroundColor)",
+    "textStyle(fontSize,bold,backgroundColor,foregroundColor)",
     "paragraphStyle(namedStyleType,spaceAbove,spaceBelow)",
     "suggestedInsertionIds",
     "suggestedDeletionIds",

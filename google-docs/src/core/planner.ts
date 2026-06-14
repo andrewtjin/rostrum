@@ -339,7 +339,15 @@ function restoredView(doc: GDoc, atomsPerParagraph: Atom[][]): GDoc {
           text: a.text,
           fontSizePt: a.restoredSizePt,
           bold: a.element.bold,
-          backgroundHex: a.element.backgroundHex
+          backgroundHex: a.element.backgroundHex,
+          // Foreground rides through unchanged: the reconcile only ever
+          // reasons about SIZE, so an atom's color is its source element's
+          // color (atoms split an element on size/coverage boundaries, never
+          // on color). The analytics keeper (keepers.isAnalytics) runs against
+          // THIS restored view, so omitting foreground here would show it
+          // `undefined`, mis-hide a body-sized analytics run on a fresh Hide
+          // (003-S2) and fail to break an adjacent hidden region (Loop 003).
+          foregroundHex: a.element.foregroundHex
         })
       )
     }))

@@ -11,11 +11,14 @@
 // exercise the same parseDocument seam the live adapter does.
 
 import {
+  analyticifyDialog,
   BG_HISTOGRAM_TOP_N,
   buildDiagnostics,
   CALL_MAP,
   classifyBatchError,
+  countAnalyticsParagraphs,
   countDebateHeadings,
+  deleteAnalyticsDialog,
   diagnosticsReadFacts,
   DiagnosticsModel,
   FONT_FLOOR_TRY_SIZES_PT,
@@ -36,8 +39,16 @@ import {
   sumApiUnits,
   textPickOffsets
 } from "../google-docs/src/core/adapterPure";
-import { CITE_PT, GDOCS_VERSION } from "../google-docs/src/core/constants";
-import { errorMessage, markCiteReceipt, STRINGS } from "../google-docs/src/core/strings";
+import { ANALYTICS_FG_HEX, CITE_PT, GDOCS_VERSION } from "../google-docs/src/core/constants";
+import {
+  analyticifyReceipt,
+  deleteAnalyticsReceipt,
+  errorMessage,
+  markCiteReceipt,
+  STRINGS
+} from "../google-docs/src/core/strings";
+import { planDeleteAnalytics } from "../google-docs/src/core/deleteAnalytics";
+import { parseDocument } from "../google-docs/src/core/parse";
 import {
   DocsApiError,
   GHideResult,
@@ -64,6 +75,9 @@ interface RawElSpec {
   /** Lower-case "#rrggbb" — encoded as the API's rgbColor floats (zero
    * channels omitted, the wire's omitted-means-zero reality). */
   bgHex?: string;
+  /** Lower-case "#rrggbb" FOREGROUND (text) color, same wire encoding as bgHex.
+   * Analytics text is exactly fgHex === ANALYTICS_FG_HEX (Loop 003). */
+  fgHex?: string;
   /** "other" models a chip/object: occupies text.length index units. */
   kind?: "text" | "other";
   /** Plant a suggested* key on this run (trips the suggestion gate). */
@@ -123,6 +137,7 @@ function rawDoc(paras: RawParaSpec[], opts: RawDocOptions = {}): unknown {
         if (e.sizePt !== undefined) textStyle.fontSize = { magnitude: e.sizePt, unit: "PT" };
         if (e.bold === true) textStyle.bold = true;
         if (e.bgHex !== undefined) textStyle.backgroundColor = { color: { rgbColor: rgbColorOf(e.bgHex) } };
+        if (e.fgHex !== undefined) textStyle.foregroundColor = { color: { rgbColor: rgbColorOf(e.fgHex) } };
         const textRun: Record<string, unknown> = { content: e.text, textStyle };
         if (e.suggested === true) textRun.suggestedInsertionIds = ["sg.1"];
         el.textRun = textRun;
@@ -216,22 +231,43 @@ describe("CALL_MAP (plan S12)", () => {
     }
   });
 
-  it("lists the seven menu items with STRINGS labels, in the deck's menu order", () => {
+  it("lists the menu items with STRINGS labels, in the deck's menu order", () => {
     const labeled = CALL_MAP.filter((e) => e.label !== null);
     expect(labeled.map((e) => e.label)).toEqual([
       STRINGS.menu.hide,
       STRINGS.menu.showAll,
       STRINGS.menu.applyStyles,
       STRINGS.menu.markCite,
+      // Analytics verbs (Loop 003) join the Tools group after Mark cite;
+      // Delete analytics is ordered LAST in Tools.
+      STRINGS.menu.analyticify,
+      STRINGS.menu.deleteAnalytics,
       STRINGS.menu.openPanel,
       STRINGS.menu.helpShortcuts,
       STRINGS.menu.diagnostics
     ]);
   });
 
-  it("groups the menu with separators before the tools and panel sections (frontendDraft Step 3)", () => {
+  it("groups the menu with separators before tools, the destructive verb, and the panel (frontendDraft Step 3 + Loop 003)", () => {
     const separated = CALL_MAP.filter((e) => e.separatorBefore).map((e) => e.fn);
-    expect(separated).toEqual(["rostrumApplyStyles", "rostrumOpenPanel"]);
+    // rostrumDeleteAnalytics gets its OWN separator: the gap isolates the sole
+    // content-deleter from the safe verbs above it (003-F1 misclick guard).
+    expect(separated).toEqual(["rostrumApplyStyles", "rostrumDeleteAnalytics", "rostrumOpenPanel"]);
+  });
+
+  it("orders Analytic-ify after Mark cite and Delete analytics LAST in the Tools group (spec §3)", () => {
+    const fns = CALL_MAP.map((e) => e.fn);
+    // Analytic-ify (safe) sits immediately after Mark cite, no separator.
+    expect(fns.indexOf("rostrumAnalyticify")).toBe(fns.indexOf("rostrumMarkCite") + 1);
+    const analyticify = CALL_MAP.find((e) => e.fn === "rostrumAnalyticify");
+    expect(analyticify?.separatorBefore).toBe(false);
+    // Delete analytics (destructive) is last in Tools — directly before the
+    // panel group's separator-led rostrumOpenPanel — and carries its own
+    // separator before it.
+    const del = CALL_MAP.find((e) => e.fn === "rostrumDeleteAnalytics");
+    expect(del?.separatorBefore).toBe(true);
+    expect(fns.indexOf("rostrumDeleteAnalytics")).toBe(fns.indexOf("rostrumOpenPanel") - 1);
+    expect(fns.indexOf("rostrumDeleteAnalytics")).toBe(fns.indexOf("rostrumAnalyticify") + 1);
   });
 
   it("keeps onOpen and the google.script.run targets out of the menu (label null)", () => {
@@ -355,6 +391,39 @@ describe("receipt dialogs", () => {
     expect(markCiteDialog(0).body).toBe(STRINGS.receipts.markCiteNoop);
     expect(markCiteDialog(0).severity).toBe("plain");
   });
+
+  it("analyticifyDialog is a plain receipt under the shared title (idempotent, never degraded)", () => {
+    const d = analyticifyDialog({ paragraphsStyled: 3 });
+    expect(d).toEqual({
+      dialog: "receipt",
+      title: STRINGS.dialogs.receiptTitle,
+      body: analyticifyReceipt(3),
+      severity: "plain"
+    });
+  });
+
+  it("analyticifyDialog renders the teaching no-op when the cursor was not on a line", () => {
+    const d = analyticifyDialog({ paragraphsStyled: 0 });
+    expect(d.body).toBe(STRINGS.receipts.analyticifyNoop);
+    expect(d.severity).toBe("plain");
+  });
+
+  it("deleteAnalyticsDialog is a plain receipt — a successful delete is a healthy outcome", () => {
+    const r = { paragraphsAffected: 2, runsDeleted: 5 };
+    const d = deleteAnalyticsDialog(r);
+    expect(d).toEqual({
+      dialog: "receipt",
+      title: STRINGS.dialogs.receiptTitle,
+      body: deleteAnalyticsReceipt(r),
+      severity: "plain"
+    });
+  });
+
+  it("deleteAnalyticsDialog degrades the TOCTOU zero to the no-op string (analytics vanished post-confirm)", () => {
+    const d = deleteAnalyticsDialog({ paragraphsAffected: 0, runsDeleted: 0 });
+    expect(d.body).toBe(STRINGS.receipts.deleteAnalyticsNoop);
+    expect(d.severity).toBe("plain");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -414,6 +483,141 @@ describe("countDebateHeadings", () => {
   it("returns zero for empty and junk reads (the zero-friction first run)", () => {
     expect(countDebateHeadings(rawDoc([]))).toBe(0);
     expect(countDebateHeadings("junk")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delete-analytics confirm support (Loop 003 — spec §3 adapterPure.ts).
+// The count drives the destructive confirm dialog, so its single most
+// important property is that it cannot UNDERCOUNT what planDeleteAnalytics
+// then removes — pinned below against the planner on a shared mixed fixture.
+// ---------------------------------------------------------------------------
+
+describe("countAnalyticsParagraphs", () => {
+  // The off-palette navy the analytic-ify tool writes, and its near-miss
+  // sibling (genuine Docs "dark blue 2") that must NEVER count as analytics.
+  const NAVY = ANALYTICS_FG_HEX; // "#0b5396"
+  const NEAR_MISS = "#0b5394";
+
+  /** A mixed document exercising every classification the count must handle:
+   * a wholly-analytics paragraph, a partial-analytics paragraph (analytics +
+   * plain text), analytics living inside a TABLE cell (still counted — delete
+   * processes tables via the partial path), the near-miss color (excluded),
+   * and a paragraph with no analytics at all. */
+  const mixed = (): unknown =>
+    rawDoc([
+      { elements: [{ text: "wholly analytics", fgHex: NAVY }] }, // counts (whole)
+      { elements: [{ text: "plain " }, { text: "analytic tail", fgHex: NAVY }] }, // counts (partial)
+      { elements: [{ text: "no color here" }] }, // excluded
+      { elements: [{ text: "near miss navy", fgHex: NEAR_MISS }] }, // excluded (color mismatch)
+      { inTable: true, elements: [{ text: "tabled analytics", fgHex: NAVY }] } // counts (table partial)
+    ]);
+
+  it("counts every paragraph holding >= 1 analytics run, including partial and table paragraphs", () => {
+    // Whole (0), partial (1), and table (4) paragraphs count; the no-color and
+    // near-miss paragraphs do not — three affected paragraphs total.
+    expect(countAnalyticsParagraphs(mixed())).toBe(3);
+  });
+
+  it("counts a paragraph once even when it holds several analytics runs (paragraph unit, not run)", () => {
+    const raw = rawDoc([
+      { elements: [{ text: "a", fgHex: NAVY }, { text: " mid ", fgHex: NAVY }, { text: "b", fgHex: NAVY }] }
+    ]);
+    expect(countAnalyticsParagraphs(raw)).toBe(1);
+  });
+
+  it("excludes the near-miss color (#0b5394) — detection is EXACT, never approximate (003-S4)", () => {
+    expect(countAnalyticsParagraphs(rawDoc([{ elements: [{ text: "x", fgHex: NEAR_MISS }] }]))).toBe(0);
+  });
+
+  it("is size-independent: analytics is color-only, so any font size still counts", () => {
+    const raw = rawDoc([
+      { elements: [{ text: "tiny", fgHex: NAVY, sizePt: 1 }] },
+      { elements: [{ text: "huge", fgHex: NAVY, sizePt: 26 }] }
+    ]);
+    expect(countAnalyticsParagraphs(raw)).toBe(2);
+  });
+
+  it("returns zero for a doc with no analytics, and for empty/junk reads (no confirm is shown then)", () => {
+    expect(countAnalyticsParagraphs(rawDoc([{ elements: [{ text: "plain" }] }]))).toBe(0);
+    expect(countAnalyticsParagraphs(rawDoc([]))).toBe(0);
+    expect(countAnalyticsParagraphs("junk")).toBe(0);
+    expect(countAnalyticsParagraphs(null)).toBe(0);
+  });
+
+  it("does NOT count a lone navy trailing newline in the final segment (nothing is actually deletable)", () => {
+    // A paragraph that is ONLY an analytics "\n" as the doc's last line has an
+    // analytics run, but its sole deletable range clamps off the unremovable
+    // segment-final newline and empties — so 0 paragraphs are affected and the
+    // confirm must not promise one. A naive per-run count would over-count this
+    // corner. The preceding line is a plain paragraph so the navy newline is
+    // genuinely the final segment. The independent oracle (defined below) models
+    // exactly this clamp, so it is the right cross-check here — agreeing on 0
+    // proves both the oracle AND the production count exclude the lone newline.
+    const raw = rawDoc([{ elements: [{ text: "real line" }] }, { elements: [{ text: "", fgHex: NAVY }] }]);
+    expect(countAnalyticsParagraphs(raw)).toBe(0);
+    expect(countAnalyticsParagraphs(raw)).toBe(expectedAffectedParagraphs(raw));
+  });
+
+  /**
+   * INDEPENDENT oracle for the affected-paragraph count, computed straight off
+   * the parsed fixture geometry — deliberately NOT by calling the planner or
+   * countAnalyticsParagraphs (both route through the same predicate, so using
+   * either as the expectation would be a tautology that can never fail). The
+   * rule mirrors the spec's prose, re-derived here from element indices:
+   *   count a paragraph iff it holds >= 1 element with the analytics foreground,
+   *   MINUS any paragraph whose ONLY analytics span is a lone clamped-away
+   *   segment-final newline (the partial/whole clamp trims a run reaching
+   *   p.endIndex to p.endIndex - 1, so an analytics run that is JUST the trailing
+   *   "\n" leaves nothing deletable).
+   * Because this walks the parsed doc with its OWN arithmetic, it disagrees with
+   * the production code the moment either the predicate or the clamp regresses.
+   */
+  function expectedAffectedParagraphs(raw: unknown): number {
+    const doc = parseDocument(raw);
+    let affected = 0;
+    for (const p of doc.paragraphs) {
+      // Does this paragraph have ANY analytics that survives the final-newline
+      // clamp? An analytics run whose end reaches the paragraph's endIndex has
+      // its newline clamped to p.endIndex - 1; only a run with span left after
+      // that (or any analytics run NOT touching the line end) is deletable. The
+      // segment-final clamp only bites the doc's last paragraph, but trimming a
+      // run that ends exactly at p.endIndex is safe to apply uniformly here:
+      // for a non-final paragraph a non-empty run never starts AT its newline,
+      // so the trim never wrongly empties a real run.
+      const hasDeletableAnalytics = p.elements.some((el) => {
+        if (el.foregroundHex !== ANALYTICS_FG_HEX) return false;
+        const end = el.endIndex === p.endIndex ? p.endIndex - 1 : el.endIndex;
+        return end > el.startIndex;
+      });
+      if (hasDeletableAnalytics) affected++;
+    }
+    return affected;
+  }
+
+  // THE load-bearing cross-module invariant (spec §5): the confirm count must
+  // equal exactly the distinct paragraphs the verb removes, on the SAME
+  // document, so the confirm can never promise a different number of paragraphs
+  // than Delete-analytics deletes. We assert countAnalyticsParagraphs against an
+  // INDEPENDENTLY-derived oracle (above) AND pin the absolute count, so this
+  // guards both the relation and the magnitude without ever comparing the code
+  // to itself.
+  it("equals the independently-derived affected-paragraph count on the same fixture (the confirm-count contract)", () => {
+    const raw = mixed();
+    const counted = countAnalyticsParagraphs(raw);
+    expect(counted).toBe(3); // pin the absolute count too, not just the relation
+    expect(counted).toBe(expectedAffectedParagraphs(raw)); // independent cross-check
+    // And the oracle must also agree with the planner the confirm front-runs —
+    // both sides of the contract reconcile to the SAME independent number.
+    expect(planDeleteAnalytics(parseDocument(raw)).result.paragraphsAffected).toBe(expectedAffectedParagraphs(raw));
+  });
+
+  it("reports zero on an analytics-free doc, matching the independent oracle (no confirm path)", () => {
+    const raw = rawDoc([{ elements: [{ text: "plain" }] }, { elements: [{ text: "more", fgHex: NEAR_MISS }] }]);
+    // Independent oracle (not the planner) confirms the expectation is genuinely
+    // zero — a near-miss color contributes no analytics, so no paragraph counts.
+    expect(expectedAffectedParagraphs(raw)).toBe(0);
+    expect(countAnalyticsParagraphs(raw)).toBe(expectedAffectedParagraphs(raw));
   });
 });
 

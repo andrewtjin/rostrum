@@ -18,10 +18,13 @@
 // falls back to the unknown-error receipt and re-reads the state line).
 
 import {
+  analyticifyDialog,
   buildDiagnostics,
   CALL_MAP,
   classifyBatchError,
+  countAnalyticsParagraphs,
   countDebateHeadings,
+  deleteAnalyticsDialog,
   diagnosticsReadFacts,
   FONT_FLOOR_TRY_SIZES_PT,
   hideDialog,
@@ -38,9 +41,9 @@ import {
   textPickOffsets
 } from "../core/adapterPure";
 import type { FontFloorReading, RoutedDialog, SelectionPick } from "../core/adapterPure";
-import { applyStyles, hide, markCite, showAll } from "../core/controller";
+import { analyticify, applyStyles, deleteAnalytics, hide, markCite, showAll } from "../core/controller";
 import { resolveSettings, serializeSettings } from "../core/settings";
-import { consentPrompt, docStateLine, STRINGS, stylesConfirm } from "../core/strings";
+import { consentPrompt, deleteAnalyticsConfirm, docStateLine, STRINGS, stylesConfirm } from "../core/strings";
 import { RevisionMismatchError } from "../core/types";
 import type { DocsPort, DocsRequest, GShowAllResult } from "../core/types";
 import { dialogHtml, diagnosticsHtml, helpHtml, sidebarHtml } from "./sidebarHtml";
@@ -309,6 +312,70 @@ function extractPicks(selection: GoogleAppsScript.Document.Range, body: GoogleAp
 }
 
 // ---------------------------------------------------------------------------
+// Selection -> touched-paragraph ordinals for Analytic-ify (Loop 003)
+// ---------------------------------------------------------------------------
+
+/**
+ * The flattened-paragraph ordinal of the paragraph that ENCLOSES `el`, or -1.
+ *
+ * Analytic-ify works at WHOLE-PARAGRAPH granularity (unlike Mark cite, which
+ * spans the exact selection), so every touched element collapses to the
+ * ordinal of its containing paragraph: a text run reports its parent
+ * paragraph, a paragraph/list-item reports itself, and a cursor's element
+ * reports whichever ancestor first appears in body.getParagraphs(). Rather
+ * than special-case each element type, ASCEND from `el` through getParent()
+ * and reuse the existing paragraphOrdinalOf (matched by pathKey) at each step
+ * — the first ancestor that is one of the body's flattened paragraphs is the
+ * enclosing paragraph. This is the DRY counterpart to extractPicks' per-type
+ * branching, kept simple because here we only need the ordinal, not offsets.
+ * Returns -1 if no ancestor is a flattened paragraph (an exotic structure the
+ * host tree and the parse disagree on — the pure side drops such ordinals).
+ */
+function enclosingParagraphOrdinal(el: DocTreeNode, body: GoogleAppsScript.Document.Body): number {
+  let cur: DocTreeNode | null = el;
+  while (cur !== null) {
+    const ordinal = paragraphOrdinalOf(cur, body);
+    if (ordinal >= 0) return ordinal;
+    cur = cur.getParent();
+  }
+  return -1;
+}
+
+/**
+ * Lower the host's current selection / bare cursor to the SET of paragraph
+ * ordinals Analytic-ify should style. A range selection contributes every
+ * paragraph any range element touches; a collapsed cursor (no selection)
+ * contributes the single paragraph the cursor sits in (the getCursor
+ * fallback). An empty Set is the legitimate "cursor not on a paragraph" case —
+ * controller.analyticify still runs (zero groups) and the receipt renders the
+ * teaching noop string (spec §3 docsAdapter.ts). A Set dedupes the common case
+ * where several range elements (e.g. multiple text runs) live in one paragraph.
+ */
+function selectedParagraphOrdinals(docApp: GoogleAppsScript.Document.Document): ReadonlySet<number> {
+  const body = docApp.getBody();
+  const ordinals = new Set<number>();
+
+  const selection = docApp.getSelection() as GoogleAppsScript.Document.Range | null;
+  if (selection !== null) {
+    for (const re of selection.getRangeElements()) {
+      const ordinal = enclosingParagraphOrdinal(re.getElement() as unknown as DocTreeNode, body);
+      if (ordinal >= 0) ordinals.add(ordinal);
+    }
+    return ordinals;
+  }
+
+  // No range selection: a collapsed cursor still names exactly one line
+  // (getCursor is null only when neither a selection nor a cursor exists — a
+  // doc with no editable insertion point — which lowers to the empty Set).
+  const cursor = docApp.getCursor();
+  if (cursor !== null) {
+    const ordinal = enclosingParagraphOrdinal(cursor.getElement() as unknown as DocTreeNode, body);
+    if (ordinal >= 0) ordinals.add(ordinal);
+  }
+  return ordinals;
+}
+
+// ---------------------------------------------------------------------------
 // Public entry points — one exported function per CALL_MAP entry (the build's
 // shims delegate to these through the Rostrum bundle global).
 // ---------------------------------------------------------------------------
@@ -348,6 +415,47 @@ export async function rostrumMarkCite(): Promise<void> {
     const selection = docApp.getSelection() as GoogleAppsScript.Document.Range | null;
     const picks = selection === null ? [] : extractPicks(selection, docApp.getBody());
     return markCiteDialog(await markCite(PORT, picks));
+  });
+}
+
+/**
+ * Analytic-ify (Loop 003): turn the touched paragraphs navy 14pt. The one host
+ * fact pure code cannot reach is the selection / bare cursor, lowered here to a
+ * Set of paragraph ordinals; core's analyticify runs the revision-guarded apply
+ * with the SAME silent reconcile the other verbs have. Unlike Mark cite this is
+ * whole-paragraph, so the lowering collapses every touched element to its
+ * enclosing paragraph ordinal. An empty Set is NOT an error: the verb still runs
+ * (zero groups) and analyticifyDialog renders the teaching noop receipt.
+ */
+export async function rostrumAnalyticify(): Promise<void> {
+  await menuVerb(async () => {
+    const ordinals = selectedParagraphOrdinals(DocumentApp.getActiveDocument());
+    return analyticifyDialog(await analyticify(PORT, ordinals));
+  });
+}
+
+/**
+ * Delete analytics (Loop 003) — the SOLE content-deleter, so it asks FIRST.
+ * Mirrors runApplyStyles' confirm pattern: a deliberate count-read precedes the
+ * verb's own fetch so the confirm describes the doc the user is agreeing about.
+ * Zero analytics -> the no-op receipt with NO confirm (nothing to warn about);
+ * else a native OK/CANCEL alert stating the count, OK runs the destructive verb,
+ * CANCEL returns null (menuVerb shows nothing). The count -> verb gap is a TOCTOU
+ * window: if analytics vanished between the two reads the verb plans zero and
+ * deleteAnalyticsDialog renders the no-op receipt gracefully (spec §3).
+ */
+export async function rostrumDeleteAnalytics(): Promise<void> {
+  await menuVerb(async () => {
+    const count = countAnalyticsParagraphs(await PORT.fetchDocument());
+    if (count === 0) return deleteAnalyticsDialog(await deleteAnalytics(PORT));
+    const ui = DocumentApp.getUi();
+    const answer = ui.alert(
+      STRINGS.dialogs.deleteAnalyticsConfirmTitle,
+      deleteAnalyticsConfirm(count),
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (answer !== ui.Button.OK) return null;
+    return deleteAnalyticsDialog(await deleteAnalytics(PORT));
   });
 }
 

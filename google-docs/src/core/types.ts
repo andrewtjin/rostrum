@@ -61,6 +61,14 @@ export interface GElement {
    * web-pasted evidence carries near-white shading that must NOT keep.
    */
   backgroundHex: string | null;
+  /**
+   * Lower-case "#rrggbb" FOREGROUND (text) color, or null when inheriting. Read
+   * only so the analytics keeper can recognize the off-palette navy
+   * (constants.ANALYTICS_FG_HEX) that the analytic-ify tool writes — every other
+   * keeper/hide/styles path ignores it (Loop 003). Decoded by the shared
+   * color.decodeOptionalColor, so foreground and background read identically.
+   */
+  foregroundHex: string | null;
 }
 
 /** One body paragraph in document order. */
@@ -124,6 +132,11 @@ export interface GDoc {
 export interface DocsTextStyle {
   fontSize?: { magnitude: number; unit: "PT" };
   bold?: boolean;
+  /** Foreground (text) color in the Docs OptionalColor wire shape, built by
+   * color.encodeRgbColor (zero channels omitted). Written ONLY by the
+   * analytic-ify pass (Loop 003); paired with "foregroundColor" in the field
+   * mask. */
+  foregroundColor?: { color: { rgbColor: { red?: number; green?: number; blue?: number } } };
 }
 
 export interface UpdateTextStyleRequest {
@@ -142,6 +155,23 @@ export interface CreateNamedRangeRequest {
 
 export interface DeleteNamedRangeRequest {
   deleteNamedRange: { namedRangeId: string };
+}
+
+/**
+ * The ONE content-mutating request in the engine (Loop 003). Emitted SOLELY by
+ * the Delete-analytics planner (core/deleteAnalytics.ts) — never by any
+ * reconcile/style verb, which keeps the standing "Hide/Show All/Apply/Mark-cite
+ * never insert, delete, or reorder content" invariant (case 001-F1) intact for
+ * those verbs and makes Delete analytics the single, audited exception (003-F1).
+ * Because deleteContentRange SHIFTS subsequent indexes, ranges MUST be emitted
+ * in strictly DESCENDING start order (intra-batch and across batches): a Docs
+ * batchUpdate applies its requests sequentially, so a lower-index delete done
+ * first would invalidate every higher index after it. This is LOAD-BEARING
+ * order, in deliberate contrast to the other planners where descending emission
+ * is a non-load-bearing convention.
+ */
+export interface DeleteContentRangeRequest {
+  deleteContentRange: { range: GRange };
 }
 
 export interface DocsParagraphStyle {
@@ -185,6 +215,7 @@ export type DocsRequest =
   | UpdateTextStyleRequest
   | CreateNamedRangeRequest
   | DeleteNamedRangeRequest
+  | DeleteContentRangeRequest
   | UpdateParagraphStyleRequest
   | UpdateNamedStyleRequest;
 
@@ -348,7 +379,7 @@ export class RevisionMismatchError extends Error {
  * STRINGS entry must be truthful about what already applied (plan A11.iv). */
 export class PartialApplyError extends Error {
   constructor(
-    public readonly verb: "hide" | "showAll" | "applyStyles",
+    public readonly verb: "hide" | "showAll" | "applyStyles" | "analyticify" | "deleteAnalytics",
     public readonly appliedChunks: number,
     public readonly totalChunks: number
   ) {
@@ -359,7 +390,7 @@ export class PartialApplyError extends Error {
 
 /** All re-plan retries exhausted with nothing applied — doc untouched. */
 export class RevisionConflictError extends Error {
-  constructor(public readonly verb: "hide" | "showAll" | "applyStyles") {
+  constructor(public readonly verb: "hide" | "showAll" | "applyStyles" | "analyticify" | "deleteAnalytics") {
     super(`${verb}: revision conflict after retries`);
     this.name = "RevisionConflictError";
   }
