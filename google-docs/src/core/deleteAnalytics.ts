@@ -11,17 +11,27 @@
 // "analytics" is). Two granularities, decided per paragraph:
 //
 //   * WHOLLY-ANALYTICS paragraph (>= 1 analytics text run, NO non-analytics
-//     text run, NO kind:"other" element, NOT inTable) -> delete the WHOLE
-//     paragraph range [startIndex, endIndex) so the trailing newline goes too
-//     and the now-empty line COLLAPSES (Docs merges it into the next). The one
-//     exception is the segment-final paragraph: the API refuses to delete the
-//     doc-final newline, so the clamp leaves [startIndex, endIndex - 1) and an
-//     empty line remains (documented, unavoidable).
+//     text run, NO kind:"other" element, NOT inTable) -> delete the paragraph
+//     range. Its trailing newline (the paragraph mark) is removed ONLY when the
+//     line can safely COLLAPSE into an immediately-adjacent following body
+//     paragraph; otherwise the newline is PRESERVED and only the text is removed
+//     (an empty line remains). Deleting a paragraph mark is legal solely as a
+//     paragraph MERGE: the Docs API returns 400 "cannot delete the requested
+//     range" for deleting "the last newline of a Body/TableCell" and "the
+//     newline before a Table/TableOfContents/SectionBreak" (wet-confirmed
+//     2026-06-13, requests[8] — a wholly-analytics line sitting just before a
+//     table). canCollapseInto() detects ALL of those structural cases with ONE
+//     uniform test (the next paragraph is absent or at an index GAP, or is a
+//     table cell), so the planner never has to decode WHICH element follows. The
+//     analytics text is fully removed either way (the privacy goal); only the
+//     blank-line cleanup differs.
 //   * EVERY OTHER paragraph (partial analytics, OR any table paragraph) ->
-//     delete only the analytics RUN ranges, never the whole line. A partial
-//     line keeps its non-analytics text; a table line keeps its structure
-//     (tables ARE processed for the privacy purpose, but ONLY the partial path
-//     — a whole-paragraph/newline collapse would damage the table grid).
+//     delete only the analytics RUN ranges, never the whole line, each trimmed
+//     off its paragraph mark. A partial line keeps its non-analytics text; a
+//     table line keeps its structure (tables ARE processed for the privacy
+//     purpose, but ONLY this partial path — deleting "content within a table
+//     cell" is the one table edit the API permits; a whole-line collapse would
+//     hit the "newline before / last newline of a cell" 400s).
 //
 // ORDER IS LOAD-BEARING (the reason this planner is a plan-review correctness
 // BLOCKER zone): see planDeleteAnalytics. Unlike the four style/reconcile verbs
@@ -72,21 +82,31 @@ interface Candidate {
 }
 
 /**
- * Clamp a candidate's END off the segment-final newline — the SAME
- * isLastInSegment predicate the styles/restore/cite emitters all apply (planner
- * styleEnd, styles.clampedParagraphRange / headingTextRanges, restore
- * sentinelSpans, keepers.detectCiteLeads): the API rejects styling OR deleting
- * the doc-final newline (plan D6), so any range reaching the final paragraph's
- * endIndex stops one short. styleEnd itself is private to planner.ts and shaped
- * around its Atom type, so this is a deliberate LOCAL mirror of the one-line
- * predicate rather than an import (the spec sanctions a local mirror when
- * extraction across the parallel-edited planner is risky). Returns null when
- * the clamp empties the range (a lone segment-final newline) — a zero-length
- * deleteContentRange would 400, and there is nothing left to remove anyway.
+ * May a WHOLLY-analytics paragraph delete its trailing newline (collapsing the
+ * now-empty line into the next), or must it preserve it (leaving an empty line)?
+ *
+ * Deleting a paragraph mark is legal ONLY as a paragraph MERGE into an
+ * immediately-adjacent following paragraph. The Docs API returns a 400 ("cannot
+ * delete the requested range") for deleting "the last newline of a
+ * Body/TableCell" and "the newline before a Table/TableOfContents/SectionBreak"
+ * (the documented invalid-delete list; wet-confirmed 2026-06-13, requests[8]).
+ * Every one of those cases — and the doc end — shares a single OBSERVABLE
+ * signature in the parsed view: the next paragraph is either ABSENT (segment
+ * end) or begins at an INDEX GAP after this paragraph's endIndex (a table start,
+ * section break, table-of-contents or equation consumes index space that the
+ * flattened paragraph list skips over), or is itself a table cell. So one
+ * uniform test covers every structural case WITHOUT the planner decoding what
+ * follows: collapse iff a next paragraph exists, begins EXACTLY at this
+ * paragraph's endIndex (no gap), and is a body paragraph (not in a table). The
+ * `!next.inTable` guard is what makes the index-flat test harness exercise this
+ * too — in real Docs a table always sits behind a structural gap, but the flat
+ * model has none, so the explicit table check keeps both honest. When the test
+ * fails the caller preserves the newline; the analytics TEXT is still fully
+ * removed (the privacy goal), only an empty line is left where a collapse would
+ * have closed up.
  */
-function clampFinalNewline(p: GParagraph, range: GRange): GRange | null {
-  const endIndex = p.isLastInSegment && range.endIndex === p.endIndex ? range.endIndex - 1 : range.endIndex;
-  return endIndex > range.startIndex ? { startIndex: range.startIndex, endIndex } : null;
+function canCollapseInto(p: GParagraph, next: GParagraph | undefined): boolean {
+  return next !== undefined && next.startIndex === p.endIndex && !next.inTable;
 }
 
 /**
@@ -129,15 +149,26 @@ function isWhollyAnalytics(p: GParagraph): boolean {
  * non-analytics text into the next paragraph, and (b) destroy a table cell's
  * structural newline (damaging the grid / forcing a torn mid-batch delete the
  * API rejects). So a partial-path run whose end reaches p.endIndex is trimmed to
- * p.endIndex - 1 REGARDLESS of isLastInSegment — the only place a trailing
- * newline is ever removed is the deliberate wholly-analytics line collapse
- * above. A run that is ONLY the trailing newline (nothing left after the trim)
- * is dropped (a zero-length deleteContentRange would 400, and there is no text
- * to remove). A paragraph with no analytics at all yields nothing.
+ * p.endIndex - 1 — the partial path NEVER removes a paragraph mark. A run that
+ * is ONLY the trailing newline (nothing left after the trim) is dropped (a
+ * zero-length deleteContentRange would 400, and there is no text to remove). A
+ * paragraph with no analytics at all yields nothing.
+ *
+ * WHOLLY path (003-F8 fix): the paragraph mark is removed (collapsing the line)
+ * ONLY when canCollapseInto(p, next) — a safe merge into an adjacent body
+ * paragraph. Otherwise the mark is preserved exactly like the partial path,
+ * because deleting a newline before a table / section break, or the
+ * segment-final newline, is a 400 (the wet finding). `next` is the following
+ * paragraph in document order (undefined past the last).
  */
-function paragraphCandidates(p: GParagraph): Candidate[] {
+function paragraphCandidates(p: GParagraph, next: GParagraph | undefined): Candidate[] {
   if (isWhollyAnalytics(p)) {
-    return [{ startIndex: p.startIndex, endIndex: p.endIndex, paragraphIndex: p.index }];
+    // Collapse (include the paragraph mark) only when structurally safe; else
+    // preserve the newline and remove just the run text (an empty line remains).
+    const endIndex = canCollapseInto(p, next) ? p.endIndex : p.endIndex - 1;
+    // A lone-newline analytics paragraph trims to empty — drop it (a zero-length
+    // deleteContentRange would 400, and there is no text left to remove).
+    return endIndex > p.startIndex ? [{ startIndex: p.startIndex, endIndex, paragraphIndex: p.index }] : [];
   }
   const out: Candidate[] = [];
   for (const el of p.elements) {
@@ -169,20 +200,21 @@ function deleteRequest(range: GRange): DeleteContentRangeRequest {
  *
  * THE ORDER IS LOAD-BEARING — the three phases run in exactly this sequence:
  *
- *   1. COLLECT + CLAMP each candidate independently (isLastInSegment-only): the
- *      segment-final newline is unremovable, so a range that reaches it is
- *      trimmed BEFORE anything else looks at adjacency. Clamping first is what
- *      makes phase 2 correct — a whole-analytics FINAL paragraph (clamped to
- *      stop one short of its newline) must NOT merge with an interior line that
- *      still owns the newline between them, because that newline is no longer in
- *      any range. Coalescing before clamping would fuse across the gap and
- *      delete the wrong span.
- *   2. COALESCE only ranges STILL TOUCHING after the clamp (range[i].end ===
- *      range[i+1].start in ascending order): two adjacent WHOLE-analytics
- *      paragraphs share a boundary (one's end is the next's start) and fold into
- *      a single delete; a clamped final line leaves a one-index gap and stays
- *      separate. Fewer, larger ranges are equivalent to many touching ones but
- *      shift fewer indexes and read cleaner in a wire dump.
+ *   1. COLLECT each candidate, deciding its newline's fate AS IT IS BUILT
+ *      (paragraphCandidates + canCollapseInto): a wholly-analytics line that
+ *      cannot safely collapse (segment end, or a table / section break next)
+ *      stops one short of its paragraph mark, exactly like a partial run. Fixing
+ *      each range's end here is what makes phase 2 correct — a preserved-newline
+ *      FINAL line must NOT merge with an interior line that still owns the
+ *      newline between them, because that newline is no longer in any range.
+ *      Deciding adjacency before coalescing would fuse across the gap and delete
+ *      the wrong span.
+ *   2. COALESCE only ranges STILL TOUCHING (range[i].end === range[i+1].start in
+ *      ascending order): two adjacent WHOLE-analytics paragraphs that both
+ *      collapse share a boundary (one's end is the next's start) and fold into a
+ *      single delete; a preserved-newline final line leaves a one-index gap and
+ *      stays separate. Fewer, larger ranges are equivalent to many touching ones
+ *      but shift fewer indexes and read cleaner in a wire dump.
  *   3. SORT DESCENDING by startIndex and emit one RequestGroup per range. This
  *      descending order is LOAD-BEARING, in deliberate contrast to the four
  *      convention-order verbs: a Docs batchUpdate applies its requests
@@ -200,28 +232,24 @@ function deleteRequest(range: GRange): DeleteContentRangeRequest {
  * unit); runsDeleted counts the emitted ranges.
  */
 export function planDeleteAnalytics(doc: GDoc): DeleteAnalyticsPlan {
-  // --- Phase 1: collect every candidate, then clamp each independently. ---
+  // --- Phase 1: collect every candidate, each already shaped (newline kept or
+  // dropped) by paragraphCandidates/canCollapseInto. ---
   // Ascending document order falls out of iterating paragraphs/elements in
   // order, which phase 2's adjacency merge relies on (it walks left to right).
-  const clamped: Candidate[] = [];
-  for (const p of doc.paragraphs) {
-    for (const c of paragraphCandidates(p)) {
-      const range = clampFinalNewline(p, { startIndex: c.startIndex, endIndex: c.endIndex });
-      // A clamp that empties the range (a lone segment-final newline) drops the
-      // candidate entirely — nothing to delete, and a zero-length range 400s.
-      if (range !== null) {
-        clamped.push({ startIndex: range.startIndex, endIndex: range.endIndex, paragraphIndex: c.paragraphIndex });
-      }
-    }
+  // The NEXT paragraph (doc.paragraphs[i + 1], undefined past the last) is
+  // handed in so the wholly-analytics collapse decision can see its neighbor.
+  const candidates: Candidate[] = [];
+  for (let i = 0; i < doc.paragraphs.length; i++) {
+    for (const c of paragraphCandidates(doc.paragraphs[i], doc.paragraphs[i + 1])) candidates.push(c);
   }
 
-  // --- Phase 2: coalesce only ranges STILL TOUCHING after the clamp. ---
+  // --- Phase 2: coalesce only ranges STILL TOUCHING. ---
   // Candidates are already in ascending start order (document order), so a
   // single forward sweep merges runs whose end meets the next start. The
   // contributing-paragraph set rides along so a merged range still counts every
   // paragraph it swallowed (two coalesced whole-analytics lines = 2 affected).
   const merged: { startIndex: number; endIndex: number; paragraphs: Set<number> }[] = [];
-  for (const c of clamped) {
+  for (const c of candidates) {
     const last = merged[merged.length - 1];
     if (last !== undefined && last.endIndex === c.startIndex) {
       last.endIndex = c.endIndex;

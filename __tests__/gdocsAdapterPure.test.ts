@@ -666,10 +666,15 @@ describe("planMarkCiteFromPicks", () => {
       { startIndex: 5, endIndex: 11 },
       { startIndex: 12, endIndex: 21 }
     ]);
-    // The ONE emission shape shared with Apply-styles' repair (CITE_PT bold).
+    // The ONE emission shape shared with Apply-styles' repair: default-black
+    // foreground (003-F9, clears any analytics navy) + bold + CITE_PT.
     for (const r of requests) {
-      expect(r.updateTextStyle.textStyle).toEqual({ bold: true, fontSize: { magnitude: CITE_PT, unit: "PT" } });
-      expect(r.updateTextStyle.fields).toBe("bold,fontSize");
+      expect(r.updateTextStyle.textStyle).toEqual({
+        foregroundColor: { color: { rgbColor: {} } },
+        bold: true,
+        fontSize: { magnitude: CITE_PT, unit: "PT" }
+      });
+      expect(r.updateTextStyle.fields).toBe("foregroundColor,bold,fontSize");
     }
     expect(plan.citedParagraphs).toBe(1);
     expect(plan.revisionId).toBe("rev-1");

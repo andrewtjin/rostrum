@@ -423,7 +423,7 @@ describe("planApplyStyles — direct-spacing clear (imports carry direct spacing
 // ---------------------------------------------------------------------------
 
 describe("planApplyStyles — cite repair flows from detectCiteLeads", () => {
-  it("writes the convention (bold CITE_PT, fields 'bold,fontSize') onto the exact lead ranges", () => {
+  it("writes the convention (default-black, bold, CITE_PT, fields 'foregroundColor,bold,fontSize') onto the exact lead ranges", () => {
     const doc = buildDoc([para("Tag", "HEADING_4"), nativeCite(), para("after")]);
     const leads = detectCiteLeads(doc, cfg());
     expect(leads).toEqual([r(5, 21)]); // precondition: the detection itself
@@ -432,8 +432,11 @@ describe("planApplyStyles — cite repair flows from detectCiteLeads", () => {
     expect(citeWrites).toEqual([
       {
         range: r(5, 21),
-        textStyle: { bold: true, fontSize: { magnitude: CITE_PT, unit: "PT" } },
-        fields: "bold,fontSize"
+        // 003-F9: the cite convention forces foreground to default-black (proto3
+        // empty rgbColor {}) so marking analytics text as a cite CLEARS the navy
+        // signature — the cite renders black and survives Delete analytics.
+        textStyle: { foregroundColor: { color: { rgbColor: {} } }, bold: true, fontSize: { magnitude: CITE_PT, unit: "PT" } },
+        fields: "foregroundColor,bold,fontSize"
       }
     ]);
     expect(plan.counts.citesRepaired).toBe(1);
@@ -678,14 +681,16 @@ describe("planApplyStyles — zero-heading docs and idempotent re-apply", () => 
 // ---------------------------------------------------------------------------
 
 describe("planMarkCite — the cite convention over a selection", () => {
-  it("emits exactly one bold+CITE_PT write over the given range", () => {
+  it("emits exactly one default-black+bold+CITE_PT write over the given range", () => {
     expect(planMarkCite(r(5, 20))).toEqual({
       requests: [
         {
           updateTextStyle: {
             range: { startIndex: 5, endIndex: 20 },
-            textStyle: { bold: true, fontSize: { magnitude: CITE_PT, unit: "PT" } },
-            fields: "bold,fontSize"
+            // 003-F9: foreground default-black clears any analytics navy so a
+            // cited selection turns black and is no longer swept by Delete analytics.
+            textStyle: { foregroundColor: { color: { rgbColor: {} } }, bold: true, fontSize: { magnitude: CITE_PT, unit: "PT" } },
+            fields: "foregroundColor,bold,fontSize"
           }
         }
       ]

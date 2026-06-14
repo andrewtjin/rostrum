@@ -59,7 +59,7 @@ works; see *Privacy* below.) Then:
 
 Rostrum changes **font size** (to hide/show), **foreground color and font size**
 (to mark analytics), and **named‑style definitions** (to apply debate styles).
-The one content exception: **Delete analytics** removes the analytics text you
+The one content exception: **Delete analytics** removes the Analytics text you
 styled — and only that text. Rostrum never otherwise inserts, deletes, or reorders
 any text character.
 
@@ -165,8 +165,10 @@ anything first — just put your cursor on the line.
 and highlighted text. Show All does not affect it.
 
 **Delete analytics is destructive.** Rostrum → **Delete analytics…** removes the
-analytics text from the document (Ctrl+Z undoes the whole batch in one step; Show All
-does not — analytics was never hidden). It prompts with a count before doing anything.
+Analytics text from the document. To bring it back, use **File → Version history**;
+Show All does not (Analytics was never hidden, and on the live host a server‑side
+delete does not enter the Ctrl+Z undo stack). It prompts with a count before doing
+anything.
 
 ---
 

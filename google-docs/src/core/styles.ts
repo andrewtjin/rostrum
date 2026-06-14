@@ -272,18 +272,29 @@ function spacingClearRequest(range: GRange): UpdateParagraphStyleRequest {
 }
 
 /**
- * The cite convention (bold CITE_PT) over one range — the SINGLE emission
- * shape shared by Apply-styles' bulk repair and Mark-cite, so the two paths
- * can never drift (the Mark-cite/keeper split was a named plan-review
- * finding). The range is copied, never aliased, so callers' objects stay
- * theirs.
+ * The cite convention (default-black, bold, CITE_PT) over one range — the
+ * SINGLE emission shape shared by Apply-styles' bulk repair and Mark-cite, so
+ * the two paths can never drift (the Mark-cite/keeper split was a named
+ * plan-review finding). The range is copied, never aliased, so callers' objects
+ * stay theirs.
+ *
+ * FOREGROUND IS LOAD-BEARING (003-F9 wet finding), not cosmetic: analytics is
+ * recognized SOLELY by its off-palette navy foreground (keepers.isAnalytics),
+ * so marking analytics text as a cite must CLEAR that navy — otherwise the cite
+ * (a) still renders navy ("the cite doesn't turn black") and (b) still matches
+ * the analytics signature and is wrongly swept by Delete analytics. Writing the
+ * foreground to default-black is also the canonical cite look (debate cites are
+ * black). encodeRgbColor("#000000") is the proto3 empty rgbColor {} = Docs'
+ * default text color, so a cited run reads back foregroundHex "#000000"
+ * (!== ANALYTICS_FG_HEX) and is no longer analytics. The same write over an
+ * already-black cite is a server no-op, so the bulk repair stays idempotent.
  */
 function citeConventionRequest(range: GRange): UpdateTextStyleRequest {
   return {
     updateTextStyle: {
       range: { startIndex: range.startIndex, endIndex: range.endIndex },
-      textStyle: { bold: true, fontSize: pt(CITE_PT) },
-      fields: "bold,fontSize"
+      textStyle: { foregroundColor: encodeRgbColor("#000000"), bold: true, fontSize: pt(CITE_PT) },
+      fields: "foregroundColor,bold,fontSize"
     }
   };
 }

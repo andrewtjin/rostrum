@@ -20,6 +20,7 @@
 import { parseDocument } from "../google-docs/src/core/parse";
 import { ANALYTICS_FG_HEX, ANALYTICS_PT } from "../google-docs/src/core/constants";
 import { planDeleteAnalytics } from "../google-docs/src/core/deleteAnalytics";
+import { planMarkCite } from "../google-docs/src/core/styles";
 import { DocsRequest, GDoc, RequestGroup } from "../google-docs/src/core/types";
 import { FakeDocs } from "./fakeDocs";
 import { buildDoc, GeSpec, GpSpec, para } from "./gdocsBuilders";
@@ -281,6 +282,24 @@ describe("planDeleteAnalytics: clamp THEN coalesce THEN sort descending (plan §
     expect(result.paragraphsAffected).toBe(2);
     expect(result.runsDeleted).toBe(2);
   });
+
+  it("a wholly-analytics line before a STRUCTURAL GAP (e.g. a section break) preserves its newline (003-F8)", () => {
+    // The wet crash (requests[8]) was deleting "the newline before a Table /
+    // SectionBreak" — a documented 400. A section break / TOC / equation
+    // occupies index space the flattened paragraph list skips, so the next
+    // paragraph starts at a GAP after this line's endIndex. canCollapseInto
+    // requires next.startIndex === p.endIndex (true adjacency), so the gap forces
+    // the newline to be PRESERVED (text removed, empty line left). We synthesize
+    // the gap by starting the trailing paragraph two indexes late — exactly how a
+    // dropped section break shows up in the parsed view.
+    const base = buildDoc([{ elements: [navy("SECRET")] }, para("body")]);
+    // p0 "SECRET\n" = [1,8); p1 "body\n" would be [8,13). Open a 2-index gap
+    // before p1 (a section break) so p1 starts at 10 — NOT adjacent to p0's end.
+    const gapped: GDoc = { ...base, paragraphs: [base.paragraphs[0], { ...base.paragraphs[1], startIndex: 10 }] };
+    // The newline at index 7 is preserved: the range stops at 7, not 8. (The
+    // adjacent/contiguous case collapses to [1,8) — the NON-final test up top.)
+    expect(deleteRanges(planDeleteAnalytics(gapped).groups)).toEqual([{ startIndex: 1, endIndex: 7 }]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -441,5 +460,50 @@ describe("planDeleteAnalytics round trip: the doc ends with EXACTLY analytics re
     const corrupted = await view(fake);
 
     expect(bodyText(corrupted)).not.toBe(bodyText(correct));
+  });
+
+  it("a wholly-analytics body line BEFORE a table preserves its newline — no collapse across the table boundary (003-F8)", async () => {
+    // The live crash (requests[8]): a wholly-navy body paragraph sitting just
+    // before a table. Collapsing it would delete "the newline before a Table",
+    // which the Docs API rejects with a 400 ("cannot delete the requested
+    // range"). canCollapseInto sees the next paragraph is a table cell
+    // (!next.inTable) and PRESERVES the newline, so the body line is emptied
+    // (text gone, the privacy goal) while its paragraph mark — and the whole
+    // table — survive. The flat-index harness cannot model the real structural
+    // gap, so the explicit table check is what makes the fix observable here.
+    const after = await roundTrip([
+      { elements: [navy("SECRET")] }, // wholly-analytics body line, immediately before the table
+      { inTable: true, elements: [{ text: "cell" }] }
+    ]);
+    expect(after.paragraphs).toHaveLength(2); // newline preserved (pre-fix: 1 — it collapsed into the table)
+    expect(after.paragraphs[1].inTable).toBe(true); // the table cell is untouched
+    expect(bodyText(after)).toBe("¶|cell¶"); // emptied body line + intact cell
+  });
+
+  it("Mark cite on analytics text clears the navy → it is no longer swept by Delete analytics (003-F9)", async () => {
+    // The wet finding: marking analytics text as a cite left it navy, so the
+    // cite (a) didn't turn black and (b) was wrongly removed by the next Delete
+    // analytics. The shared cite convention now forces foreground to
+    // default-black, clearing the analytics signature. Here "SECRET" is
+    // analytics; after Mark cite over it, Delete analytics finds nothing and the
+    // text stays.
+    const fake = new FakeDocs([{ elements: [navy("SECRET"), { text: " keep" }] }, para("body")]);
+    const before = await view(fake);
+    expect(before.paragraphs[0].elements[0].foregroundHex).toBe(ANALYTICS_FG_HEX); // precondition: navy
+
+    // Mark-cite the navy run [1,7) ("SECRET") — the cite convention write.
+    const mark = planMarkCite({ startIndex: 1, endIndex: 7 });
+    await fake.applyBatch(mark.requests, before.revisionId);
+
+    const cited = await view(fake);
+    // It turned default-black (#000000), not navy — and so is NOT analytics now.
+    expect(cited.paragraphs[0].elements[0].foregroundHex).toBe("#000000");
+
+    // Delete analytics removes NOTHING (no analytics signature remains)…
+    const plan = planDeleteAnalytics(cited);
+    expect(plan.groups).toEqual([]);
+    expect(plan.result.paragraphsAffected).toBe(0);
+    // …and the cited text is fully intact.
+    expect(bodyText(cited)).toBe("SECRET keep¶|body¶");
   });
 });

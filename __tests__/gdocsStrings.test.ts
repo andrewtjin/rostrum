@@ -303,9 +303,12 @@ describe("deck completeness (plan D11 / frontendDraft Steps 3-5)", () => {
     // (b) it scopes content deletion: Delete analytics is the ONLY content
     //     remover, and only the analytics text the user styled:
     expect(line).toMatch(/only .*removes content/i);
-    // (c) it disambiguates the hide/show loop: Ctrl+Z undoes the delete, but
-    //     Show All (which only un-shrinks) does NOT bring deleted content back.
-    expect(line).toContain("Ctrl+Z");
+    // (c) it names the real recovery path (003-F10: Ctrl+Z does NOT undo a
+    //     server-side delete on the live host) and disambiguates the hide/show
+    //     loop — File > Version history recovers; Show All (which only
+    //     un-shrinks) does NOT bring deleted content back.
+    expect(line).toContain("Version history");
+    expect(line).not.toContain("Ctrl+Z"); // the false promise was removed
     expect(line).toContain("Show All does not");
   });
 
@@ -317,7 +320,7 @@ describe("deck completeness (plan D11 / frontendDraft Steps 3-5)", () => {
     // on the two safety clauses (not the whole string) so a reword still passes
     // as long as the scoped-deletion fact and the Show All caveat reach the UI.
     const html = helpHtml();
-    expect(html).toContain("only the analytics text you styled");
+    expect(html).toContain("only the Analytics text you styled");
     expect(html).toContain("Show All does not");
   });
 
@@ -766,15 +769,15 @@ describe("errorMessage", () => {
 
 describe("analyticifyReceipt", () => {
   it("names the unit (paragraph) and the applied attributes (navy, 14pt) for clarity", () => {
-    expect(analyticifyReceipt(3)).toBe("Made 3 paragraphs analytics (navy, 14pt).");
+    expect(analyticifyReceipt(3)).toBe("Made 3 paragraphs Analytics (navy, 14pt).");
   });
 
   it("keeps the singular grammatical", () => {
-    expect(analyticifyReceipt(1)).toBe("Made 1 paragraph analytics (navy, 14pt).");
+    expect(analyticifyReceipt(1)).toBe("Made 1 paragraph Analytics (navy, 14pt).");
   });
 
   it("groups thousands", () => {
-    expect(analyticifyReceipt(1200)).toBe("Made 1,200 paragraphs analytics (navy, 14pt).");
+    expect(analyticifyReceipt(1200)).toBe("Made 1,200 paragraphs Analytics (navy, 14pt).");
   });
 
   it("returns the noop teaching string when n=0 (empty selection / cursor not on a paragraph)", () => {
@@ -788,13 +791,13 @@ describe("analyticifyReceipt", () => {
 describe("deleteAnalyticsReceipt", () => {
   it("counts paragraphs affected (primary) and ranges removed (secondary)", () => {
     expect(deleteAnalyticsReceipt({ paragraphsAffected: 3, runsDeleted: 5 })).toBe(
-      "Deleted analytics text in 3 paragraphs (5 ranges removed)."
+      "Deleted Analytics text in 3 paragraphs (5 ranges removed)."
     );
   });
 
   it("keeps the paragraph singular grammatical", () => {
     expect(deleteAnalyticsReceipt({ paragraphsAffected: 1, runsDeleted: 1 })).toBe(
-      "Deleted analytics text in 1 paragraph (1 range removed)."
+      "Deleted Analytics text in 1 paragraph (1 range removed)."
     );
   });
 
@@ -802,13 +805,13 @@ describe("deleteAnalyticsReceipt", () => {
     // Degenerate but grammatically correct: e.g. two paragraphs merged into one
     // contiguous range after coalescing.
     expect(deleteAnalyticsReceipt({ paragraphsAffected: 2, runsDeleted: 1 })).toBe(
-      "Deleted analytics text in 2 paragraphs (1 range removed)."
+      "Deleted Analytics text in 2 paragraphs (1 range removed)."
     );
   });
 
   it("groups thousands in both counts", () => {
     expect(deleteAnalyticsReceipt({ paragraphsAffected: 1200, runsDeleted: 2400 })).toBe(
-      "Deleted analytics text in 1,200 paragraphs (2,400 ranges removed)."
+      "Deleted Analytics text in 1,200 paragraphs (2,400 ranges removed)."
     );
   });
 
@@ -823,21 +826,21 @@ describe("deleteAnalyticsReceipt", () => {
 });
 
 describe("deleteAnalyticsConfirm", () => {
-  it("states the paragraph count and names both recovery paths (Ctrl+Z and NOT Show All)", () => {
+  it("states the paragraph count and names both recovery paths (File > Version history and NOT Show All)", () => {
     expect(deleteAnalyticsConfirm(5)).toBe(
-      "This removes the analytics text in 5 paragraphs. Undo with Ctrl+Z; Show All will not bring it back."
+      "This removes the Analytics text in 5 paragraphs. To recover it, use File > Version history — Show All will not bring it back."
     );
   });
 
   it("keeps the singular grammatical", () => {
     expect(deleteAnalyticsConfirm(1)).toBe(
-      "This removes the analytics text in 1 paragraph. Undo with Ctrl+Z; Show All will not bring it back."
+      "This removes the Analytics text in 1 paragraph. To recover it, use File > Version history — Show All will not bring it back."
     );
   });
 
   it("groups thousands", () => {
     expect(deleteAnalyticsConfirm(1200)).toBe(
-      "This removes the analytics text in 1,200 paragraphs. Undo with Ctrl+Z; Show All will not bring it back."
+      "This removes the Analytics text in 1,200 paragraphs. To recover it, use File > Version history — Show All will not bring it back."
     );
   });
 
@@ -853,7 +856,11 @@ describe("deleteAnalyticsConfirm", () => {
     expect(deleteAnalyticsConfirm(2)).toContain("Show All will not bring it back");
   });
 
-  it("names Ctrl+Z as the undo path (the real recovery that does work)", () => {
-    expect(deleteAnalyticsConfirm(2)).toContain("Ctrl+Z");
+  it("names File > Version history as the recovery path and does NOT promise Ctrl+Z (003-F10 wet finding)", () => {
+    // The live host applies Delete analytics as a server-side revision, which is
+    // NOT in the client Ctrl+Z undo stack — so the confirm must point to the
+    // recovery that actually works (Version history), never Ctrl+Z.
+    expect(deleteAnalyticsConfirm(2)).toContain("File > Version history");
+    expect(deleteAnalyticsConfirm(2)).not.toContain("Ctrl+Z");
   });
 });

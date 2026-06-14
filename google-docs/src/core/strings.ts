@@ -238,14 +238,17 @@ export const STRINGS = {
      * away" — so it could not promise "nothing was deleted" after a partial
      * Delete analytics. That trade moved the truthful, SCOPED explanation
      * (Delete analytics is the ONLY verb that removes content, and only the
-     * analytics text you styled) out of the fallback and into the dedicated
+     * Analytics text you styled) out of the fallback and into the dedicated
      * surfaces. The confirm dialog carries it at the destructive moment; Help
      * is the standing reference, so it must carry it too — this line is that
-     * standing reference. It also disambiguates the hide/show loop: Ctrl+Z
-     * undoes a delete, Show All (which only un-shrinks) does not.
+     * standing reference. It also disambiguates the hide/show loop AND names the
+     * real recovery path: a deleted Analytics passage comes back through File >
+     * Version history (003-F10 wet finding — server-side deletes are NOT in the
+     * client Ctrl+Z undo stack on the live host), never through Show All, which
+     * only un-shrinks.
      */
     analyticsVerbs:
-      "Analytic-ify styles whole lines navy 14pt so Hide keeps them. Delete analytics is the only action that removes content — and only the analytics text you styled; Ctrl+Z undoes it, Show All does not."
+      "Analytic-ify marks whole lines as Analytics (navy, 14pt) so Hide keeps them. Delete analytics is the only action that removes content — and only the Analytics text you styled. To bring it back, use File > Version history; Show All does not."
   },
 
   /** Diagnostics dialog chrome. The report BODY is composed by
@@ -286,9 +289,9 @@ export const STRINGS = {
      * Teaches the right action rather than issuing a bare "nothing to do". */
     analyticifyNoop: "Put your cursor on a line first, then use Analytic-ify.",
 
-    /** Delete analytics noop: shown when no analytics text exists in the doc
+    /** Delete analytics noop: shown when no Analytics text exists in the doc
      * (count read before the confirm returned 0 — no confirm shown, per spec). */
-    deleteAnalyticsNoop: "No analytics text found."
+    deleteAnalyticsNoop: "No Analytics text found."
   },
 
   /** Refusal copy — exactly one entry per error class in types.ts, keyed so
@@ -374,14 +377,15 @@ export const STRINGS = {
         body: "Analytic-ify was interrupted partway — some paragraphs are already styled. Use Analytic-ify again to finish; it is safe to repeat."
       },
       /** Delete analytics is the sole destructive verb: a partial delete means
-       * some analytics text was already removed and Show All cannot bring it
-       * back (only Ctrl+Z can, if not too many edits have elapsed). The
-       * recovery path is to run Delete analytics again to remove the rest.
-       * "Show All will not bring it back" is critical safety copy — it
-       * disambiguates the usual hide/show loop and prevents data confusion. */
+       * some Analytics text was already removed and Show All cannot bring it
+       * back (only File > Version history can — server-side deletes are NOT in
+       * the client Ctrl+Z undo stack on the live host, 003-F10). The recovery
+       * path for the rest is Delete analytics again. "Show All will not bring it
+       * back" is critical safety copy — it disambiguates the usual hide/show
+       * loop and prevents data confusion. */
       deleteAnalytics: {
         title: "Delete analytics was interrupted",
-        body: "Delete analytics was interrupted partway — some analytics text was already removed, and Show All will not bring it back. Use Delete analytics again to remove the rest."
+        body: "Delete analytics was interrupted partway — some Analytics text was already removed, and Show All will not bring it back. Use Delete analytics again to remove the rest."
       }
     },
     /** Unmapped 400s: the atomic batch means nothing landed (plan A9). */
@@ -593,17 +597,18 @@ export function markCiteReceipt(count: number): string {
 /**
  * Analytic-ify receipt (Loop 003 — spec §3 strings.ts).
  *
- * Uses the NOUN form ("Made N paragraphs analytics") rather than a verb form
+ * Uses the NOUN form ("Made N paragraphs Analytics") rather than a verb form
  * ("Analytic-ified N paragraphs") because "analytic-ified" is awkward
  * grammar, and the noun form naturally teaches the unit: a whole paragraph is
- * the granularity.  The parenthetical names the applied attributes so the
- * user knows exactly what changed without opening the format sidebar.
+ * the granularity.  "Analytics" is the style's proper name (the user's chosen
+ * word, capitalized like Hide / Show All); the parenthetical keeps the color
+ * hint so the user knows what changed without opening the format sidebar.
  *
  * Zero (empty ordinals, cursor not on a paragraph) → teaching noop string.
  */
 export function analyticifyReceipt(n: number): string {
   if (n === 0) return STRINGS.receipts.analyticifyNoop;
-  return `Made ${counted(n, "paragraph")} analytics (navy, 14pt).`;
+  return `Made ${counted(n, "paragraph")} Analytics (navy, 14pt).`;
 }
 
 /**
@@ -622,7 +627,7 @@ export function deleteAnalyticsReceipt(r: DeleteAnalyticsResult): string {
   // runsDeleted counts the actual range ranges removed (partial + whole
   // paragraphs), giving users something to cross-check against the doc.
   return (
-    `Deleted analytics text in ${counted(r.paragraphsAffected, "paragraph")}` +
+    `Deleted Analytics text in ${counted(r.paragraphsAffected, "paragraph")}` +
     ` (${counted(r.runsDeleted, "range")} removed).`
   );
 }
@@ -631,19 +636,20 @@ export function deleteAnalyticsReceipt(r: DeleteAnalyticsResult): string {
  * Delete analytics confirm body (Loop 003 — spec §3 strings.ts).
  *
  * CALM + TRUTHFUL voice (spec requirement): does NOT use "permanent" or
- * "irreversible" — those words create anxiety disproportionate to the action,
- * and Ctrl+Z genuinely undoes the delete in most cases.  Does explicitly
- * state that "Show All will not bring it back" to disambiguate the normal
- * hide/show loop: users trained to Show All as the recovery path need to know
- * it does not apply here.  This matches the stylesConfirm voice (one sentence
- * of scope + one sentence of recovery) for consistency.
+ * "irreversible" — those words create anxiety disproportionate to the action.
+ * Names the REAL recovery path (003-F10 wet finding): on the live host a
+ * server-side delete is NOT in the client Ctrl+Z undo stack, so the confirm
+ * must NOT promise Ctrl+Z — it points to File > Version history (the recovery
+ * that actually works) and states that Show All does not, disambiguating the
+ * normal hide/show loop users are trained to reach for. One sentence of scope +
+ * one of recovery, matching the stylesConfirm voice.
  *
  * n > 0 by contract (the adapter shows this confirm only when count > 0).
  */
 export function deleteAnalyticsConfirm(n: number): string {
   return (
-    `This removes the analytics text in ${counted(n, "paragraph")}.` +
-    ` Undo with Ctrl+Z; Show All will not bring it back.`
+    `This removes the Analytics text in ${counted(n, "paragraph")}.` +
+    ` To recover it, use File > Version history — Show All will not bring it back.`
   );
 }
 
