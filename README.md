@@ -19,11 +19,12 @@ the hood.
 | Your editor | Install | Status |
 |---|---|---|
 | **Microsoft Word** (Windows, Mac; Web *on the roadmap*) | **[Install for Word ›](docs/install-word.md)**: register one manifest file, once | live |
-| **Google Docs** | **[Install for Google Docs ›](google-docs/README.md)**: paste one script, ~2 min | early (MVP) |
+| **Google Docs** | **[Install for Google Docs ›](google-docs/README.md)**: make your own copy of a template, ~1 min | early (v0.2.1) |
 
 > Two install paths because they're two platforms: in Word you register a hosted
-> add-in manifest once and it rides every document; in Google Docs you paste a single
-> script into the doc's own Apps Script project. Pick your editor above.
+> add-in manifest once and it rides every document; in Google Docs you make your own
+> copy of a ready-made template and the Rostrum menu travels with the copy. Pick your
+> editor above.
 
 ## What Rostrum does (both surfaces)
 
@@ -260,16 +261,18 @@ in pilcrow mode, which inserts literal `¶` characters; its default merges parag
 
 ## Google Docs port
 
-Rostrum's **Invisibility Mode** and **debate styles** in a Google Doc, paste-in, no
-Marketplace. An early **v0.1.0 MVP**: Hide / Show All, Apply debate styles, and Mark cite,
-driven from a **Rostrum** menu. Full install + usage:
+Rostrum's **Invisibility Mode** and **debate styles** in a Google Doc, no Marketplace. An
+early **v0.2.1 MVP**: you **make your own copy of a ready-made template** and the **Rostrum**
+menu travels with the copy — nothing to paste and no editor to open (pasting the script
+yourself is kept as an Advanced fallback). Hide / Show All, Apply debate styles, Mark cite,
+and Analytics, driven from a **Rostrum** menu. Full install + usage:
 **[Install for Google Docs ›](google-docs/README.md)**.
 
 - **What Hide does.** Hide here reduces body text to a 1‑point size (the Docs object
   model has no hidden-font attribute to borrow), so a long file reads like a speech doc
   and the page count collapses. It is **not secrecy**: Select All → font size 11 reveals
   everything. **Show All** brings every word back. This mirrors how Rostrum behaves in Word.
-- **No tracking inside Google Docs.** The pasted script only ever changes font size and
+- **No tracking inside Google Docs.** The Rostrum script only ever changes font size and
   named‑style definitions; it sends nothing back as you use it. (The single anonymous count
   is the one‑time `Code.gs` download from the site; see [Privacy](https://andrewtjin.github.io/rostrum/privacy.html).)
 - **Separate engine, separate code.** Lives in [`google-docs/`](google-docs/) (Apps Script over the
