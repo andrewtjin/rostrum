@@ -118,6 +118,12 @@ function callBuild(fnName: string, ...args: unknown[]): unknown {
 const DESCRIPTOR_PATH = path.resolve(__dirname, "../google-docs/template.descriptor.json");
 const INSTALL_PAGE_PATH = path.resolve(__dirname, "../site/google-docs.html");
 const README_PATH = path.resolve(__dirname, "../google-docs/README.md");
+// The repo-root README is the SECOND hardcoded gdocs-version surface (the brand hub
+// chooser row + the "Google Docs port" section). Unlike google-docs/README.md it is not
+// processed by webpack's __GDOCS_VERSION__ substitution (it is shipped as raw markdown),
+// so it can drift silently on a version bump — exactly what happened (0.2.1 left stale
+// while every derived surface advanced to 0.2.2). Guarded below.
+const MAIN_README_PATH = path.resolve(__dirname, "../README.md");
 const WRANGLER_PATH = path.resolve(__dirname, "../worker/wrangler.toml");
 
 /** The counted-redirect endpoint the install page + README point at for "Make a
@@ -242,6 +248,26 @@ describe("README version literal", () => {
     // silently leave it stale while every derived surface advances.
     const readme = fs.readFileSync(README_PATH, "utf8");
     expect(readme).toContain(`v${GDOCS_VERSION}`);
+  });
+
+  it("the repo-root README's gdocs version surfaces track GDOCS_VERSION", () => {
+    // WHY: the brand-hub README carries the gdocs version in TWO spots that are raw
+    // markdown (no webpack token substitution), so they drift silently on a bump —
+    // which is precisely how "early (v0.2.1)" survived the move to 0.2.2. We extract
+    // whatever version each spot declares and assert it equals GDOCS_VERSION (DERIVED,
+    // not a hardcoded expectation), so the test self-updates on a legitimate bump and
+    // only reds when a surface is left stale.
+    const readme = fs.readFileSync(MAIN_README_PATH, "utf8");
+
+    // Spot 1 — the chooser/status row: "... | early (v0.2.2) |"
+    const statusCell = /early \(v(\d+\.\d+\.\d+)\)/.exec(readme);
+    expect(statusCell).not.toBeNull();
+    expect(statusCell![1]).toBe(GDOCS_VERSION);
+
+    // Spot 2 — the "Google Docs port" section: "An early **v0.2.2 MVP**: ..."
+    const mvpLine = /\bv(\d+\.\d+\.\d+) MVP\b/.exec(readme);
+    expect(mvpLine).not.toBeNull();
+    expect(mvpLine![1]).toBe(GDOCS_VERSION);
   });
 });
 
