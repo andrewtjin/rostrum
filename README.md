@@ -19,7 +19,7 @@ the hood.
 | Your editor | Install | Status |
 |---|---|---|
 | **Microsoft Word** (Windows, Mac; Web *on the roadmap*) | **[Install for Word ›](docs/install-word.md)**: register one manifest file, once | live |
-| **Google Docs** | **[Install for Google Docs ›](google-docs/README.md)**: make your own copy of a template, ~1 min | early (v0.2.1) |
+| **Google Docs** | **[Install for Google Docs ›](google-docs/README.md)**: make your own copy of a template, ~1 min | early (v0.2.2) |
 
 > Two install paths because they're two platforms: in Word you register a hosted
 > add-in manifest once and it rides every document; in Google Docs you make your own
@@ -57,21 +57,22 @@ each hidden by all four tools on the market, engine-to-engine:
 
 | | **Rostrum** | Verbatim 6.0.0¹ |
 | --- | --- | --- |
-| Median hide, delivered speech docs | **~0.5 s** | ~35 s (**~60× slower** doc-for-doc) |
-| Worst speech doc | ~4 s | 6 docs never finished (15-min cap) |
+| Median hide, delivered speech docs | **~0.5 s** | ~31 s (**~55× slower** doc-for-doc) |
+| Worst speech doc | ~4 s | 8 docs never finished (15-min cap) |
 | 0.9–1.3M-word backfiles | **13–22 s** | 1–3 **hours**; 6 more abandoned at 45 min; 1 crashed Word |
-| Completed the corpus | **1,085 / 1,085** | 1,055 / 1,085 (timeouts, a Word crash, 17 files its macro errors out on) |
+| Completed the corpus | **1,085 / 1,085** | 1,051 / 1,085 (timeouts, a Word crash, 17 files its macro errors out on) |
 
 ¹ Verbatim timed at its in-process *lab floor*, the most favorable condition it has;
 as actually experienced (ribbon click, foreground window) it measures 2–6× slower
 than these numbers.
 
-**How these were measured.** Rostrum (v0.3.2) and the two community macros were all measured
-**single-instance** — one doc at a time, the real single-user condition — so the Rostrum-vs-macros
-numbers are matched apples-to-apples. Verbatim's figures are carried from an earlier run that swept
-the corpus several docs in parallel; that barely affects its comparison (its macro is single-threaded),
-and a partial single-instance re-measure confirms the same ~60×. A full single-instance Verbatim pass
-is in progress.
+**How these were measured.** All four tools were measured **single-instance** on the speech and
+non-speech documents: one doc at a time, the real single-user condition, so every figure on those
+tiers is matched apples-to-apples. The only carried-over figures are Verbatim on the million-word
+backfiles, where it cannot run single-instance at all (1 to 3 hours on the docs it finished, the rest
+abandoned, a Word crash on the largest); a multi-hour run or a crash does not change with concurrency.
+The matched single-instance speech median puts Verbatim at ~55× Rostrum, confirming it is bound by
+Word's UI rather than by how many docs run at once.
 
 Matched single-instance, Rostrum is ~2× faster than the destructive community "zap" macros
 on speech docs and ~6× on backfiles, and they permanently delete what they hide, where
@@ -262,7 +263,7 @@ in pilcrow mode, which inserts literal `¶` characters; its default merges parag
 ## Google Docs port
 
 Rostrum's **Invisibility Mode** and **debate styles** in a Google Doc, no Marketplace. An
-early **v0.2.1 MVP**: you **make your own copy of a ready-made template** and the **Rostrum**
+early **v0.2.2 MVP**: you **make your own copy of a ready-made template** and the **Rostrum**
 menu travels with the copy — nothing to paste and no editor to open (pasting the script
 yourself is kept as an Advanced fallback). Hide / Show All, Apply debate styles, Mark cite,
 and Analytics, driven from a **Rostrum** menu. Full install + usage:

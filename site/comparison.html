@@ -67,10 +67,10 @@
                             backfiles; <strong>1,085 of 1,085</strong> completed
                         </td>
                         <td>
-                            Median ~35 seconds — ~60× slower doc-for-doc
+                            Median ~31 seconds — ~55× slower doc-for-doc
                             (Verbatim 6.0.0, at its most favorable lab
                             condition); 1–3 <em>hours</em> on big backfiles;
-                            12 documents never finished, 1 crashed Word, 17 it
+                            14 documents never finished, 1 crashed Word, 17 it
                             errors out on entirely
                         </td>
                     </tr>
@@ -131,16 +131,18 @@
                 measures 2–6× slower than shown here).
             </p>
             <p>
-                <strong>How these were measured.</strong> Rostrum (v0.3.2, the
-                node-direct engine) and the two community macros were all measured
-                <strong>single-instance</strong> — one document at a time, the
-                condition a single user actually sees — so the Rostrum-vs-macros
-                numbers are matched apples-to-apples. Verbatim's figures are
-                carried from an earlier run that swept the corpus several documents
-                in parallel; that barely affects its comparison (its macro is
-                single-threaded, so parallel copies don't slow each one), and a
-                partial single-instance re-measure confirms the same ~60×. A full
-                single-instance Verbatim pass is in progress.
+                <strong>How these were measured.</strong> All four tools were
+                measured <strong>single-instance</strong> on the speech and
+                non-speech documents: one document at a time, the condition a
+                single user actually sees, so every figure on those tiers is
+                matched apples-to-apples. The only exception is Verbatim on the
+                million-word backfiles, where its results are carried from an
+                earlier run: Verbatim cannot complete those giants single-instance
+                (it ran 1 to 3 hours on the ones it finished, abandoned the rest,
+                and crashed Word on the largest), and a multi-hour run or a crash
+                does not change with concurrency. The matched single-instance
+                speech median puts Verbatim at ~55× Rostrum, confirming it is
+                bound by Word's UI rather than by how many documents run at once.
             </p>
             <!-- The benchmark charts ship twice: a static SVG <img> here (the
                  no-JS truth — zoomable via the same CSS-only :target lightbox
@@ -174,10 +176,10 @@
             <ul>
                 <li>
                     <strong>Speech docs:</strong> Rostrum median
-                    <strong>~0.5 s</strong>, worst ~4 s. Verbatim median ~35 s —
-                    <strong>~60× slower doc-for-doc</strong> — with 6 real
+                    <strong>~0.5 s</strong>, worst ~4 s. Verbatim median ~31 s —
+                    <strong>~55× slower doc-for-doc</strong> — with 8 real
                     speech docs it could not finish inside 15 minutes (Rostrum
-                    did each of those six in a few seconds).
+                    did each of those eight in a few seconds).
                 </li>
                 <li>
                     <strong>Backfiles:</strong> Rostrum hides 0.9–1.3-million-word
@@ -186,7 +188,7 @@
                 </li>
                 <li>
                     <strong>Reliability:</strong> Rostrum completed
-                    <strong>1,085 of 1,085</strong>. Verbatim completed 1,055 —
+                    <strong>1,085 of 1,085</strong>. Verbatim completed 1,051 —
                     and its macro errors out instantly on certain
                     exported/converted files (17 in this corpus), which every
                     other tool handled.
