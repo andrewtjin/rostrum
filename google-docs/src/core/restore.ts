@@ -15,13 +15,14 @@
 //
 // Everything here is pure planning: GDoc view in, RequestGroups + counted
 // result out. The only request types ever emitted are updateTextStyle
-// (fontSize field only), updateParagraphStyle (spacing fields only) and
-// deleteNamedRange — content is never inserted, deleted or reordered (case
-// 001-F1). That hard invariant is also why emission ORDER is a mere
-// convention here, never a correctness requirement: no request can shift the
-// indexes a later request targets.
+// (fontSize + foregroundColor — reveal un-shrinks AND clears the hide white,
+// HIDE_FIELDS), updateParagraphStyle (spacing fields only) and deleteNamedRange
+// — content is never inserted, deleted or reordered (case 001-F1). That hard
+// invariant is also why emission ORDER is a mere convention here, never a
+// correctness requirement: no request can shift the indexes a later request
+// targets.
 
-import { SENTINELS } from "./constants";
+import { HIDE_FIELDS, SENTINELS } from "./constants";
 import { decodeRangeName, isRstmName } from "./rangeNames";
 import {
   DecodedRangeName,
@@ -477,19 +478,29 @@ function anchorStart(nr: GNamedRange): number {
   return nr.segments.length === 0 ? -1 : Math.min(...nr.segments.map((s) => s.startIndex));
 }
 
-/** Clear fontSize to inherited — restore of an "i" entry, normalize, and the
- * sweep all share this exact shape (empty style + the field named). */
+/** Clear fontSize to inherited AND clear the hide white to inherited — the
+ * "i"-entry restore, normalize, and the sweep all share this exact shape (empty
+ * style + BOTH fields named, HIDE_FIELDS). Reveal sheds the invisibility color
+ * with the size because size is the source of truth, not color: any text we
+ * un-shrink here is text we (or a decayed copy of us) painted white, so the white
+ * must go too — that is what keeps a copied / range-destroyed doc fully readable
+ * after Show All, not just un-shrunk. (Foreign-size text inside a hidden region
+ * is never in scope — the inventory filter only ever feeds us sentinel-size
+ * sub-spans, plan A6 — so its color is never cleared.) */
 function clearSizeRequest(range: GRange): UpdateTextStyleRequest {
-  return { updateTextStyle: { range, textStyle: {}, fields: "fontSize" } };
+  return { updateTextStyle: { range, textStyle: {}, fields: HIDE_FIELDS } };
 }
 
-/** Write an explicit recorded size back. */
+/** Write an explicit recorded size back AND clear the hide white to inherited
+ * (foregroundColor named in HIDE_FIELDS but absent from the style). Same reason
+ * as clearSizeRequest: a recorded-size restore reveals text we painted white, so
+ * it sheds the white in the same write. */
 function setSizeRequest(range: GRange, sizePt: number): UpdateTextStyleRequest {
   return {
     updateTextStyle: {
       range,
       textStyle: { fontSize: { magnitude: sizePt, unit: "PT" } },
-      fields: "fontSize"
+      fields: HIDE_FIELDS
     }
   };
 }

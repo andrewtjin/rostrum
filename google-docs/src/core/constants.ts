@@ -13,6 +13,37 @@ export const SENTINEL_PT = 1;
 export const SENTINELS: readonly number[] = [SENTINEL_PT];
 
 /**
+ * The foreground color hidden text is painted, lower-case "#rrggbb". Hiding
+ * shrinks text to SENTINEL_PT AND paints it white in the SAME updateTextStyle, so
+ * a hidden passage is truly invisible on the (universal-in-debate) white page
+ * rather than a faint 1pt smear. Two deliberate properties:
+ *   * UNCONDITIONAL — every hidden run is painted white regardless of its
+ *     original color; the engine never RECORDS the original (reveal clears
+ *     foreground to inherit, not to a saved value). This keeps Hide's plan
+ *     independent of input color, preserving the foreground-invariance invariant
+ *     (gdocsForegroundInvariance): only the analytics keeper reads foreground,
+ *     and analytics is always KEPT, so it is never hidden/painted. The accepted
+ *     trade-off is that a manually-recolored, non-kept passage returns in the
+ *     INHERITED color after a hide→show cycle.
+ *   * RIDES WITH THE SIZE — font size stays the SOLE "is-hidden" marker
+ *     (SENTINELS); white is a cosmetic companion set wherever the sentinel size
+ *     is set and cleared wherever it is cleared (Show All restore/normalize/
+ *     sweep + the re-hide rework). White is only invisible on a white page — a
+ *     non-white page background is a documented out-of-scope limit.
+ */
+export const HIDDEN_FG_HEX = "#ffffff";
+
+/**
+ * The field mask every Hide / Show All TEXT-style write carries: fontSize (the
+ * hide marker) and foregroundColor (the invisibility color) ALWAYS move together
+ * — set as a pair on hide, cleared as a pair on reveal — so the two channels can
+ * never drift apart. Single-sourced here exactly like restore.ts's SPACING_FIELDS.
+ * NOTE: paragraph SPACING reveals (updateParagraphStyle) use their own mask and
+ * must NOT include foregroundColor.
+ */
+export const HIDE_FIELDS = "fontSize,foregroundColor";
+
+/**
  * The cite convention size (Word decision #9 parity: the template cite is
  * 14pt bold). Mark-cite writes this; settings clamp citeMinPt <= CITE_PT.
  */
@@ -51,8 +82,13 @@ export const NEAR_WHITE_MIN_CHANNEL = 243;
  * 0.2.0: the analytics style + analytic-ify + Delete analytics (Loop 003).
  * 0.2.1: the "Make a copy" template install path + the static install-page
  *        version pointer in Help (Loop 004). PATCH — no new in-product verb;
- *        the only Code.gs change is that one informational help line. */
-export const GDOCS_VERSION = "0.2.1";
+ *        the only Code.gs change is that one informational help line.
+ * 0.2.2: Hide paints hidden text white (HIDDEN_FG_HEX) on top of the 1pt shrink
+ *        for true invisibility; Show All clears it. PATCH — no new verb, an
+ *        in-place refinement of Hide / Show All's existing updateTextStyle writes;
+ *        backward-compatible (Show All still reveals; ≤0.2.1 1pt-black docs still
+ *        restore). */
+export const GDOCS_VERSION = "0.2.2";
 
 /**
  * Debate style sizes (Word STYLE_MAP parity, decision #9): pocket 26 / hat 22 /

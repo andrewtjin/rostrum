@@ -25,8 +25,11 @@
 // not load-bearing (plan A16).
 //
 // Invariants this module owns:
-//   * only updateTextStyle(fontSize) / createNamedRange / deleteNamedRange
-//     (+ updateParagraphStyle for the A12 spacing class) are ever emitted;
+//   * only updateTextStyle(fontSize + foregroundColor) / createNamedRange /
+//     deleteNamedRange (+ updateParagraphStyle for the A12 spacing class) are
+//     ever emitted — the foreground rides with the size to PAINT hidden text
+//     white (hide) and CLEAR it on reveal (constants.HIDDEN_FG_HEX/HIDE_FIELDS);
+//     size remains the SOLE "is-hidden" marker, color is a cosmetic companion;
 //   * rstm "sizes" ranges NEVER overlap, and regions are never merged across
 //     re-hides — adjacent regions from different passes keep separate anchors;
 //   * only kind:"text" sub-spans are ever style-targeted (whitelist, plan A9);
@@ -39,7 +42,8 @@
 //     never touched (plan A6) — it falls OUT of anchor coverage when its
 //     region is reworked, and is otherwise simply left visible.
 
-import { SENTINEL_PT, SENTINELS } from "./constants";
+import { HIDDEN_FG_HEX, HIDE_FIELDS, SENTINEL_PT, SENTINELS } from "./constants";
+import { encodeRgbColor } from "./color";
 import { planKeeps } from "./keepers";
 import { decodeRangeName, encodeSizeEntries, encodeSpacingName, isRstmName } from "./rangeNames";
 // The ONE spacing-restore shape is owned by restore.ts (Show All is the
@@ -382,27 +386,33 @@ function anchorsForRun(start: number, entries: RleEntry[]): CreateNamedRangeRequ
   return out;
 }
 
-/** The ONE shrink per region: fontSize-only field mask so bold/underline/
- * highlight/links survive untouched (plan D1). */
+/** The ONE shrink per region: shrink to the sentinel AND paint white in a single
+ * write (HIDE_FIELDS mask), so the hidden run is truly invisible, not a faint 1pt
+ * smear. The two channels ride together atomically (constants.HIDDEN_FG_HEX
+ * contract); bold/underline/highlight/links are still untouched — the mask names
+ * only fontSize + foregroundColor (plan D1, extended for the invisibility color). */
 function sentinelShrink(start: number, end: number): UpdateTextStyleRequest {
   return {
     updateTextStyle: {
       range: { startIndex: start, endIndex: end },
-      textStyle: { fontSize: { magnitude: SENTINEL_PT, unit: "PT" } },
-      fields: "fontSize"
+      textStyle: { fontSize: { magnitude: SENTINEL_PT, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+      fields: HIDE_FIELDS
     }
   };
 }
 
-/** One restore write: a recorded size is materialized; a null (inherit)
- * record is restored by CLEARING — empty textStyle with fontSize in the field
- * mask (the documented clear-to-inherit semantics, plan D13). */
+/** One restore write (the re-hide rework path): a recorded size is materialized,
+ * a null (inherit) record clears fontSize, and EITHER WAY the hide white is
+ * cleared to inherit — both via the HIDE_FIELDS mask with foregroundColor absent
+ * from the style (the documented clear-to-inherit semantics, plan D13). Reveal
+ * always clears the white because size is the source of truth, not color, so a
+ * surfaced span must shed both at once. */
 function restoreWrite(start: number, end: number, sizePt: number | null): UpdateTextStyleRequest {
   return {
     updateTextStyle: {
       range: { startIndex: start, endIndex: end },
       textStyle: sizePt === null ? {} : { fontSize: { magnitude: sizePt, unit: "PT" } },
-      fields: "fontSize"
+      fields: HIDE_FIELDS
     }
   };
 }

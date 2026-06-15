@@ -31,6 +31,7 @@ import type { SelectionPick } from "../google-docs/src/core/adapterPure";
 import {
   ANALYTICS_FG_HEX,
   ANALYTICS_PT,
+  HIDDEN_FG_HEX,
   MAX_REPLAN_ATTEMPTS,
   SENTINEL_PT,
   SENTINELS
@@ -113,6 +114,32 @@ function sentinelChars(doc: GDoc): number {
 /** rstm-family ranges still present (armed-state probe). */
 function rstmCount(doc: GDoc): number {
   return doc.namedRanges.filter((nr) => isRstmName(nr.name)).length;
+}
+
+/** True iff EVERY sentinel-size text char carries the hide white (#ffffff) — the
+ * "hidden text is truly invisible" probe. Vacuously true with no sentinel text,
+ * so pair it with a sentinelChars > 0 check. */
+function everySentinelCharIsWhite(doc: GDoc): boolean {
+  for (const p of doc.paragraphs) {
+    for (const el of p.elements) {
+      if (el.kind !== "text" || el.text.length === 0) continue;
+      if (el.fontSizePt !== null && SENTINELS.includes(el.fontSizePt) && el.foregroundHex !== HIDDEN_FG_HEX) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/** True iff ANY text char is still painted the hide white — the "reveal cleared
+ * it" negative probe (after Show All / a full restore this must be false). */
+function anyWhiteChar(doc: GDoc): boolean {
+  for (const p of doc.paragraphs) {
+    for (const el of p.elements) {
+      if (el.kind === "text" && el.text.length > 0 && el.foregroundHex === HIDDEN_FG_HEX) return true;
+    }
+  }
+  return false;
 }
 
 /** Await a rejection of EXACTLY the given class and hand the typed error back
@@ -198,6 +225,9 @@ describe("hide -> showAll round trip", () => {
     expect(rstmCount(hidden)).toBe(2);
     // Kept text untouched in the hidden state: the cite still reads 14pt bold.
     expect(hidden.paragraphs[1].elements[0].fontSizePt).toBe(14);
+    // Hidden text is painted white (true invisibility); the kept cite is not.
+    expect(everySentinelCharIsWhite(hidden)).toBe(true);
+    expect(hidden.paragraphs[1].elements[0].foregroundHex).toBeNull();
 
     const out = await showAll(fake);
     expect(out).toEqual({
@@ -215,6 +245,8 @@ describe("hide -> showAll round trip", () => {
     expect(charView(after)).toBe(original);
     expect(rstmCount(after)).toBe(0);
     expect(sentinelChars(after)).toBe(0);
+    // Reveal cleared the white in lockstep with the size — nothing stays painted.
+    expect(anyWhiteChar(after)).toBe(false);
   });
 
   it("(b) a second hide is a converged no-op and its counts say so (row 7)", async () => {
@@ -447,6 +479,9 @@ describe("multi-chunk interruption (PartialApplyError)", () => {
     expect(charView(after)).toBe(original);
     expect(sentinelChars(after)).toBe(0);
     expect(rstmCount(after)).toBe(0);
+    // The torn hide left some regions painted white; Show All's size-driven
+    // sweep cleared every one of them, not just un-shrunk them.
+    expect(anyWhiteChar(after)).toBe(false);
   });
 
   it("(n) showAll interrupted between restore chunks -> PartialApplyError(showAll); a second showAll converges (A11.iv)", async () => {
@@ -997,8 +1032,8 @@ describe("analytic-ify (controller)", () => {
     );
     expect(navyChars.every((size) => size === ANALYTICS_PT)).toBe(true);
     expect(navyChars).not.toContain(SENTINEL_PT);
-    // The navy survived in color too — Hide's fontSize-only shrink never touches
-    // foreground, and the keeper kept the whole run.
+    // The navy survived in color too — Hide paints only NON-kept text white, and
+    // the keeper kept this whole run, so its analytics navy is never touched.
     expect(hidden.paragraphs[0].elements[0].foregroundHex).toBe(ANALYTICS_FG_HEX);
 
     // The CONTROL: the un-analytic-ified P1 line DID hide — its body text now
@@ -1223,3 +1258,113 @@ async function countNavyParagraphs(fake: FakeDocs): Promise<number> {
   const doc = await view(fake);
   return doc.paragraphs.filter((p) => p.elements.some((e) => e.foregroundHex === ANALYTICS_FG_HEX)).length;
 }
+
+// ---------------------------------------------------------------------------
+// Foreground: Hide paints hidden text WHITE for true invisibility, and reveal
+// clears it in lockstep with the size (0.2.2). These cases drive the new color
+// behavior end to end over the FakeDocs port (which models foregroundColor
+// writes + serialize + parse round-trip), the only non-vacuous way to assert it.
+// ---------------------------------------------------------------------------
+describe("foreground: hidden text is painted white, reveal clears it", () => {
+  it("paints every NON-kept passage white and leaves kept text's color untouched", async () => {
+    const fake = mixedFake();
+    await hide(fake);
+    const hidden = await view(fake);
+
+    // Non-vacuous: there IS hidden text, and ALL of it is white.
+    expect(sentinelChars(hidden)).toBe(30);
+    expect(everySentinelCharIsWhite(hidden)).toBe(true);
+
+    // The kept yellow highlight ("brown") keeps its size AND its (inherited)
+    // color — Hide never painted it, because the keeper kept it.
+    const brown = hidden.paragraphs[2].elements.find((el) => el.backgroundHex === "#ffff00");
+    if (brown === undefined) throw new Error("expected the kept yellow 'brown' run");
+    expect(SENTINELS.includes(brown.fontSizePt ?? 11)).toBe(false); // not shrunk
+    expect(brown.foregroundHex).toBeNull(); // not painted white
+    // The kept cite is likewise untouched in color.
+    expect(hidden.paragraphs[1].elements[0].foregroundHex).toBeNull();
+  });
+
+  it("clears the white when a hidden region's record is destroyed — the sweep reveals color too (decay)", async () => {
+    // The within-version recovery guarantee: even when cut/paste destroys the
+    // anchor (or "Make a copy" drops it), Show All's size-driven sweep un-shrinks
+    // AND un-whitens, so the doc is fully READABLE again, not just full-size.
+    const fake = mixedFake();
+    const original = charView(await view(fake));
+    await hide(fake);
+    const armed = await view(fake);
+    const tail = armed.namedRanges.find((nr) => nr.name === "rstm:v1:20xi");
+    if (tail === undefined) throw new Error("expected the [45,65) anchor");
+    fake.destroyRange(tail.id);
+
+    await showAll(fake);
+    const after = await view(fake);
+    expect(sentinelChars(after)).toBe(0);
+    expect(anyWhiteChar(after)).toBe(false); // the sweep cleared the orphan's white
+    expect(charView(after)).toBe(original);
+  });
+
+  it("loses an explicit NON-kept text color through a hide→show cycle (the option-B trade-off)", async () => {
+    // Documents the accepted lossy case: a manually-recolored, non-highlighted
+    // passage is whitened on hide and CLEARED TO INHERIT on reveal — the engine
+    // does not record arbitrary text color (it is blind to color but analytics).
+    // The red line is non-final (a kept heading follows) so its whole run —
+    // newline included — hides and restores; the segment-final newline is never
+    // styled by design, so it would keep its color and is deliberately not here.
+    const fake = new FakeDocs([
+      { elements: [{ text: "red body", fg: "#ff0000" }] },
+      { style: "HEADING_4", elements: [{ text: "Tag" }] }
+    ]);
+    await hide(fake);
+    const hidden = await view(fake);
+    expect(sentinelChars(hidden)).toBe(9); // "red body\n" hidden (P0 is non-final)
+    expect(everySentinelCharIsWhite(hidden)).toBe(true); // red overwritten by white
+
+    await showAll(fake);
+    const after = await view(fake);
+    expect(sentinelChars(after)).toBe(0);
+    // Size came back (inherited); the manual RED did NOT — it is now inherit.
+    for (const el of after.paragraphs[0].elements) {
+      if (el.kind !== "text") continue;
+      expect(SENTINELS.includes(el.fontSizePt ?? 11)).toBe(false);
+      expect(el.foregroundHex).toBeNull(); // not "#ff0000" — the documented loss
+    }
+  });
+
+  it("a second hide writes nothing and the already-hidden text stays white (idempotent in color)", async () => {
+    // Re-hide is size-driven: already-sentinel text is skipped, so no second
+    // white write is emitted and the existing white is left in place.
+    const fake = mixedFake();
+    await hide(fake);
+    const batches = fake.appliedBatches.length;
+    await hide(fake);
+    expect(fake.appliedBatches).toHaveLength(batches); // converged: nothing written
+    const reHidden = await view(fake);
+    expect(sentinelChars(reHidden)).toBe(30);
+    expect(everySentinelCharIsWhite(reHidden)).toBe(true);
+  });
+
+  it("a span that becomes kept on re-hide sheds the white (rework restore clears foreground)", async () => {
+    // A1 reconcile: highlighting inside a hidden region surfaces that span at full
+    // size on re-hide — and the rework restore clears the white too, so the
+    // surfaced text is readable, while its still-hidden flanks stay white.
+    const fake = mixedFake();
+    await hide(fake);
+    fake.injectForeignEdit((f) => f.editSetBackground(54, 60, "#00ffff")); // "hidden"
+    await hide(fake);
+
+    const reHidden = await view(fake);
+    expect(sentinelChars(reHidden)).toBe(24); // 30 - 6 surfaced
+    // The surfaced "hidden" span is full-size with its white cleared (cyan bg kept).
+    const surfaced = reHidden.paragraphs[3].elements.filter(
+      (el) => el.kind === "text" && el.startIndex >= 54 && el.endIndex <= 60
+    );
+    expect(surfaced.length).toBeGreaterThan(0);
+    for (const el of surfaced) {
+      expect(SENTINELS.includes(el.fontSizePt ?? 11)).toBe(false);
+      expect(el.foregroundHex).toBeNull(); // white shed on surfacing
+    }
+    // The still-hidden flanks remain white.
+    expect(everySentinelCharIsWhite(reHidden)).toBe(true);
+  });
+});

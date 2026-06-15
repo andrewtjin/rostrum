@@ -15,7 +15,8 @@
 //      UTF-16 indexes from 1, trailing newlines inside final runs).
 //   2. planHide invariants hold AT SCALE: only the two fresh-hide request
 //      types, anchors decode + RLE-exact + non-overlapping, anchors tile
-//      their region's shrink exactly, fontSize-only sentinel writes.
+//      their region's shrink exactly, fontSize+foregroundColor sentinel writes
+//      (HIDE_FIELDS — shrunk to 1pt AND painted white).
 //   3. The SCALE ENVELOPE (plan A13 / 001-S6) holds for the WORST case:
 //      < 100k requests, <= 25 chunks, < 45MB payload — for BOTH verbs' plans
 //      and for the fixture bytes (the documents.get payload proxy). These
@@ -44,7 +45,8 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { CHUNK_MAX, NAME_MAX, SENTINEL_PT, SENTINELS } from "../google-docs/src/core/constants";
+import { CHUNK_MAX, HIDDEN_FG_HEX, HIDE_FIELDS, NAME_MAX, SENTINEL_PT, SENTINELS } from "../google-docs/src/core/constants";
+import { encodeRgbColor } from "../google-docs/src/core/color";
 import { hide, showAll } from "../google-docs/src/core/controller";
 import { chunkGroups } from "../google-docs/src/core/guards";
 import { parseDocument } from "../google-docs/src/core/parse";
@@ -547,15 +549,20 @@ describe("gdocs real-doc scale fixtures (samples/gdocs/)", () => {
             anchorCursor = range.endIndex;
             anchors.push({ name, start: range.startIndex, end: range.endIndex });
           } else if ("updateTextStyle" in req) {
-            // Exactly ONE style write per fresh region, fontSize-only, at the
-            // sentinel, never touching the unstylable final newline.
+            // Exactly ONE style write per fresh region: shrink to the sentinel
+            // AND paint white (HIDE_FIELDS), never touching the unstylable final
+            // newline.
             check(!sawStyleWrite, () => "second style write inside one fresh-hide group");
             sawStyleWrite = true;
             const { range, textStyle, fields } = req.updateTextStyle;
-            check(fields === "fontSize", () => `hide write fields "${fields}" != "fontSize"`);
+            check(fields === HIDE_FIELDS, () => `hide write fields "${fields}" != "${HIDE_FIELDS}"`);
             check(
               textStyle.fontSize?.magnitude === SENTINEL_PT,
               () => `hide write magnitude ${textStyle.fontSize?.magnitude} != sentinel`
+            );
+            check(
+              JSON.stringify(textStyle.foregroundColor) === JSON.stringify(encodeRgbColor(HIDDEN_FG_HEX)),
+              () => `hide write foreground ${JSON.stringify(textStyle.foregroundColor)} != white`
             );
             check(
               range.startIndex >= 1 && range.endIndex <= docEnd - 1,
@@ -681,7 +688,13 @@ describe("gdocs real-doc scale fixtures (samples/gdocs/)", () => {
             deletedIds.add(req.deleteNamedRange.namedRangeId);
           } else if ("updateTextStyle" in req) {
             const { range, textStyle, fields } = req.updateTextStyle;
-            check(fields === "fontSize", () => `showAll write fields "${fields}" != "fontSize"`);
+            check(fields === HIDE_FIELDS, () => `showAll write fields "${fields}" != "${HIDE_FIELDS}"`);
+            // Reveal CLEARS the hide white (foreground absent from the style),
+            // never re-sets it — size is the source of truth, color rides along.
+            check(
+              textStyle.foregroundColor === undefined,
+              () => `showAll write should clear foreground, not set ${JSON.stringify(textStyle.foregroundColor)}`
+            );
             const written = textStyle.fontSize?.magnitude ?? null;
             if (inAnchors(range.startIndex)) {
               // RESTORE write: every covered char must come back at its

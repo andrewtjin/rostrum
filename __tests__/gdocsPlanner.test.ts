@@ -11,7 +11,8 @@
 
 import { planHide } from "../google-docs/src/core/planner";
 import { decodeRangeName } from "../google-docs/src/core/rangeNames";
-import { ANALYTICS_FG_HEX, ANALYTICS_PT, DEFAULT_CITE_MIN_PT, SENTINEL_PT } from "../google-docs/src/core/constants";
+import { ANALYTICS_FG_HEX, ANALYTICS_PT, DEFAULT_CITE_MIN_PT, HIDDEN_FG_HEX, SENTINEL_PT } from "../google-docs/src/core/constants";
+import { encodeRgbColor } from "../google-docs/src/core/color";
 import { DEFAULT_KEEP_HEXES } from "../google-docs/src/core/settings";
 import {
   DocsRequest,
@@ -144,8 +145,9 @@ function groupKey(g: RequestGroup): number {
  * The invariant gauntlet, run against EVERY emission in this suite:
  *   * only the whitelisted request kinds; updateParagraphStyle only when the
  *     spacing class is on;
- *   * updateTextStyle is fontSize-only, non-empty, never reaches the
- *     segment-final newline, never overlaps a kind:"other" element (A9);
+ *   * updateTextStyle carries fontSize + foregroundColor (HIDE_FIELDS) — a
+ *     shrink paints white, a reveal clears it — never reaches the segment-final
+ *     newline, never overlaps a kind:"other" element (A9);
  *   * every created name decodes; a sizes name's RLE total equals its range
  *     length (restore-exactness precondition);
  *   * created sizes anchors never overlap each other NOR any surviving
@@ -187,13 +189,20 @@ function assertEmissionInvariants(doc: GDoc, settings: GdocsSettings, groups: Re
       } else if ("updateTextStyle" in req) {
         sawStyleWrite = true;
         const { range, textStyle, fields } = req.updateTextStyle;
-        expect(fields).toBe("fontSize");
+        expect(fields).toBe("fontSize,foregroundColor");
         expect(range.endIndex).toBeGreaterThan(range.startIndex);
         expect(range.endIndex).toBeLessThanOrEqual(styleCeiling); // newline clamp
-        expect(textStyle.bold).toBeUndefined(); // fontSize is the ONLY channel
+        expect(textStyle.bold).toBeUndefined(); // size + foreground are the ONLY channels
         if (textStyle.fontSize !== undefined) {
           expect(textStyle.fontSize.unit).toBe("PT");
           expect(textStyle.fontSize.magnitude).toBeGreaterThan(0);
+        }
+        // White rides with the sentinel: a shrink (size === SENTINEL_PT) also
+        // paints white; every reveal write clears foreground (no key) — never sets it.
+        if (textStyle.fontSize?.magnitude === SENTINEL_PT) {
+          expect(textStyle.foregroundColor).toEqual(encodeRgbColor(HIDDEN_FG_HEX));
+        } else {
+          expect(textStyle.foregroundColor).toBeUndefined();
         }
         for (const o of otherSpans) {
           // Whitelist (A9): chips/breaks/objects are never style-targeted.
@@ -297,8 +306,8 @@ describe("planHide — fresh hide", () => {
       {
         updateTextStyle: {
           range: { startIndex: 45, endIndex: 65 },
-          textStyle: { fontSize: { magnitude: SENTINEL_PT, unit: "PT" } },
-          fields: "fontSize"
+          textStyle: { fontSize: { magnitude: SENTINEL_PT, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -307,8 +316,8 @@ describe("planHide — fresh hide", () => {
       {
         updateTextStyle: {
           range: { startIndex: 30, endIndex: 40 },
-          textStyle: { fontSize: { magnitude: SENTINEL_PT, unit: "PT" } },
-          fields: "fontSize"
+          textStyle: { fontSize: { magnitude: SENTINEL_PT, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -334,8 +343,8 @@ describe("planHide — fresh hide", () => {
           {
             updateTextStyle: {
               range: { startIndex: 1, endIndex: 4 },
-              textStyle: { fontSize: { magnitude: 1, unit: "PT" } },
-              fields: "fontSize"
+              textStyle: { fontSize: { magnitude: 1, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+              fields: "fontSize,foregroundColor"
             }
           }
         ]
@@ -365,8 +374,8 @@ describe("planHide — fresh hide", () => {
       {
         updateTextStyle: {
           range: { startIndex: 1, endIndex: 8 },
-          textStyle: { fontSize: { magnitude: 1, unit: "PT" } },
-          fields: "fontSize"
+          textStyle: { fontSize: { magnitude: 1, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -539,7 +548,7 @@ describe("planHide — reconcile on an armed doc", () => {
         updateTextStyle: {
           range: { startIndex: 54, endIndex: 60 },
           textStyle: {},
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -587,7 +596,7 @@ describe("planHide — reconcile on an armed doc", () => {
         updateTextStyle: {
           range: { startIndex: 13, endIndex: 15 },
           textStyle: { fontSize: { magnitude: 8, unit: "PT" } },
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -614,14 +623,14 @@ describe("planHide — reconcile on an armed doc", () => {
         updateTextStyle: {
           range: { startIndex: 10, endIndex: 14 },
           textStyle: { fontSize: { magnitude: 8, unit: "PT" } },
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       },
       {
         updateTextStyle: {
           range: { startIndex: 14, endIndex: 19 },
           textStyle: { fontSize: { magnitude: 9, unit: "PT" } },
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -661,7 +670,7 @@ describe("planHide — reconcile on an armed doc", () => {
         updateTextStyle: {
           range: { startIndex: 12, endIndex: 16 }, // ONE write across both elements
           textStyle: { fontSize: { magnitude: 8, unit: "PT" } },
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -695,8 +704,8 @@ describe("planHide — reconcile on an armed doc", () => {
       {
         updateTextStyle: {
           range: { startIndex: 23, endIndex: 27 },
-          textStyle: { fontSize: { magnitude: 1, unit: "PT" } },
-          fields: "fontSize"
+          textStyle: { fontSize: { magnitude: 1, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -737,7 +746,7 @@ describe("planHide — reconcile on an armed doc", () => {
         updateTextStyle: {
           range: { startIndex: 10, endIndex: 29 },
           textStyle: { fontSize: { magnitude: 13, unit: "PT" } },
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -784,7 +793,7 @@ describe("planHide — reconcile on an armed doc", () => {
         updateTextStyle: {
           range: { startIndex: 12, endIndex: 14 },
           textStyle: {},
-          fields: "fontSize"
+          fields: "fontSize,foregroundColor"
         }
       }
     ]);
@@ -856,8 +865,8 @@ describe("planHide — collapseSpacing", () => {
       {
         updateTextStyle: {
           range: { startIndex: 10, endIndex: 18 },
-          textStyle: { fontSize: { magnitude: 1, unit: "PT" } },
-          fields: "fontSize"
+          textStyle: { fontSize: { magnitude: 1, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+          fields: "fontSize,foregroundColor"
         }
       },
       {
@@ -930,8 +939,8 @@ describe("planHide — collapseSpacing", () => {
       {
         updateTextStyle: {
           range: { startIndex: 10, endIndex: 17 },
-          textStyle: { fontSize: { magnitude: 1, unit: "PT" } },
-          fields: "fontSize"
+          textStyle: { fontSize: { magnitude: 1, unit: "PT" }, foregroundColor: encodeRgbColor(HIDDEN_FG_HEX) },
+          fields: "fontSize,foregroundColor"
         }
       },
       {
@@ -990,7 +999,7 @@ describe("planHide — collapseSpacing", () => {
       { deleteNamedRange: { namedRangeId: "nr-1" } }, // P1's spacing record dies with it
       { createNamedRange: { name: "rstm:v1:3xi", range: { startIndex: 10, endIndex: 13 } } },
       { createNamedRange: { name: "rstm:v1:16xi", range: { startIndex: 18, endIndex: 34 } } },
-      { updateTextStyle: { range: { startIndex: 13, endIndex: 18 }, textStyle: {}, fields: "fontSize" } },
+      { updateTextStyle: { range: { startIndex: 13, endIndex: 18 }, textStyle: {}, fields: "fontSize,foregroundColor" } },
       {
         updateParagraphStyle: {
           range: { startIndex: 10, endIndex: 22 },

@@ -9,8 +9,12 @@
 //
 // Two platform facts shape the whole model (see the loop-001 research record):
 //   * Docs has NO hidden-text attribute. "Hide" = shrink to a sentinel font
-//     size (constants.SENTINEL_PT), touching ONLY fontSize via field mask, so
-//     highlights/bold/links survive untouched and failure is always VISIBLE.
+//     size (constants.SENTINEL_PT) AND paint the run white (constants.HIDDEN_FG_HEX)
+//     in one fontSize+foregroundColor write, so it is truly invisible on the white
+//     page rather than a faint 1pt smear; bold/underline/highlight/links survive
+//     untouched (the mask names only those two channels). Size stays the SOLE
+//     "is-hidden" marker — Show All recovers BY SIZE (and clears the white with it),
+//     so a hide is always reversible even though it is no longer eye-visible.
 //   * Reversibility lives in the document itself (repo lesson #4): each hidden
 //     region is anchored by a NamedRange whose NAME carries the original sizes
 //     as RLE (rangeNames.ts). No external store is ever required to restore.
@@ -125,25 +129,29 @@ export interface GDoc {
 // ---------------------------------------------------------------------------
 // Emitted requests — typed mirrors of the exact Docs API batchUpdate JSON.
 // The engine only ever emits these shapes; the adapter passes them through
-// verbatim. Only fontSize is ever written to runs (case 001-F1); paragraph
-// and named-style writes exist solely for the styles/spacing features.
+// verbatim. Hide/Show All write fontSize + foregroundColor to runs (the hide
+// marker + the invisibility color; case 001-F1), analytic-ify writes
+// foregroundColor + fontSize, Mark-cite writes bold + fontSize; paragraph and
+// named-style writes exist solely for the styles/spacing features.
 // ---------------------------------------------------------------------------
 
 export interface DocsTextStyle {
   fontSize?: { magnitude: number; unit: "PT" };
   bold?: boolean;
   /** Foreground (text) color in the Docs OptionalColor wire shape, built by
-   * color.encodeRgbColor (zero channels omitted). Written ONLY by the
-   * analytic-ify pass (Loop 003); paired with "foregroundColor" in the field
-   * mask. */
+   * color.encodeRgbColor (zero channels omitted). Written by analytic-ify (the
+   * navy signature, Loop 003) AND by Hide (white, to make hidden text invisible);
+   * reveal clears it by naming "foregroundColor" in the mask with this field
+   * ABSENT (clear-to-inherit). Always paired with "foregroundColor" in the mask. */
   foregroundColor?: { color: { rgbColor: { red?: number; green?: number; blue?: number } } };
 }
 
 export interface UpdateTextStyleRequest {
   updateTextStyle: {
     range: GRange;
-    /** Empty textStyle + "fontSize" in fields = CLEAR to inherited (restore of
-     * an "i" RLE entry). Never materializes direct formatting (plan v1). */
+    /** Empty textStyle + the field named in fields = CLEAR to inherited (e.g.
+     * the HIDE_FIELDS reveal clears fontSize AND the hide white; restore of an
+     * "i" RLE entry). Never materializes direct formatting (plan v1). */
     textStyle: DocsTextStyle;
     fields: string;
   };

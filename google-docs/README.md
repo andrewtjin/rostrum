@@ -5,13 +5,13 @@ no Marketplace install. Make your own copy of a ready-made template and the
 **Rostrum** menu travels with it, with nothing to paste and no editor to open.
 
 > **What "Hide" actually does.** Hide reduces every word of body text
-> except headings, cites, and highlighted text to a 1‑point size, so a long
-> file reads like a speech doc and the page count collapses. It does not conceal
-> anything: anyone can reveal it with Select All → font size 11 (see *Reveal
-> everything* below). This matches how Rostrum behaves in Word. **Show All brings
-> every word back.**
+> except headings, cites, and highlighted text to a 1‑point **white** size, so it
+> is invisible and a long file reads like a speech doc and the page count
+> collapses. This matches how Rostrum behaves in Word. Nothing is deleted or
+> locked: **Show All brings every word back**, and a no‑add‑on reveal is Select
+> All → font size 11 → text color *Automatic* (see *Reveal everything* below).
 
-Current version: **v0.2.1** (shown in the panel footer as `Rostrum v0.2.1`).
+Current version: **v0.2.2** (shown in the panel footer as `Rostrum v0.2.2`).
 
 ---
 
@@ -75,8 +75,9 @@ works; see *Privacy* below.) Then:
 | See, edit, create, and delete your Google Docs documents (`.../auth/documents`) | Read the doc once; apply font‑size, foreground‑color, and style‑definition edits to hide/show, set debate styles, and mark analytics. Delete analytics also removes the analytics text you styled — no other content is ever deleted. |
 | Display and run third‑party web content in prompts and sidebars (`script.container.ui`) | Draw the Rostrum panel and dialogs. |
 
-Rostrum changes **font size** (to hide/show), **foreground color and font size**
-(to mark analytics), and **named‑style definitions** (to apply debate styles).
+Rostrum changes **font size and foreground color** (to hide/show — hidden text is
+shrunk to 1pt and painted white — and to mark analytics) and **named‑style
+definitions** (to apply debate styles).
 The one content exception: **Delete analytics** removes the Analytics text you
 styled — and only that text. Rostrum never otherwise inserts, deletes, or reorders
 any text character.
@@ -209,8 +210,12 @@ back (with a note), but editing un‑hidden is cleaner.
 
 If you (or anyone you send the doc to) ever need text back **without** Rostrum:
 
-> **Select All** (Ctrl+A / ⌘+A), then set the **font size to 11.** Everything
-> becomes visible again.
+> **Select All** (Ctrl+A / ⌘+A), set the **font size to 11**, and set the
+> **text color to Automatic.** Everything becomes visible again.
+
+(Hidden text is shrunk *and* painted white, so the size reset alone leaves it
+invisible — the text‑color reset is what brings the white text back. **Show All**
+does both for you in one click.)
 
 ---
 

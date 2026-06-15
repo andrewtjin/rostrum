@@ -226,11 +226,14 @@ export const STRINGS = {
     firstClick: FIRST_CLICK,
     /** Honest mechanism statement — shrink, not secrecy (plan D15). */
     whatHideDoes:
-      "Hide shrinks everything except headings, cites, and highlighted text, so a long doc reads like a speech doc. Show All brings every word back.",
-    readingGuidance: "Tiny seams between kept words are hidden text — Show All brings it back.",
-    /** The no-add-on escape hatch (plan D15; Word reveal-panel analog). */
+      "Hide makes everything except headings, cites, and highlighted text invisible (tiny and white), so a long doc reads like a speech doc. Show All brings every word back.",
+    readingGuidance: "Hidden text disappears into the gaps between the words you kept — Show All brings it back.",
+    /** The no-add-on escape hatch (plan D15; Word reveal-panel analog). Hide
+     * paints hidden text white as well as shrinking it (0.2.2), so the size
+     * reset alone leaves it invisible — the color reset is now part of the
+     * hatch. Keeps the "Select All" + "font size to 11" cues the test pins. */
     escapeHatch:
-      "No add-on handy? Select All (Ctrl+A, or Cmd+A on Mac), then set the font size to 11 — everything becomes visible again.",
+      "No add-on handy? Select All (Ctrl+A, or Cmd+A on Mac), set the font size to 11, and set the text color to automatic — everything becomes visible again.",
     teamNorm: "Working with teammates: don't edit a doc while it's hidden — Show All first.",
     /**
      * The scoped content-deletion honesty (exec-review MAJOR): the F5 fallback
@@ -406,15 +409,17 @@ export const STRINGS = {
      * content-deleter and an unknown error after a partial delete could mean
      * content was removed.  This entry is kept UNIVERSAL (no verb-specific
      * claims, no "analytics" jargon) and leans on the one invariant that
-     * holds for EVERY verb: Rostrum never SHRINKS text invisibly — font-size
-     * damage is always visible, and Show All restores any hide-verb damage.
+     * holds for EVERY hide verb: Show All restores any hide-verb damage —
+     * text shrunk to 1pt AND/OR painted white alike. (Pre-0.2.2 the stronger
+     * "font-size damage is always visible" also held; Hide now paints hidden
+     * text white, so eye-visibility is gone but Show-All-recoverability is not.)
      * The scoped "only Delete analytics removes content" explanation lives in
      * the Delete analytics confirm body (deleteAnalyticsConfirm) and in Help
      * (help.analyticsVerbs) — the two places where it is true and timely —
      * never in this universal fallback. */
     unknown: {
       title: "Something went wrong",
-      body: "Something unexpected went wrong. Rostrum never shrinks your text away — if anything looks tiny, Show All brings it back."
+      body: "Something unexpected went wrong. Show All brings back any text a hide shrank or made invisible."
     }
   }
 } as const;

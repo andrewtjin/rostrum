@@ -112,8 +112,9 @@ function expectNothingTouches(plan: ShowAllPlan, start: number, end: number): vo
  * The Show All invariants (plan A11.iii / 001-F1), assertable on ANY plan:
  *   * only updateTextStyle / updateParagraphStyle / deleteNamedRange — never
  *     createNamedRange, never any content-mutating request;
- *   * updateTextStyle touches ONLY fontSize; updateParagraphStyle ONLY the
- *     spacing fields; sizes written are positive PT;
+ *   * updateTextStyle carries fontSize + foregroundColor (reveal clears the
+ *     foreground to inherit alongside the size); updateParagraphStyle touches
+ *     ONLY the spacing fields; sizes written are positive PT;
  *   * no text-style range reaches the segment-final newline (plan D6 clamp);
  *   * deletes target every KNOWN rstm range exactly once, nothing else, and
  *     each delete CLOSES its group (rides with its restores — A11.viii).
@@ -130,7 +131,7 @@ function expectShowAllInvariants(doc: GDoc, plan: ShowAllPlan): void {
       expect(["updateTextStyle", "updateParagraphStyle", "deleteNamedRange"]).toContain(keys[0]);
       if ("updateTextStyle" in req) {
         const u = req.updateTextStyle;
-        expect(u.fields).toBe("fontSize");
+        expect(u.fields).toBe("fontSize,foregroundColor");
         expect(u.range.endIndex).toBeGreaterThan(u.range.startIndex);
         expect(u.range.endIndex).toBeLessThanOrEqual(finalNewlineIndex);
         if (u.textStyle.fontSize) {
